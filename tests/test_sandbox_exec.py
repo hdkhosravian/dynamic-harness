@@ -100,7 +100,7 @@ def test_bin_wrapper_blocks_network_and_keys(box, tmp_path):
     data = tmp_path / "data"
     (data / "keys").mkdir(parents=True)
     (data / "keys" / "k").write_text("s3cret")
-    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(data)}
+    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(data), "CLAUDE_PROJECT_DIR": str(cwd)}
     r = subprocess.run(
         [sys.executable, "-I", str(ROOT / "bin" / "harness-sandbox-exec"), "--", PY, "-I", "-c",
          f"print(open({str(data / 'keys' / 'k')!r}).read())"],
@@ -146,6 +146,27 @@ def test_bin_denies_keys_of_every_installed_plugin(box, tmp_path):
     (k / "hmac.key").write_text("s3cret")
     decoy = tmp_path / "decoy"
     decoy.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_PLUGIN_DATA": str(decoy)}
+    env = {**os.environ, "HOME": str(home), "CLAUDE_PLUGIN_DATA": str(decoy), "CLAUDE_PROJECT_DIR": str(cwd)}
     r = _bin(["--", PY, "-I", "-c", f"print(open({str(k / 'hmac.key')!r}).read())"], cwd, env)
-    assert b"s3cret" not in r.stdout
+    assert b"s3cret" not in r.stdout and b"refusing" not in r.stderr  # ran, and the read was denied
+
+
+def test_bin_refuses_cwd_outside_project_dir(box, tmp_path):
+    cwd, _ = box
+    data = tmp_path / "data"
+    data.mkdir()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(data), "CLAUDE_PROJECT_DIR": str(proj)}
+    r = _bin(["--", PY, "-I", "-c", "print(1)"], cwd, env)
+    assert r.returncode == 2 and b"outside the workspace" in r.stderr
+
+
+def test_bin_refuses_without_project_dir(box, tmp_path):
+    cwd, _ = box
+    data = tmp_path / "data"
+    data.mkdir()
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+    env["CLAUDE_PLUGIN_DATA"] = str(data)
+    r = _bin(["--", PY, "-I", "-c", "print(1)"], cwd, env)
+    assert r.returncode == 2 and b"CLAUDE_PROJECT_DIR" in r.stderr

@@ -422,3 +422,23 @@ def test_sandbox_exec_unknown_option_is_denied(ctx):
 def test_sandbox_exec_env_override_of_plugin_data_is_denied(ctx):
     r = _cls("CLAUDE_PLUGIN_DATA=/tmp/x harness-sandbox-exec -- cat /tmp/x/keys/k", ctx)
     assert r.irreversible, r
+
+
+def test_sandbox_exec_implicit_cwd_after_cd_to_claude_home_is_denied(ctx):
+    r = _cls(f"cd {ctx.home}/.claude && harness-sandbox-exec -- touch x", ctx)
+    assert r.irreversible, r
+
+
+def test_sandbox_exec_unknown_cwd_is_denied(ctx):
+    r = _cls('cd "$(mktemp -d)" && harness-sandbox-exec -- true', ctx)
+    assert r.irreversible, r
+
+
+def test_sandbox_exec_relative_cwd_resolved_against_effective_cwd(ctx):
+    r = _cls(f"cd {ctx.home} && harness-sandbox-exec --cwd .claude -- true", ctx)
+    assert r.irreversible, r
+
+
+def test_sandbox_exec_default_cwd_in_workspace_is_allowed(ctx):
+    r = _cls("harness-sandbox-exec -- python3 -c 'print(1)'", ctx)
+    assert not r.irreversible, r

@@ -45,6 +45,16 @@ def main(argv):
     secret_dirs += glob.glob(os.path.join(claude_home, "plugins", "data", "*", "experience"))
     deny_read += secret_dirs
     real_cwd = os.path.realpath(cwd)
+    project = os.environ.get("CLAUDE_PROJECT_DIR")
+    if not project:
+        print("harness-sandbox-exec: CLAUDE_PROJECT_DIR is not set; refusing to run", file=sys.stderr)
+        return 2
+    # allow-only: the cwd must be inside the workspace (the PreToolUse classifier is the primary
+    # check and denies env/export changes to CLAUDE_PROJECT_DIR; this is defence in depth)
+    real_project = os.path.realpath(project)
+    if not (real_cwd == real_project or real_cwd.startswith(real_project + os.sep)):
+        print(f"harness-sandbox-exec: cwd {cwd!r} is outside the workspace; refusing to run", file=sys.stderr)
+        return 2
     for bad in (claude_home, os.path.realpath(data), os.environ.get("CLAUDE_PLUGIN_ROOT")):
         if bad and (real_cwd == os.path.realpath(bad) or real_cwd.startswith(os.path.realpath(bad) + os.sep)):
             print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected tree; refusing to run", file=sys.stderr)

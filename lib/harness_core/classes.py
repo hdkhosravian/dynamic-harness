@@ -936,17 +936,29 @@ class _Bash:
     def harness(self, name, rest, dynamic):
         sub = rest[0] if rest else ""
         if name == "harness-sandbox-exec":
-            i = 0
+            i, explicit = 0, None
             while i < len(rest) and rest[i] != "--" and rest[i].startswith("--"):
                 opt = rest[i]
                 if opt not in ("--cwd", "--deny-read", "--timeout") or i + 1 >= len(rest):
                     return self.add("unknown", f"harness-sandbox-exec option {opt!r} is not allowed")
                 if opt == "--cwd":
-                    # the sandbox allows writes under its cwd: it must stay inside the workspace
-                    cwd = rest[i + 1]
-                    if protected.outside_workspace(cwd, self.ctx) or protected.is_protected(cwd, self.ctx):
-                        return self.add("destructive", f"harness-sandbox-exec --cwd {cwd!r} is outside the workspace or protected")
+                    explicit = self.expand(rest[i + 1])
+                    if explicit is None:
+                        return self.add("unknown", "harness-sandbox-exec --cwd is not a static path")
                 i += 2
+            # the sandbox allows writes under its cwd: every possible effective cwd must be a
+            # non-protected path inside the workspace; an unknown cwd (None) fails closed
+            effective = []
+            for c in self.cwds:
+                if c is None:
+                    effective.append(None)
+                elif explicit is not None:
+                    effective.append(os.path.realpath(os.path.join(c, explicit)))
+                else:
+                    effective.append(c)
+            for e in effective:
+                if e is None or protected.outside_workspace(e, self.ctx) or protected.is_protected(e, self.ctx):
+                    return self.add("destructive", f"harness-sandbox-exec cwd {e!r} is unknown, outside the workspace or protected")
             inner = rest[i + 1:] if i < len(rest) and rest[i] == "--" else rest[i:]
             if not inner:
                 return self.add("unknown", "harness-sandbox-exec without a command")
