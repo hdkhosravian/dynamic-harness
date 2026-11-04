@@ -21,7 +21,7 @@ import threading
 import time
 from pathlib import Path
 
-WATCHDOG = {"Stop": 9, "fetch": 55, "gate": 1795, "UserPromptSubmit": 9}
+WATCHDOG = {"Stop": 9, "fetch": 55, "gate": 1795, "run": 295, "UserPromptSubmit": 9}
 DEFAULT_WATCHDOG = 4
 STATUS_MAX_AGE = 24 * 3600  # shortcut: a day-old SessionStart status goes stale; resume/compact re-run SessionStart
 
@@ -35,7 +35,8 @@ HANDLERS = {"PreToolUse": ("pretool", "on_pre"), "SessionStart": ("session", "on
             "PostToolUseFailure": ("written", "on_post"),  # a failed Write/Edit may still have written
             "UserPromptSubmit": ("prompt", "on_prompt"), "SubagentStop": ("subagent", "on_subagent_stop"),
             "SubagentStart": ("lanes", "on_subagent_start"),
-            "Stop": ("stopgate", "on_stop"), "gate": ("gatehook", "on_post")}  # PostToolUse --gate: its own 1800 s hooks.json entry
+            "Stop": ("stopgate", "on_stop"), "gate": ("gatehook", "on_post"),  # PostToolUse --gate: 1800 s entry
+            "run": ("run", "on_post"), "fetch": ("claims", "on_post")}  # PostToolUse --run (300 s), --fetch (60 s)
 
 
 def _handler(event):
@@ -262,7 +263,8 @@ def _main(event, stdin_json, env, handlers, timeouts):
             return _fail(f"handler returned {type(result).__name__} (fail closed)")
         if event == "UserPromptSubmit" and result.get("decision") == "block":
             return 0, result, None  # JSON block: the reason is shown to the user, not added to context
-        if event == "PostToolUse" and result.get("decision") == "block" and result.get("systemMessage"):
+        if event in ("PostToolUse", "run", "fetch", "gate") and result.get("decision") == "block" \
+                and result.get("systemMessage"):
             return 0, result, None  # JSON block: the reason goes to the model, the systemMessage to the owner
         if result.get("decision") in ("deny", "block"):
             return _fail(str(result.get("reason") or "denied"))

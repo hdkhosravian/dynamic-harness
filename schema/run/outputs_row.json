@@ -8,8 +8,39 @@
     "check_id": {
       "type": "string"
     },
+    "entry_sha": {
+      "type": "string"
+    },
     "exit_code": {
       "type": "integer"
+    },
+    "inputs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "sha256": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "pack": {
+      "type": "string"
     },
     "result": {
       "type": "string"
@@ -17,11 +48,17 @@
     "sha256": {
       "type": "string"
     },
+    "stdin_sha": {
+      "type": "string"
+    },
     "unit": {
       "type": "string"
     },
     "values": {
       "type": "object"
+    },
+    "work_sha": {
+      "type": "string"
     }
   },
   "required": [

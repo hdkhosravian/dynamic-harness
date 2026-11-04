@@ -36,6 +36,28 @@
             "onFailure": "block"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PostToolUse --run",
+            "timeout": 300,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PostToolUse --fetch",
+            "timeout": 60,
+            "onFailure": "block"
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [

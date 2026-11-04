@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 import json
 
+from pathlib import Path
+
 import pytest
 
 from harness_core import card, probe, schema
@@ -15,13 +17,14 @@ def ctx(tmp_path):
     ws, data = tmp_path / "ws", tmp_path / "data"
     ws.mkdir()
     data.mkdir()
-    return Ctx(workspace=ws, data_root=data, home=tmp_path / "home")
+    return Ctx(workspace=ws, data_root=data, home=tmp_path / "home",
+               plugin_root=Path(__file__).resolve().parents[1])  # the shipped packs register card oracles
 
 
 DRAFT = {
     "task_type": "data_question",
     "deliverable": {"kind": "answer", "description": "late customers with amounts and a total"},
-    "oracle": {"type": "finance.reconcile_ar", "executable": True, "criteria": ["total ties to AR aging"]},
+    "oracle": {"type": "finance.reconcile", "executable": True, "criteria": ["total ties to AR aging"]},
     "reliance": "money", "decision_class": "none",
     "cost_of_error": {"money_at_stake": {"amount": 0, "currency": "IRT"}},
     "risk": {"level": "medium"}, "units": 1, "unit_definition": "the answer", "domain": "finance",
@@ -119,7 +122,9 @@ def test_business_thresholds_make_risk_high(ctx):
 
 def test_single_unit_gets_one_scope_row(ctx):
     c = card.normalize(draft(), P(ctx), ctx, request="x")
-    assert c["unit_list"] == [{"label": "the answer", "claim": "late customers with amounts and a total"}]
+    # an executable oracle's check becomes the unit's registered check
+    assert c["unit_list"] == [{"label": "the answer", "claim": "late customers with amounts and a total",
+                               "check_id": c["oracle"]["type"]}]
 
 
 def test_personal_data_categories_follow_data_classes(ctx):
@@ -138,7 +143,7 @@ def test_normalize_refuses_an_invalid_draft(ctx):
 
 def test_merge_takes_max_risk_and_union_of_criteria():
     a = draft(risk={"level": "low"})
-    b = draft(risk={"level": "high"}, oracle={"type": "finance.reconcile_ar", "executable": True,
+    b = draft(risk={"level": "high"}, oracle={"type": "finance.reconcile", "executable": True,
                                               "criteria": ["every row has an invoice id"]})
     m, questions = card.merge(a, b)
     assert m["risk"]["level"] == "high" and questions == []

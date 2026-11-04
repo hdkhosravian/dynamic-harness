@@ -1,0 +1,48 @@
+{
+  "schema": "harness/pack@1",
+  "pack": "finance",
+  "version": "1.0.0",
+  "description": "Business questions on the owner's own data: aggregates, KPIs, bridges and lists (task types 2 and 4).",
+  "checks": {
+    "finance.reconcile": {
+      "entry": "checks/reconcile.py",
+      "sha256": "14184f7dc9d3ac03363956138893feef9a656e90825ff7dc82cbfeb02ab4dd81",
+      "task_types": [
+        "data_question",
+        "analysis_report",
+        "document"
+      ],
+      "timeout": 120,
+      "description": "One aggregate over a period: second path, control total, coverage, transfers, magnitude."
+    },
+    "finance.kpi": {
+      "entry": "checks/kpi.py",
+      "sha256": "e2f13e7b21c5c996646bb1b945d838d4877f22f744cb4eb342bdd27ccdd188b3",
+      "task_types": [
+        "analysis_report"
+      ],
+      "timeout": 120,
+      "description": "Each KPI recomputed with coverage checks and a sanity bound against the prior period."
+    },
+    "finance.bridge": {
+      "entry": "checks/bridge.py",
+      "sha256": "b4fd2af19f4c94527b61f17f6960a60f96670fac3fde7413656791354d906d36",
+      "task_types": [
+        "data_question",
+        "analysis_report"
+      ],
+      "timeout": 120,
+      "description": "Price, volume and new/lost-item effects must add up to the total change."
+    },
+    "finance.list": {
+      "entry": "checks/list.py",
+      "sha256": "e642c8b1e4b7762e3c5e959164f9f45684f7efe06ddb265764e136e78c104e2f",
+      "task_types": [
+        "data_question",
+        "analysis_report"
+      ],
+      "timeout": 120,
+      "description": "A delivered list's row count and sum equal the filtered aggregate; every row has an ID and date."
+    }
+  }
+}

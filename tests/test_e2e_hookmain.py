@@ -7,6 +7,7 @@ only setup artefact is ``config_log.jsonl``, which /dynamic-harness:setup writes
 from __future__ import annotations
 
 import json
+import shutil
 import os
 import subprocess
 import sys
@@ -26,6 +27,7 @@ def h(tmp_path):
     for d in (ws, data, home, plugin / "bin", lc / ".claude-plugin"):
         d.mkdir(parents=True)
     (plugin / "bin" / "harness-hook").write_text("#!/usr/bin/python3 -I\n")
+    shutil.copytree(ROOT / "skills", plugin / "skills")  # the packs that register card oracles
     (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
     (ws / "old.py").write_text("print('pre-existing')\n")
     env = {"CLAUDE_PLUGIN_DATA": str(data), "CLAUDE_PLUGIN_ROOT": str(plugin), "HOME": str(home),

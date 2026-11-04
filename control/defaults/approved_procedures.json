@@ -2,6 +2,16 @@
   "version": 1,
   "procedures": [
     {
+      "path": "skills/finance/SKILL.md",
+      "sha256": "302c98e5e42e78dd57abe6221ab9b8d7d3ff86001dcbec05c6e95c305bf45b56",
+      "approver": "release 0.4.0"
+    },
+    {
+      "path": "skills/research/SKILL.md",
+      "sha256": "e8eef194cfc5cb121dbcfabe13c262aaa456af8610efba25c6045b00489402fe",
+      "approver": "release 0.4.0"
+    },
+    {
       "path": "skills/task-card/SKILL.md",
       "sha256": "1bc2af5db07f32fc94da3d3f51983a7cf20ff34af19b4bd975002dbe60134e47",
       "approver": "release 0.3.0"

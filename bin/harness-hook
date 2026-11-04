@@ -11,8 +11,8 @@ try:
     from harness_core import hookmain
 
     event = sys.argv[1] if len(sys.argv) > 1 else ""
-    if sys.argv[1:] == ["PostToolUse", "--gate"]:
-        event = "gate"
+    if sys.argv[1:] in (["PostToolUse", "--gate"], ["PostToolUse", "--run"], ["PostToolUse", "--fetch"]):
+        event = sys.argv[2][2:]
     try:
         data = json.loads(sys.stdin.read())
     except ValueError as e:

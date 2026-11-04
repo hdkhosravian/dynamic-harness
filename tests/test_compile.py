@@ -1,6 +1,9 @@
 """compile.apply (spec §Trust boundaries writers: card, tier, scope, opening, budget, contacts; build P3)."""
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import copy
 import json
 
@@ -18,12 +21,15 @@ SID = "s1"
 DRAFT = {
     "task_type": "data_question",
     "deliverable": {"kind": "answer", "description": "late customers with amounts and a total"},
-    "oracle": {"type": "finance.reconcile_ar", "executable": True, "criteria": ["ties to AR aging"]},
+    "oracle": {"type": "finance.reconcile", "executable": True, "criteria": ["ties to AR aging"]},
     "reliance": "money", "decision_class": "none",
     "cost_of_error": {"money_at_stake": {"amount": 0, "currency": "IRT"}},
     "risk": {"level": "medium"}, "units": 1, "unit_definition": "the answer", "domain": "finance",
     "provenance": {"risk": "user", "reliance": "user"},
 }
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -32,6 +38,7 @@ def ctx(tmp_path):
     for d in (ws, data, plugin / ".claude-plugin"):
         d.mkdir(parents=True)
     (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "dynamic-harness", "version": "0.2.0"}')
+    shutil.copytree(ROOT / "skills", plugin / "skills")  # packs register the card oracles
     c = Ctx(workspace=ws, data_root=data, plugin_root=plugin, home=tmp_path / "home")
     c.session_ok = True
     return c

@@ -20,7 +20,7 @@ def test_a_record_holds_the_task_facts_without_personal_data(h):
     assert r["state"] == "DONE" and r["interim"] is False and r["job_id"] == job
     assert "sara@shop.example" not in json.dumps(r) and r["request_sha"]
     assert r["cards"][0]["task_type"] == "data_question" and r["tier"] == "T1"
-    assert r["checks"] == [{"unit": "u1", "label": "the answer", "verdict": None, "check_id": None}]
+    assert r["checks"] == [{"unit": "u1", "label": "the answer", "verdict": None, "check_id": "finance.reconcile"}]
     assert r["versions"]["core"] and "cost" in r
 
 

@@ -1,0 +1,48 @@
+#!/usr/bin/python3 -I
+"""harness-run CHECK_ID --unit UNIT --attempt N [--input FILE]... [--args FILE | --arg KEY=VALUE]...
+
+Only prints a request; the harness-run hook (PostToolUse, its own 300 s entry) runs the registered pack check
+in a sandbox and records its output. Cite the printed output sha in the unit's ledger row."""
+import json
+import sys
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__, file=sys.stderr)
+        return 2
+    req, i = {"tool": "run", "check_id": argv[0], "inputs": [], "args": {}}, 1
+    while i < len(argv):
+        a, v = argv[i], argv[i + 1] if i + 1 < len(argv) else None
+        if v is None:
+            print(__doc__, file=sys.stderr)
+            return 2
+        if a == "--unit":
+            req["unit"] = v
+        elif a == "--attempt":
+            req["attempt"] = int(v)
+        elif a == "--input":
+            req["inputs"].append(v)
+        elif a == "--args":
+            with open(v, encoding="utf-8") as fh:
+                req["args"].update(json.load(fh))
+        elif a == "--arg" and "=" in v:
+            k, _, val = v.partition("=")
+            try:
+                req["args"][k] = json.loads(val)
+            except ValueError:
+                req["args"][k] = val
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+        i += 2
+    print(json.dumps(req, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-run: {e}", file=sys.stderr)
+        sys.exit(2)

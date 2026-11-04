@@ -42,7 +42,9 @@ def test_r1_hooks_json_registers_only_safety_entry_points():
             for h in e["hooks"]:
                 assert h["command"].startswith("/usr/bin/python3 -I ")
                 assert h["command"].endswith(f"harness-hook\" {event}") or (
-                    event == "PostToolUse" and h["command"].endswith('harness-hook" PostToolUse --gate'))
+                    event == "PostToolUse" and h["command"].endswith(
+                        ('harness-hook" PostToolUse --gate', 'harness-hook" PostToolUse --run',
+                         'harness-hook" PostToolUse --fetch')))
 
 
 @pytest.mark.parametrize(

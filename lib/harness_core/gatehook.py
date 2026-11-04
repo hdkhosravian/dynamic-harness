@@ -10,12 +10,14 @@ The hook, never the agent, runs ``gate.run_gate`` for the open task:
 - the HMAC key is ``keys/hmac.key`` (created 0600 on first use; the agent cannot read ``keys/``);
 - fold_ledger is ``<loop_contract_root>/skills/loop-contract/scripts/fold_ledger.py``.
 
-Done mode needs an ``oracle_cmd`` from a pack manifest (P5); until then a done-mode gate is refused with
-that reason, and known mode writes a receipt.
+Done mode runs ``oracle.py`` as its oracle when the card's oracle type is a registered pack check (P5); the
+oracle replays every recorded check a passing row cites, on the submitted deliverables.
 """
 from __future__ import annotations
 
 import os
+import shlex
+from pathlib import Path
 
 from . import budget, contacts, gate, lease, protected
 from .errors import Denied, HarnessError
@@ -53,6 +55,18 @@ def _profile(ctx, tier, task_type) -> dict:
     return dict(prof, task_type=task_type)
 
 
+def _oracle(ctx, p, log) -> dict:
+    """Done mode's oracle: the card's executable oracle type must be a registered pack check; the oracle then
+    replays every recorded check a passing row cites (``oracle.py``). Profiles hold flags only."""
+    from . import packs
+    from .record import _cards
+    o = ((_cards(p, log) or [{}])[-1]).get("oracle") or {}
+    if o.get("executable") is not True or not packs.registered(ctx, o.get("type")):
+        return {}
+    script = Path(os.path.realpath(ctx.plugin_root)) / "lib" / "harness_core" / "oracle.py"
+    return {"oracle_cmd": shlex.join(["/usr/bin/python3", "-I", str(script)]), "oracle_check": o["type"]}
+
+
 def run(evt, ctx) -> dict:
     job = getattr(ctx, "job", None)
     if not job:
@@ -69,6 +83,7 @@ def run(evt, ctx) -> dict:
         raise Denied(f"task {job} is {stopped}; resume it before the gate")
     from .sessionstate import jobs
     prof = _profile(ctx, tier, jobs(ctx).get(job, {}).get("task_type") or "default")
+    prof.update(_oracle(ctx, p, log))
     if not ctx.loop_contract_root:
         raise Denied("loop-contract is not configured (run /dynamic-harness:setup)")
     import time

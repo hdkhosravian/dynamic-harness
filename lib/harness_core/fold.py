@@ -32,7 +32,9 @@ def _map(row: dict, unit: dict):
     elif v in ("BLOCKED", "NOT_INVESTIGATED"):
         g = {"verdict": "BLOCKED", "blocked_reason": row.get("reason") or v.lower()}
     elif v in ("SUPPORTED", "REFUTED"):
-        g = {"verdict": "PASS", "finding": row.get("finding") or v, "evidence": row.get("evidence") or blobs,
+        # the research.check outputs stay in the evidence: the done-mode oracle replays them
+        g = {"verdict": "PASS", "finding": row.get("finding") or v, "evidence": list(dict.fromkeys(
+             (row.get("evidence") or []) + blobs)),
              "proof_cmd": research, "fix": "none", "no_change_reason": "investigation verdict"}
     elif v == "INCONCLUSIVE":
         g = {"verdict": "PARTIAL", "missing": f"inconclusive: {row.get('reason') or 'undecided'}",

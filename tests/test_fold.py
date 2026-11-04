@@ -133,7 +133,7 @@ def test_unverified_and_investigation_mappings(env):
     assert rows["v"]["proof_cmd"] == "harness-critic verify --unit v --attempt 1"
     assert rows["s"]["verdict"] == "PASS" and rows["s"]["fix"] == "none"
     assert rows["s"]["no_change_reason"] == "investigation verdict" and rows["s"]["finding"] == "holds"
-    assert rows["s"]["evidence"] == ["snapshots/x", "claims.jsonl:3"]
+    assert rows["s"]["evidence"] == ["snapshots/x", "claims.jsonl:3", f"outputs/blobs/{o['sha256']}"]
     assert rows["s"]["proof_cmd"] == "research.check --unit s --attempt 1"
     assert rows["i"]["verdict"] == "PARTIAL" and rows["i"]["missing"] == "inconclusive: need Q3 data"
     assert rows["n"] == {"id": "n", "verdict": "BLOCKED", "blocked_reason": "budget"}

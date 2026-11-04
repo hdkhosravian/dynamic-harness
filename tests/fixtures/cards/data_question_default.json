@@ -10,7 +10,7 @@
     "units": 1,
     "multi_session": false,
     "oracle": {
-      "type": "finance.reconcile_ar",
+      "type": "finance.reconcile",
       "executable": true,
       "criteria": [
         "ties out"

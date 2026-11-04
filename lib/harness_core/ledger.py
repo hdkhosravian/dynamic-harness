@@ -46,10 +46,14 @@ class Outputs:
     def __init__(self, paths, log):
         self.paths, self.log = paths, log
 
-    def record(self, check_id, unit, attempt, exit_code, result, values, data: bytes) -> dict:
+    def record(self, check_id, unit, attempt, exit_code, result, values, data: bytes, extra=None, blobs=()) -> dict:
+        """``extra``: provenance fields (inputs, stdin_sha, …); ``blobs``: more bytes to keep by sha (the
+        check's stdin and input snapshots, so the gate oracle can replay the check)."""
         row = {"check_id": check_id, "unit": unit, "attempt": attempt, "exit_code": exit_code,
-               "result": result, "values": values, "sha256": canon.sha256_bytes(data)}
+               "result": result, "values": values, "sha256": canon.sha256_bytes(data), **(extra or {})}
         schema.check(row, "outputs_row")
+        for b in blobs:
+            atomic_write(self.paths.run / "outputs" / "blobs" / canon.sha256_bytes(b), b)
         atomic_write(self.paths.run / "outputs" / "blobs" / row["sha256"], data)
         _append_row(self.paths, self.log, OUTPUTS, row, "OUTPUT", {"row": row})
         return row

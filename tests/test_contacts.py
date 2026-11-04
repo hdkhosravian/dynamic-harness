@@ -1,6 +1,9 @@
 """Contact cap (R-7), late questions (R-8), contact writer and the writers dispatcher (build phase P3)."""
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import json
 
 import pytest
@@ -32,6 +35,7 @@ def ctx(tmp_path):
     for d in (ws, data, plugin / ".claude-plugin"):
         d.mkdir(parents=True)
     (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "dynamic-harness", "version": "0.2.0"}')
+    shutil.copytree(Path(__file__).resolve().parents[1] / "skills", plugin / "skills")  # packs register oracles
     c = Ctx(workspace=ws, data_root=data, plugin_root=plugin, home=tmp_path / "home")
     c.session_ok = True
     turns = Turns(data)

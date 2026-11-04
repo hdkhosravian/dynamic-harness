@@ -1,0 +1,38 @@
+{
+  "schema": "harness/pack@1",
+  "pack": "research",
+  "version": "1.0.0",
+  "description": "Investigations (task type 5): claim rows checked against the snapshots the hook fetched.",
+  "checks": {
+    "research.check": {
+      "entry": "checks/check.py",
+      "sha256": "6d4d459e3b646885de2382d5ceaac71d708d8a774e243a88394e75e73e0e4471",
+      "task_types": [
+        "investigation"
+      ],
+      "timeout": 120,
+      "run_files": [
+        "claims.jsonl",
+        "fetch_log.jsonl",
+        "snapshots",
+        "cites.jsonl",
+        "renders.jsonl",
+        "subagents.jsonl",
+        "contradictions.jsonl"
+      ],
+      "description": "A unit's cited claims: fetched snapshot, verbatim quote, freshness, two independent origins for load-bearing claims, a recorded verifier verdict; confidence."
+    },
+    "research.report": {
+      "entry": "checks/report.py",
+      "sha256": "7aa741738240354cce71f15403782576bef2a891dd3c9d6e38d24868467f2c72",
+      "task_types": [
+        "investigation"
+      ],
+      "timeout": 60,
+      "run_files": [
+        "claims.jsonl"
+      ],
+      "description": "Every findings line in the report cites a claim row or is labelled 'model knowledge, not checked' (R-13)."
+    }
+  }
+}

@@ -107,10 +107,29 @@ def normalize(draft, probe, ctx, request) -> dict:
         c["reliance"] = "money"
     if not c.get("unit_list"):
         c["unit_list"] = [{"label": c["unit_definition"], "claim": c["deliverable"]["description"]}]
+    _registered_checks(c, ctx)
     c["schema"] = "harness/card@1"
     c["request"] = request if isinstance(request, str) else ""
     c.setdefault("resume_of", None)
     return c
+
+
+def _registered_checks(c, ctx) -> None:
+    """An executable oracle must be a check a pack registers (scripts the agent writes are evidence, never the
+    oracle); every unit then names a registered check, by default the oracle's."""
+    from . import packs
+    o = c["oracle"]
+    errors = []
+    if o.get("executable") is True and not packs.registered(ctx, o.get("type")):
+        errors.append(f"oracle.type {o.get('type')!r} is not a check registered in a pack manifest; set "
+                      "executable false, or use a registered check")
+    for u in c["unit_list"]:
+        if o.get("executable") is True and not u.get("check_id"):
+            u["check_id"] = o.get("type")
+        if u.get("check_id") and not packs.registered(ctx, u["check_id"]):
+            errors.append(f"unit {u.get('label')!r}: check_id {u['check_id']!r} is not a registered check")
+    if errors:
+        raise CardError(errors)
 
 
 def multi_session(c: dict) -> bool:

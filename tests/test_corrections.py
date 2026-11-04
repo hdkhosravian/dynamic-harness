@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 
+from pathlib import Path
+
 import pytest
 
 from harness_core import corrections, probe, shadow, store
@@ -18,7 +20,8 @@ def ctx(tmp_path):
     ws, data = tmp_path / "ws", tmp_path / "data"
     ws.mkdir()
     data.mkdir()
-    return Ctx(workspace=ws, data_root=data, home=tmp_path / "home", job="j1")
+    return Ctx(workspace=ws, data_root=data, home=tmp_path / "home", job="j1",
+               plugin_root=Path(__file__).resolve().parents[1])  # the shipped packs register card oracles
 
 
 def test_a_correction_from_a_real_turn_is_logged_verbatim(ctx):
@@ -48,7 +51,7 @@ def test_logging_a_correction_changes_nothing_else(ctx):
 DRAFT = {
     "task_type": "data_question",
     "deliverable": {"kind": "answer", "description": "late customers"},
-    "oracle": {"type": "finance.reconcile_ar", "executable": True, "criteria": ["ties out"]},
+    "oracle": {"type": "finance.reconcile", "executable": True, "criteria": ["ties out"]},
     "reliance": "money", "decision_class": "none",
     "cost_of_error": {"money_at_stake": {"amount": 0, "currency": "IRT"}},
     "risk": {"level": "medium"}, "units": 1, "unit_definition": "the answer", "domain": "finance",
