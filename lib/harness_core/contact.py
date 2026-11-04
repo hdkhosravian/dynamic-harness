@@ -49,7 +49,8 @@ APPROVAL = re.compile(rf"{_YES}(?: {_TAIL})*")
 
 
 def is_approval(text) -> bool:
-    t = re.sub(r"[\s،,.!؛;:]+", " ", (text or "").replace("\u200c", " ")).strip().casefold()
+    t = (text or "").translate(str.maketrans({"ي": "ی", "ى": "ی", "ك": "ک", "أ": "ا"}))  # Arabic letter forms
+    t = re.sub(r"[\s،,.!؛;:]+", " ", t.replace("\u200c", " ")).strip().casefold()
     return APPROVAL.fullmatch(t) is not None
 
 
@@ -138,17 +139,29 @@ def _metric(m) -> dict:
     schema.validate(m, business.METRIC, "metric")
     if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", m["metric_id"]):
         raise SchemaError("metric_id is lower-case letters, digits and _ (for example revenue or net_sales)")
-    for k in ("inclusions", "exclusions"):
-        if len(m[k]) > 300 or "\n" in m[k]:
+    for k in ("inclusions", "exclusions", "unit", "date_anchor"):
+        if k in m and (len(m[k]) > 300 or any(ord(c) < 32 for c in m[k])):
             raise SchemaError(f"{k} is one line of at most 300 characters")
+    if any(len(x) > 80 or any(ord(c) < 32 for c in x) for x in m.get("source_precedence") or []):
+        raise SchemaError("source_precedence names sources of at most 80 characters, one line each")
     return dict(m, currency=m["currency"].upper())
 
 
 def definition_text(metric, ctx) -> str:
     from . import business, templates
-    unit = business.CURRENCIES.get(metric["currency"], metric["currency"])
-    return templates.render("definition", ctx, metric=metric["metric_id"], inclusions=metric["inclusions"],
-                            exclusions=metric["exclusions"] or "nothing", unit=unit)
+    lang = templates.language(ctx)
+    unit = templates.currency(metric["currency"], lang)
+    extra = ""  # every field that is stored as owner-approved is shown in the sentence the owner approves
+    if metric.get("unit") and metric["unit"] not in ("amount", metric["currency"]):
+        extra += templates.render("definition.measure", ctx, lang, measure=json.dumps(metric["unit"], ensure_ascii=False))
+    if metric.get("date_anchor"):
+        extra += templates.render("definition.anchor", ctx, lang,
+                                  anchor=json.dumps(metric["date_anchor"], ensure_ascii=False))
+    if metric.get("source_precedence"):
+        extra += templates.render("definition.sources", ctx, lang,
+                                  order=json.dumps(metric["source_precedence"], ensure_ascii=False))
+    return templates.render("definition", ctx, lang, metric=metric["metric_id"], inclusions=metric["inclusions"],
+                            exclusions=metric["exclusions"] or "nothing", unit=unit, extra=extra)
 
 
 def _owner_reply(ctx, row, accept):
@@ -266,7 +279,7 @@ def _accept(req, ctx, p, log) -> dict:
     if not isinstance(plan, dict) or plan.get("plan_sha") != last.get("plan_sha"):
         raise Denied("plan.json does not match the latest plan contact")
     grant = {"schema": "harness/egress_grant@1", "plan_sha": plan["plan_sha"], "domains": plan["domains"],
-             "page_budget": plan["page_budget"], "active": True, "turn_id": req["accept"],
+             "page_budget": plan["page_budget"], "urls": plan["urls"], "active": True, "turn_id": req["accept"],
              "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + GRANT_TTL))}
     store.write_json(p.run, log, "egress_grant.json", grant, "GRANT", {"plan_sha": plan["plan_sha"]})
     _open_logs(p, log)

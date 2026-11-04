@@ -37,7 +37,7 @@ def test_r12_answer_header(h, job):
     lines = header(h, res["sha256"])["header"].splitlines()
     assert lines[0] == ("4,000 Toman: revenue (definition version 1), Esfand 1402 (2024-02-20 to 2024-03-19).")
     assert lines[1] == "Based on sales.csv, with data up to 1402/12/29. Excludes: VAT. Rows used: 3."
-    assert lines[2] == "Checked: the total was recomputed a second way from the rows."
+    assert lines[2] == "Checked: every row is accounted for, in or out of the period, and adds up to the file."
     src = business.sources(ctx_of(h))["sales.csv"]
     assert src["as_of"] == "2024-03-19" and src["unit"] == "IRT"
 
@@ -52,15 +52,15 @@ def test_a_failed_check_says_what_was_not_checked(h, job):
     (h["ws"] / "bank.csv").write_text("date,amount (Toman)\n1402/12/02,3900\n", encoding="utf-8")
     res = run_req(h, inputs=("sales.csv", "bank.csv"), metric_id="revenue",
                   control={"input": 2, "label": "verified bank deposits"})
-    lines = header(h, res["sha256"], control_label="verified bank deposits")["header"].splitlines()
+    lines = header(h, res["sha256"])["header"].splitlines()
     assert lines[2].startswith("Done, not fully checked: sources disagree: this file says 4000")
 
 
-def test_the_label_cannot_smuggle_state_words(h, job):
+def test_the_control_is_named_by_its_file_never_by_model_text(h, job):
     (h["ws"] / "bank.csv").write_text("date,amount (Toman)\n1402/12/02,4000\n", encoding="utf-8")
-    res = run_req(h, inputs=("sales.csv", "bank.csv"), metric_id="revenue", control={"input": 2})
-    line = header(h, res["sha256"], control_label="bank deposits, verified and confirmed")["header"].splitlines()[2]
-    assert line == "Checked: matches bank deposits, and."
+    res = run_req(h, inputs=("sales.csv", "bank.csv"), metric_id="revenue",
+                  control={"input": 2, "label": "bank deposits, ver\u200bified and conf\u200birmed"})
+    assert header(h, res["sha256"])["header"].splitlines()[2] == "Checked: matches bank.csv."
 
 
 def test_only_the_recorded_header_line_is_exempt_from_the_lint(h, job):

@@ -111,6 +111,7 @@ def aggregate(path, args, profile, period=None) -> dict:
     per = period
     s = {"rows_total": 0, "rows_used": 0, "undated": 0, "unparsable": 0, "outside_period": 0, "filtered_out": 0,
          "transfers": 0, "total_rows_in_file": 0}
+    parts = {"undated": Decimal(0), "filtered": Decimal(0), "outside": Decimal(0)}
     total, transfers_amount, file_total = Decimal(0), Decimal(0), None
     by_month, dates, prior, kept, seen = {}, [], Decimal(0), [], {}
     prior_rows = 0
@@ -131,11 +132,13 @@ def aggregate(path, args, profile, period=None) -> dict:
         d = _date(row[date_i]) if date_i is not None else None
         if date_i is not None and d is None:
             s["undated"] += 1
+            parts["undated"] += amount
             continue
         if d is not None:
             dates.append(d)
         if not _match(row, headers, args.get("filters")):
             s["filtered_out"] += 1
+            parts["filtered"] += amount
             continue
         if exclude_transfers and _transfer(row, desc_i, acct_i, own):
             s["transfers"] += 1
@@ -146,6 +149,7 @@ def aggregate(path, args, profile, period=None) -> dict:
                 prior += amount
                 prior_rows += 1
             s["outside_period"] += 1
+            parts["outside"] += amount
             continue
         key = (d, amount, L.fold_name(str(row[desc_i])) if desc_i is not None and row[desc_i] else "")
         seen[key] = seen.get(key, 0) + 1
@@ -154,7 +158,16 @@ def aggregate(path, args, profile, period=None) -> dict:
         if d is not None:
             by_month[L.to_jalali(d)[:2]] = by_month.get(L.to_jalali(d)[:2], Decimal(0)) + amount
         kept.append(row)
+    # second path, computed apart: every readable amount in the file, summed directly; the rows used plus every
+    # row set aside (undated, filtered out, transfers, outside the period) must add up to it exactly
+    grand = Decimal(0)
+    for row in rows:
+        v = L.parse_amount(row[amt_i]) if not _is_total_row(row) else None
+        if v is not None:
+            grand += L.to_unit(v, unit, target)
+    partition = total + transfers_amount + sum(parts.values(), Decimal(0))
     return {"total": total, "stats": s, "unit_in": unit, "unit": target, "file_total": file_total,
+            "grand": grand, "partition": partition,
             "monthly_sum": sum(by_month.values(), Decimal(0)), "transfers_amount": transfers_amount,
             "data_start": min(dates) if dates else None, "data_end": max(dates) if dates else None,
             "prior": prior if prior_rows else None, "duplicates": sum(n - 1 for n in seen.values() if n > 1),
@@ -225,8 +238,8 @@ def reconcile(req):
             notes.append(f"the file's own total row says {agg['file_total']}, the rows add up to "
                          f"{total + agg['transfers_amount']}")
             fail = True
-    elif agg["monthly_sum"] != total and agg["data_end"] is not None:
-        notes.append("monthly subtotals do not add up to the total")
+    if agg["partition"] != agg["grand"]:
+        notes.append(f"the rows do not add up: {agg['partition']} accounted for, {agg['grand']} in the file")
         fail = True
     if agg["prior"] is not None:
         values["prior_period_total"] = agg["prior"]
@@ -237,6 +250,10 @@ def reconcile(req):
             fail = True
     control = a.get("control")
     if control:
+        ins = req.get("inputs") or []
+        n = int(control.get("input", 2))
+        if 1 <= n <= len(ins) and ins[n - 1]["sha256"] == ins[int(a.get("input", 1)) - 1]["sha256"]:
+            raise ValueError("the control source is the same file as the figure's: name a second, independent source")
         c = aggregate(_input(req, int(control.get("input", 2))), dict(control, currency=agg["unit"]), profile, per)
         tol = Decimal(str(control.get("tolerance", 0)))
         gap = total - c["total"]
@@ -320,7 +337,8 @@ def listing(req):
     profile = (req.get("business") or {}).get("profile") or {}
     per = L.period(a["period"], profile) if a.get("period") else None
     src = aggregate(_input(req, int(a.get("input", 1))), a, profile, per)
-    path = f"{req.get('work', 'work')}/{a['list']}"
+    from .checklib import safe_path
+    path = safe_path(req.get("work", "work"), a["list"])
     lh, lrows = tables.read(path)
     amt_i = _find(lh, a.get("list_amount_col") or a.get("amount_col"), AMOUNT_WORDS)
     id_i = _find(lh, a.get("id_col"), ("id", "invoice", "number", "شماره", "کد"))

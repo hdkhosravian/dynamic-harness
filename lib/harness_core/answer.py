@@ -31,15 +31,6 @@ FILE = "answer_header.md"
 HEADER_CHECKS = ("finance.reconcile",)
 
 
-def _clean(text) -> str:
-    """Model-given labels lose state words, so the status line's exemption cannot carry extra claims."""
-    from .stopgate import lexicon_hits
-    t = " ".join(str(text or "").split())[:80]
-    for w in lexicon_hits(None, t):
-        t = re.sub(re.escape(w), "", t, flags=re.I)
-    return " ".join(t.split()) or "the control source"
-
-
 def _figure(v) -> str:
     d = Decimal(str(v))
     return f"{int(d):,}" if d == d.to_integral_value() else f"{d:,}"
@@ -69,9 +60,12 @@ def apply(req, ctx, evt) -> dict:
     unit = next((u for u in Ledger(p, log).sanctioned_scope() if u["id"] == req.get("unit")), None)
     if unit is None:
         raise Denied(f"unit {req.get('unit')!r} is not in the frozen scope")
-    out = next((o for o in Outputs(p, log).rows() if o["sha256"] == req.get("output")), None)
-    if out is None or out["unit"] != unit["id"]:
+    mine = [o for o in Outputs(p, log).rows() if o["unit"] == unit["id"] and o["check_id"] in HEADER_CHECKS]
+    out = next((o for o in mine if o["sha256"] == req.get("output")), None)
+    if out is None:
         raise Denied(f"output {req.get('output')!r} is not a recorded output of {unit['id']}")
+    if out is not mine[-1]:  # the header describes the latest run, never an earlier, friendlier one
+        raise Denied(f"output {out['sha256'][:12]} is not the latest {out['check_id']} run of {unit['id']}")
     if out["check_id"] not in HEADER_CHECKS or out["result"] not in ("pass", "fail"):
         raise Denied(f"an answer header needs a clean run of {', '.join(HEADER_CHECKS)}")
     v = out["values"]
@@ -104,10 +98,11 @@ def apply(req, ctx, evt) -> dict:
     line2 = templates.render("header.basis", ctx, lang, source=src, as_of=v.get("data_end_jalali" if calendar ==
                              "jalali" else "data_end") or "unknown", exclusions="; ".join(excl) or "nothing",
                              rows=v.get("rows_used", 0))
-    control = (out.get("values") or {}).get("control_total")
-    label = _clean(((req.get("control_label") or "") if control is not None else "") or "the control source")
+    control = v.get("control_total")
+    # the control is named by its file, never by model text: the status line is exempt from the state-word lint
+    label = out["inputs"][1]["source"] if control is not None and len(out.get("inputs") or []) > 1 else None
     if out["result"] == "pass":
-        line3 = templates.render("header.checked_control" if control is not None else "header.checked", ctx, lang,
+        line3 = templates.render("header.checked_control" if label else "header.checked", ctx, lang,
                                  control=label)
     else:
         reason = (out.get("notes") or ["a check did not pass"])[0]
@@ -122,7 +117,10 @@ def apply(req, ctx, evt) -> dict:
         log.append("ANSWER_HEADER", {"unit": unit["id"], "output": out["sha256"], "metric_id": metric_id,
                                      "version": entry["version"]}, file=FILE, file_sha=canon.sha256_bytes(data))
     if out.get("inputs"):
-        business.register_source(ctx, src, {"role": "primary", "as_of": v.get("data_end"),
+        business.register_source(ctx, src, {"role": "figure", "as_of": v.get("data_end"),
                                             "coverage_min": v.get("data_start"), "coverage_max": v.get("data_end"),
                                             "unit": v.get("unit"), "sha256": out["inputs"][0]["sha256"]})
+        if label:
+            business.register_source(ctx, label, {"role": "control", "unit": v.get("unit"),
+                                                  "sha256": out["inputs"][1]["sha256"]})
     return {"header": text, "unit": unit["id"]}

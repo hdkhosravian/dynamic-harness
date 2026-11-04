@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 from decimal import ROUND_HALF_UP, Decimal
-from pathlib import Path
 
 from . import localize as L
 
@@ -29,11 +28,14 @@ def _q(v: Decimal, places=4) -> Decimal:
 def doc_check(req):
     a = req.get("args") or {}
     prof = (req.get("business") or {}).get("profile") or {}
-    path = Path(req.get("work", "work")) / a.get("document", "document.md")
+    from .checklib import safe_path
+    path = safe_path(req.get("work", "work"), a.get("document", "document.md"))
     text = path.read_text("utf-8")
     folded = L.fold_name(text)
     notes = []
-    required = list(a.get("required") or [])
+    required = [str(r) for r in a.get("required") or []]
+    if not required:
+        notes.append("name the items the owner said the document must include (args.required)")
     missing = [r for r in required if L.fold_name(r) not in folded]
     if missing:
         notes.append(f"missing required items: {', '.join(missing)}")

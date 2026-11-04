@@ -62,7 +62,8 @@ def _research_exception(tool, c, ctx) -> bool:
         if c.url and tool in ("WebFetch", "Bash"):  # Bash only for a lone `harness-claims fetch <url>`
             if not egress.grant_covers(c.url, ctx):
                 return False
-            query_guard.check(c.url, ctx.protected_terms, ctx.owner_tokens)
+            if c.url not in (grant.get("urls") or []):  # a URL the owner approved verbatim in the plan is exempt
+                query_guard.check(c.url, ctx.protected_terms, ctx.owner_tokens)
             return True
         if tool == "WebSearch" and c.query is not None:
             query_guard.check(c.query, ctx.protected_terms, ctx.owner_tokens)

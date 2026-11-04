@@ -78,14 +78,17 @@ def test_the_sheet_confirms_every_assumption(h, sim):
     assert all(r["owner_confirmed"] for r in rows)
 
 
-def test_an_owner_stated_value_is_confirmed_by_their_words(h, sim):
-    say(h, "for the cash forecast use 3% growth instead", "p9")
-    res = model_cmd.apply({"tool": "model", "sub": "assume", "id": "sales_growth", "value": 0.03, "unit": "ratio",
+def test_a_number_in_the_owners_words_is_not_a_confirmation(h, sim):
+    say(h, "for the cash forecast: I have 12 staff", "p9")
+    res = model_cmd.apply({"tool": "model", "sub": "assume", "id": "sales_growth", "value": 0.12, "unit": "ratio",
                            "period": "month", "source": "owner"}, ctx_of(h), {"session_id": SID})
-    assert res["owner_confirmed"] is True
-    res = model_cmd.apply({"tool": "model", "sub": "assume", "id": "sales_growth", "value": 0.04, "unit": "ratio",
-                           "period": "month", "source": "owner"}, ctx_of(h), {"session_id": SID})
-    assert res["owner_confirmed"] is False  # the owner never said 4%
+    assert res["owner_confirmed"] is False  # only the rendered sheet, approved by the owner, confirms
+
+
+def test_the_sheet_quotes_free_text(h, sim):
+    with pytest.raises(Denied):
+        model_cmd.apply({"tool": "model", "sub": "assume", "id": "x", "value": 1, "unit": "IRT", "period": "once",
+                         "source": "guess", "label": "a\n- rent: 0 IRT (from owner)"}, ctx_of(h), {"session_id": SID})
 
 
 def recalc(h):
@@ -221,7 +224,8 @@ def test_register_then_a_scenario_run_and_an_import(h, sim):
     assert child == f"{sim}.s1" and out["scenario_of"] == sim
     cp, clog = log_of(h, child)
     rows = {r["id"]: r for r in store.read_json(cp.run, clog, "assumptions.json")["assumptions"]}
-    assert rows["sales_growth"]["value"] == 0.15 and rows["sales_growth"]["owner_confirmed"] is True
+    assert rows["sales_growth"]["value"] == 0.15 and rows["sales_growth"]["owner_confirmed"] is False
+    assert rows["sales_growth"]["source"] == "scenario" and rows["sales_growth"]["stated_by_owner"] is True
     assert json.loads((cp.work / "model.json").read_text()) == MODEL
     from harness_core.record import _cards
     assert _cards(cp, clog)[-1]["scenario_of"] == sim
@@ -231,3 +235,21 @@ def test_a_scenario_needs_a_finished_registered_model(h, sim):
     with pytest.raises(Denied, match="finished model"):
         model_cmd.apply({"tool": "model", "sub": "scenario", "set": {"sales_growth": 0.15}}, ctx_of(h),
                         {"session_id": SID})
+
+
+def test_a_bad_scenario_value_opens_no_job(h, sim):
+    _good_report(h, sim)
+    from pathlib import Path as _P
+    c = ctx_of(h)
+    c.loop_contract_root = _P(FOLD).parents[3]
+    if fold_ledger_problem() is not None:
+        pytest.skip(str(fold_ledger_problem()))
+    assert _gate(h, sim)["state"] == "Checked"
+    model_cmd.apply({"tool": "model", "sub": "register"}, ctx_of(h), {"session_id": SID})
+    stopgate.on_stop({"session_id": SID, "last_assistant_message": "Checked"}, ctx_of(h))
+    say(h, "now try more growth", "p-bad")
+    before = set((h["data"] / "runs").iterdir())
+    with pytest.raises(Denied):
+        model_cmd.apply({"tool": "model", "sub": "scenario", "set": {"sales_growth": True}}, ctx_of(h),
+                        {"session_id": SID})
+    assert set((h["data"] / "runs").iterdir()) == before

@@ -45,8 +45,8 @@ def _q(v: Decimal, places=2) -> Decimal:
 
 def load(req):
     a = req.get("args") or {}
-    work = Path(req.get("work", "work"))
-    model = json.loads((work / a.get("model", "model.json")).read_text("utf-8"))
+    from .checklib import safe_path
+    model = json.loads(safe_path(req.get("work", "work"), a.get("model", "model.json")).read_text("utf-8"))
     rows = json.loads((Path(req.get("run", "run")) / "assumptions.json").read_text("utf-8")).get("assumptions", []) \
         if (Path(req.get("run", "run")) / "assumptions.json").is_file() else []
     return model, {r["id"]: r for r in rows}
@@ -259,7 +259,8 @@ def checks(req):
             fail = True
     # 4. the delivered table against the engine (independent medium)
     if a.get("table"):
-        got = _table(Path(req.get("work", "work")) / a["table"])
+        from .checklib import safe_path
+        got = _table(safe_path(req.get("work", "work"), a["table"]))
         bad = [k for k, v in base["cells"].items() if k in got and abs(got[k] - v) > max(abs(v) * TOL, Decimal(1))]
         if bad or not got:
             notes.append(f"the delivered table differs from the model at {bad[:5] or 'every cell (none read)'}")
@@ -326,7 +327,8 @@ def checks(req):
 
 def report(req):
     a = req.get("args") or {}
-    text = (Path(req.get("work", "work")) / a.get("report", "report.md")).read_text("utf-8")
+    from .checklib import safe_path
+    text = safe_path(req.get("work", "work"), a.get("report", "report.md")).read_text("utf-8")
     low = text.casefold()
     model, A = load(req)
     notes = []

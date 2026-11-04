@@ -93,6 +93,7 @@ def write(ctx, job, state, interim=False) -> dict:
         "versions": dict(last.get("versions") or {}, business_hash=last.get("business_hash")),
         "cost": {"calls": (budget or {}).get("calls"), "money": (budget or {}).get("money")},
         "duration_s": duration, "task_type": last.get("task_type"),
+        "workspace_sha": canon.sha256_bytes(str(ctx.workspace).encode("utf-8")),
         "receipt": {k: receipt.get(k) for k in ("mode", "caps", "hmac")} if isinstance(receipt, dict) else None,
         "report_sha": report_sha, "report_sections": headings,
     }

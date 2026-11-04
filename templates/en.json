@@ -11,12 +11,12 @@
   "more.calls": "{n} more steps",
   "more.money": "{amount} {currency} more",
   "stopped_stall": "Stuck: I stopped before finishing, and nothing was sent or changed. Say continue to try again, or tell me what to change.",
-  "definition": "I'll count {metric} as {inclusions}, excluding {exclusions}, in {unit}. Is that right?",
+  "definition": "I'll count {metric} as {inclusions}, excluding {exclusions}, in {unit}.{extra} Is that right?",
   "assumption_sheet": "These are the numbers I'll assume. The first ones matter most. Change any of them, or say OK.",
   "header.figure": "{figure} {unit}: {metric} (definition version {version}), {period} ({other}).",
   "header.basis": "Based on {source}, with data up to {as_of}. Excludes: {exclusions}. Rows used: {rows}.",
   "header.checked_control": "Checked: matches {control}.",
-  "header.checked": "Checked: the total was recomputed a second way from the rows.",
+  "header.checked": "Checked: every row is accounted for, in or out of the period, and adds up to the file.",
   "header.not_checked": "Done, not fully checked: {reason}.",
   "header.not_for_tax": "Don't use this for tax or payments yet.",
   "header.transfers": "{n} transfers between your own accounts",
@@ -43,5 +43,8 @@
   "scenario_note": "This is a scenario, not a prediction.",
   "limits_note": "Arithmetic checked; assumptions not.",
   "model.pending_card": "A task card is needed first. Write it to .claude/loops/drafts/card.json and run harness-compile --card on it; until then only reads are allowed.",
-  "model.tripwire": "This is bigger than a quick answer. Before going further, draft a task card and compile it (harness-card, then harness-compile). Until then only reads are allowed."
+  "model.tripwire": "This is bigger than a quick answer. Before going further, draft a task card and compile it (harness-card, then harness-compile). Until then only reads are allowed.",
+  "definition.anchor": " Each amount is dated by {anchor}.",
+  "definition.sources": " When sources differ, I use them in this order: {order}.",
+  "definition.measure": " It is measured as {measure}."
 }

@@ -69,7 +69,10 @@ class _Text(html.parser.HTMLParser):
 
 def page_text(raw: bytes, content_type: str) -> str:
     m = re.search(r"charset=([\w-]+)", content_type or "", re.I)
-    text = raw.decode(m.group(1) if m else "utf-8", errors="replace")
+    try:
+        text = raw.decode(m.group(1) if m else "utf-8", errors="replace")
+    except LookupError:  # an unknown charset name: read it as UTF-8 rather than crash the hook
+        text = raw.decode("utf-8", errors="replace")
     if "html" in (content_type or "").lower() or re.match(r"\s*<(!doctype|html)", text[:200], re.I):
         p = _Text()
         p.feed(text)
@@ -156,21 +159,26 @@ def apply_fetch(req, ctx, evt, opener=None) -> dict:
     if not isinstance(grant, dict) or grant.get("active") is not True or not _unexpired(grant.get("expires_at")):
         raise Denied("no active research grant for this task")
     url = req.get("url")
-    fetched = store.read_jsonl(p.run, log, "fetch_log.jsonl")
-    if len(fetched) >= int(grant.get("page_budget") or 0):
-        raise Denied(f"the plan's page budget ({grant.get('page_budget')} pages) is used up")
+    with log.lock():  # count and reserve in one step, so parallel fetches cannot overshoot the budget
+        fetched = store.read_jsonl(p.run, log, "fetch_log.jsonl")
+        if sum(1 for r in fetched if r.get("status") == "PENDING") >= int(grant.get("page_budget") or 0):
+            raise Denied(f"the plan's page budget ({grant.get('page_budget')} pages) is used up")
+        store.append_jsonl(p.run, log, "fetch_log.jsonl", {"ts": now(), "url": url, "status": "PENDING"}, "FETCH",
+                           {"url": url, "status": "PENDING"})
+    planned = url in (grant.get("urls") or [])
 
     def allowed(u):
         if not egress.grant_covers(u, ctx):
             raise Denied(f"{egress.host_of(u)} is not in the research grant")
-        query_guard.check(u, ctx.protected_terms, getattr(ctx, "owner_tokens", []))
+        if not (planned and u == url):  # a URL the owner approved verbatim in the plan carries no hidden data
+            query_guard.check(u, ctx.protected_terms, getattr(ctx, "owner_tokens", []))
 
     row = {"ts": now(), "url": url}
     try:
         final, status, ctype, raw = fetch(url, allowed, opener)
     except Denied:
         raise
-    except (OSError, ConnectionError, http.client.HTTPException, ssl.SSLError, ValueError) as e:
+    except (OSError, ConnectionError, http.client.HTTPException, ssl.SSLError, ValueError, LookupError) as e:
         row.update(status="UNREACHABLE", reason=f"{type(e).__name__}: {e}"[:300], snapshot_sha=None)
         store.append_jsonl(p.run, log, "fetch_log.jsonl", row, "FETCH", {"url": url, "status": "UNREACHABLE"})
         return {"url": url, "status": "UNREACHABLE", "reason": row["reason"]}
@@ -252,7 +260,7 @@ def claim_row(r, fetch_row, agent_id) -> dict:
             "source_id": f"{registrable_domain(r['url'])}:{r['snapshot_sha'][:12]}", "url": r["url"],
             "retrieved_at": fetch_row.get("ts"), "snapshot_sha": r["snapshot_sha"], "verbatim_quote": quote,
             "source_date": r["date"], "source_class": source_class(r["url"]), "status": fetch_row.get("status", "OK"),
-            "agent_id": agent_id}
+            "agent_id": agent_id, **({"in_force_date": r["in_force_date"]} if r.get("in_force_date") else {})}
 
 
 def _say(res) -> str:

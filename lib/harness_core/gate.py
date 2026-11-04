@@ -319,6 +319,21 @@ def _state(paths, log, rec: dict) -> str:
     return "Done, not fully checked: " + "; ".join(reasons) if reasons else "Checked"
 
 
+def _recorded_change(paths, live) -> bool:
+    """True when config_log.jsonl's latest business and control hashes are the live ones: a change made through
+    the harness's own writers (business.baseline), not an edit on disk."""
+    from .session import recorded_hashes, tree_hash
+    f = paths.data_root / "config_log.jsonl"
+    try:
+        rec = recorded_hashes(f) if f.is_file() else {}
+    except (HarnessError, ValueError, OSError):
+        return False
+    return (rec.get("business") == tree_hash(paths.data_root / "business")
+            and rec.get("control") == tree_hash(paths.data_root / "control")
+            and live["business_hash"] == _tree(paths.data_root / "business")
+            and live["control_hash"] == _tree(paths.data_root / "control"))
+
+
 def verify_receipt(paths, log, key: bytes) -> dict:
     import hmac as _hmac
 
@@ -337,11 +352,18 @@ def verify_receipt(paths, log, key: bytes) -> dict:
         bad = sorted({e["type"] for e in evs[idx + 1:] if not after_receipt_ok(e)})
         if bad:
             return _fail(f"events after receipt invalidate it: {bad}")
-        fields = {k: rec[k] for k in HMAC_FIELDS}
-        fields.update(_live_fields(paths))
-        fields["caps_sha"] = canon.sha256_json(rec["caps"])
-        if not _hmac.compare_digest(canon.hmac_receipt(key, fields), rec["hmac"]):
-            return _fail("receipt HMAC does not match current state")
+        stored = {k: rec[k] for k in HMAC_FIELDS}
+        stored["caps_sha"] = canon.sha256_json(rec["caps"])
+        if not _hmac.compare_digest(canon.hmac_receipt(key, stored), rec["hmac"]):
+            return _fail("receipt HMAC does not match the receipt")
+        live = _live_fields(paths)
+        moved = sorted(k for k, v in live.items() if stored.get(k) != v)
+        if moved and set(moved) <= {"business_hash", "control_hash"} and _recorded_change(paths, live):
+            # the owner changed the business layer, or the operator the control layer, through the harness after
+            # this gate: the receipt is stale, not tampered with
+            return _fail(f"receipt is stale: {', '.join(moved)} changed since the gate; run harness-gate request again")
+        if moved:
+            return _fail(f"receipt HMAC does not match current state ({', '.join(moved)})")
         state = _state(paths, log, rec)
     except (HarnessError, ValueError, KeyError) as e:
         return _fail(str(e))

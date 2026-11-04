@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""harness-answer header --unit UNIT --output SHA [--control-label TEXT]
+"""harness-answer header --unit UNIT --output SHA
 
 Only prints a request; the PostToolUse writer renders the answer header (figure, metric and version, period,
 source and data-up-to date, exclusions, rows, check status) from the recorded check output and the business
@@ -13,7 +13,7 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     req, i = {"tool": "answer", "sub": "header"}, 1
-    keys = {"--unit": "unit", "--output": "output", "--control-label": "control_label"}
+    keys = {"--unit": "unit", "--output": "output"}
     while i < len(argv):
         if argv[i] not in keys or i + 1 >= len(argv):
             print(__doc__, file=sys.stderr)

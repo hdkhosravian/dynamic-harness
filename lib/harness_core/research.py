@@ -57,7 +57,7 @@ def _fresh(claim, rules, today):
         return None if claim.get("in_force_date") else f"a {claim.get('claim_type')} claim needs an in-force date"
     m = re.fullmatch(r"(\d+)d", str(rule or ""))
     if not m:
-        return None
+        return f"freshness rule {rule!r} is not understood"
     try:
         d = dt.date.fromisoformat(str(claim.get("source_date") or claim.get("date"))[:10])
     except ValueError:
@@ -71,7 +71,7 @@ def check(req):
     unit = req["unit"]["id"]
     run = Path(req.get("run", "run"))
     today = dt.date.fromisoformat(req.get("today") or dt.date.today().isoformat())
-    rules = dict(FRESHNESS, **((req.get("args") or {}).get("freshness") or {}))
+    rules = dict(FRESHNESS)  # fixed: the agent cannot relax freshness through args
     claims = _jsonl(run / "claims.jsonl")
     fetched = {r.get("snapshot_sha"): r for r in _jsonl(run / "fetch_log.jsonl")}
     cites = [c for c in _jsonl(run / "cites.jsonl") if c.get("unit") == unit]
@@ -80,6 +80,13 @@ def check(req):
         return "fail", {"claims_cited": 0}, [f"{unit} cites no claim rows (harness-claims cite)"]
     cite = cites[-1]
     lines, bearing = cite.get("claims") or [], set(cite.get("load_bearing") or [])
+    if not bearing:
+        notes.append(f"{unit} names no load-bearing claim: mark the rows that decide it (--load-bearing)")
+        fail = True
+    for n in lines:  # a price or law claim that is cited always carries weight
+        if 1 <= n <= len(claims) and claims[n - 1].get("claim_type") in ("price", "law") and n not in bearing:
+            notes.append(f"claim {n} is a {claims[n - 1]['claim_type']} claim: it must be load-bearing")
+            fail = True
     origins, classes, fresh_all = [], set(), True
     for n in lines:
         if not 1 <= n <= len(claims):
@@ -128,9 +135,14 @@ def check(req):
         fail = True
     renders = {r.get("prompt_sha") for r in _jsonl(run / "renders.jsonl")
                if r.get("kind") == "verifier" and r.get("unit") == unit}
-    if not any(s.get("agent_type") == "dynamic-harness:verifier" and s.get("prompt_sha") in renders
-               for s in _jsonl(run / "subagents.jsonl")):
+    verdicts = [s for s in _jsonl(run / "subagents.jsonl")
+                if s.get("agent_type") == "dynamic-harness:verifier" and s.get("prompt_sha") in renders]
+    if not verdicts:
         notes.append(f"no verifier verdict is recorded for {unit} (harness-critic render, then the verifier)")
+        fail = True
+    elif not verdicts[-1].get("answers") or "no" in verdicts[-1]["answers"]:
+        notes.append(f"the verifier did not answer yes to every criterion for {unit}: the sources may not support "
+                     "the claim")
         fail = True
     contra = [r for r in _jsonl(run / "contradictions.jsonl") if unit in json.dumps(r)]
     if contra:
@@ -151,7 +163,8 @@ def check(req):
 def report(req):
     """Every findings line cites claim rows or carries the unchecked label (R-13)."""
     a = req.get("args") or {}
-    path = Path(req.get("work", "work")) / a.get("report", "report.md")
+    from .checklib import safe_path
+    path = safe_path(req.get("work", "work"), a.get("report", "report.md"))
     claims = _jsonl(Path(req.get("run", "run")) / "claims.jsonl")
     text = path.read_text("utf-8")
     notes, fail, cited, unchecked = [], False, set(), 0

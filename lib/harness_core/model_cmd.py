@@ -1,9 +1,9 @@
 """``harness-model assume|register|scenario|import``: the model writer (spec §Business simulations "Assumptions",
 "Iteration", "Persistence"; R-14; build phase P5).
 
-- ``assume ID VALUE --unit U --period P --source S``: an assumption row in ``run/assumptions.json``. It counts as
-  owner-confirmed only when the source is ``owner`` and the owner's own latest turn states the value; otherwise
-  it is confirmed through the assumption sheet (``harness-contact assumption_sheet`` then ``--accept latest``).
+- ``assume ID VALUE --unit U --period P --source S``: an assumption row in ``run/assumptions.json``. Only the
+  owner's plain approval of the rendered assumption sheet (``harness-contact assumption_sheet``, then
+  ``--accept latest``) marks values owner-confirmed.
   An assumption recorded after 50% progress is flagged ``late``.
 - ``register --deliverable FILE``: after a receipt that verifies (``MODEL_REGISTERED`` is a receipt-safe event),
   the model registry entry ``{model_id, version, input_hash, assumptions_ref, deliverable_path,
@@ -98,10 +98,17 @@ def assume(req, ctx, p, log) -> dict:
         raise Denied(f"--period is one of {', '.join(PERIODS)}")
     if source not in SOURCES:
         raise Denied(f"--source is one of {', '.join(SOURCES)}")
-    confirmed = source == "owner" and _stated_by_owner(ctx, value)
+    if len(unit) > 20 or not re.fullmatch(r"[\w%./ -]+", unit):
+        raise Denied("--unit is a short unit name (IRT, ratio, percent, index)")
+    label = str(req.get("label") or aid)
+    if len(label) > 80 or any(ord(c) < 32 for c in label):
+        raise Denied("--label is one line of at most 80 characters")
+    # only the owner's confirmation of the rendered sheet confirms a value: a number that happens to appear in the
+    # owner's words ("I have 12 staff") is not a confirmation of growth = 12%
+    confirmed = False
     row = {"id": aid, "value": value, "unit": unit, "period": period, "source": source,
            "as_of": req.get("as_of") or time.strftime("%Y-%m-%d"), "owner_confirmed": confirmed,
-           "label": str(req.get("label") or aid)[:80], "late": contacts.progress(ctx) >= 0.5,
+           "label": label, "late": contacts.progress(ctx) >= 0.5,
            "expires_at": time.strftime("%Y-%m-%d", time.gmtime(time.time() + 90 * 86400))}
     with log.lock():
         rows = [r for r in _rows(p, log) if r["id"] != aid] + [row]
@@ -114,7 +121,9 @@ def sheet_text(rows, ctx) -> str:
     lines = [templates.render("assumption_sheet", ctx)]
     for r in rows:
         v = r["value"] if not isinstance(r["value"], list) else "monthly factors " + ", ".join(map(str, r["value"]))
-        lines.append(f"- {r['label']}: {v} {r['unit']} per {r['period']} (from {r['source']})")
+        # free text is quoted, so a label cannot pose as another line of the sheet
+        lines.append(f"- {json.dumps(r['label'], ensure_ascii=False)}: {v} {json.dumps(r['unit'], ensure_ascii=False)}"
+                     f" per {r['period']} (from {r['source']})")
     return "\n".join(lines)
 
 
@@ -177,6 +186,7 @@ def scenario(req, ctx, evt, delta=None, note=None) -> dict:
     pp = job_paths(ctx.data_root, ctx.workspace, parent)
     plog = EventLog(pp.run, pp.heads)
     base = {r["id"]: r for r in _rows(pp, plog)}
+    delta = {k: _value(v) for k, v in delta.items()}  # every value is checked before any job is opened
     unknown = sorted(set(delta) - set(base))
     if unknown:
         raise Denied(f"{unknown} are not assumptions of {parent}: a structural change is a new task with "
@@ -198,8 +208,8 @@ def scenario(req, ctx, evt, delta=None, note=None) -> dict:
     rows = []
     for r in base.values():
         if r["id"] in delta:
-            v = _value(delta[r["id"]])
-            r = dict(r, value=v, source="owner", owner_confirmed=_stated_by_owner(ctx, v), scenario_delta=True)
+            r = dict(r, value=delta[r["id"]], source="scenario", owner_confirmed=False, scenario_delta=True,
+                     stated_by_owner=_stated_by_owner(ctx, delta[r["id"]]))
         rows.append(r)
     _save(cp, clog, rows, f"scenario of {parent}")
     store.write_json(cp.run, clog, "scenario.json", {"scenario_of": parent, "set": delta, "note": note},
@@ -211,9 +221,9 @@ def scenario(req, ctx, evt, delta=None, note=None) -> dict:
 
 
 def import_sheet(req, ctx, evt) -> dict:
-    from .run import _input
+    from .run import _input, _written
     parent = _done_parent(ctx, evt)
-    src, data = _input(ctx, req.get("file"))
+    src, data = _input(ctx, req.get("file"), _written(ctx, evt.get("session_id")))
     reg = registry(ctx)[parent]
     if canon.sha256_bytes(data) == reg["deliverable_sha"]:
         return {"unchanged": True, "parent": parent}

@@ -16,6 +16,8 @@ from xml.etree import ElementTree as ET
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 MAX_ROWS = 200_000
+MAX_COLS = 16384
+MAX_CELLS = 5_000_000
 _REF = re.compile(r"([A-Z]+)(\d+)")
 
 
@@ -42,6 +44,8 @@ def _xml(z, name):
     if z.getinfo(name).file_size > MAX_MEMBER:
         raise ValueError(f"{name} is larger than {MAX_MEMBER // (1024 * 1024)} MB uncompressed")
     raw = z.read(name)
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in raw[:200]:
+        raise ValueError(f"{name} is not UTF-8 XML; refused")  # so the DTD check below sees every byte as text
     if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
         raise ValueError(f"{name} declares a DTD; refused")
     return ET.fromstring(raw)
@@ -66,7 +70,9 @@ def _xlsx(data: bytes):
         cells = {}
         for c in r.findall("m:c", NS):
             m = _REF.match(c.get("r", ""))
-            idx = _col(m.group(1)) if m else len(cells)
+            idx = _col(m.group(1)) if m and len(m.group(1)) <= 3 else (len(cells) if not m else MAX_COLS)
+            if idx >= MAX_COLS:  # Excel's own limit is XFD (16384); a larger reference would allocate a huge row
+                raise ValueError(f"cell {c.get('r')!r} is beyond column {MAX_COLS}")
             t, v = c.get("t"), c.find("m:v", NS)
             if t == "s" and v is not None:
                 val = shared[int(v.text)]
@@ -83,6 +89,9 @@ def _xlsx(data: bytes):
                 val = None
             cells[idx] = val
         if cells:
+            total = sum(len(r) for r in rows) + max(cells) + 1
+            if total > MAX_CELLS:
+                raise ValueError(f"more than {MAX_CELLS} cells")
             rows.append([cells.get(i) for i in range(max(cells) + 1)])
         if len(rows) > MAX_ROWS:
             raise ValueError(f"more than {MAX_ROWS} rows")

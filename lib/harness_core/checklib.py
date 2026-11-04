@@ -20,6 +20,22 @@ import sys
 from decimal import Decimal
 
 
+def safe_path(base, rel) -> "Path":
+    """``rel`` under ``base`` (the box's work/, inputs/ or run/), or ValueError: no absolute path, no ``..``, no
+    symlink out. Agent-given names never reach files outside the box (the sandbox may read more than the box)."""
+    import os
+    from pathlib import Path, PurePosixPath
+    if not isinstance(rel, str) or not rel or rel.startswith(("/", "~")) or "\\" in rel:
+        raise ValueError(f"{rel!r} must be a file name inside {base}")
+    if any(part in ("..", "") for part in PurePosixPath(rel).parts):
+        raise ValueError(f"{rel!r} must not leave {base}")
+    root = Path(os.path.realpath(base))
+    full = Path(os.path.realpath(root / rel))
+    if root != full and root not in full.parents:
+        raise ValueError(f"{rel!r} must not leave {base}")
+    return full
+
+
 def read_request() -> dict:
     req = json.loads(sys.stdin.read() or "{}")
     if not isinstance(req, dict):

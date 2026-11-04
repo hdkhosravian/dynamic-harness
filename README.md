@@ -293,7 +293,7 @@ ${CLAUDE_PLUGIN_DATA}/            # read- and write-denied to the agent
 python3 -m pytest -q
 ```
 
-- About 1,650 tests, standard library plus pytest. On macOS the full suite passes (1645 passed, 7 skipped,
+- About 1,670 tests, standard library plus pytest. On macOS the full suite passes (1671 passed, 7 skipped,
   3 xfailed at release 0.4.0).
 - The gate integration tests use a real `fold_ledger.py` from a `loop-contract-skill` checkout next to this
   repository, or from `HARNESS_FOLD_LEDGER`. `HARNESS_REQUIRE_INTEGRATION=1` turns a missing fold_ledger into a

@@ -71,7 +71,7 @@ LIST_FIELDS = {"own_accounts": "your own bank accounts (transfers between them a
                "do_not_contact": "the do-not-contact list", "protected_terms": "names that never go into a web search"}
 
 
-def parse_value(field, raw: str):
+def parse_value(field, raw: str, profile_calendar=None):
     """The typed value for a profile field, or Denied with what is expected."""
     raw = raw.strip()
     if field == "currency":
@@ -90,9 +90,15 @@ def parse_value(field, raw: str):
     if field == "fiscal_year_start":
         from .localize import digits
         m = re.fullmatch(r"(\d{1,2})-(\d{1,2})", digits(raw))
-        if not m or not (1 <= int(m.group(1)) <= 12 and 1 <= int(m.group(2)) <= 31):
-            raise Denied("fiscal_year_start is MM-DD in your calendar, for example 01-01 (Farvardin 1)")
-        return f"{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+        mo, day = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+        # each month's shortest length in the calendar, so the date exists every year (Esfand 29, February 28)
+        days = ([31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] if profile_calendar == "gregorian"
+                else [31] * 6 + [30] * 5 + [29])
+        cap = days[mo - 1] if 1 <= mo <= 12 else 0
+        if not 1 <= day <= cap:
+            raise Denied("fiscal_year_start is MM-DD in your calendar, for example 01-01 (Farvardin 1), and must "
+                         "exist every year")
+        return f"{mo:02d}-{day:02d}"
     if field in ("caps.task", "caps.month", "thresholds.money_at_stake_high", "fx.USD"):
         from .localize import parse_amount
         v = parse_amount(raw)
@@ -156,9 +162,17 @@ def set_field(ctx, field, value) -> None:
             sub["as_of"] = time.strftime("%Y-%m-%d")
         prof[head] = sub
     else:
+        old = prof.get("currency")
         prof[field] = value
-        if field == "currency" and isinstance(prof.get("caps"), dict):
-            prof["caps"] = dict(prof["caps"], currency=value)
+        if field == "currency" and isinstance(prof.get("caps"), dict) and old != value:
+            caps = dict(prof["caps"], currency=value)
+            for k in ("task", "month"):  # a limit keeps its worth: Toman <-> Rial converts, anything else is dropped
+                if isinstance(caps.get(k), (int, float)):
+                    if {old, value} == {"IRT", "IRR"}:
+                        caps[k] = caps[k] * 10 if value == "IRR" else caps[k] / 10
+                    else:
+                        caps.pop(k)
+            prof["caps"] = caps
     prof["schema"] = "harness/business_profile@1"
     _write(ctx, FILES["profile"], prof)
     baseline(ctx, f"business set {field}")

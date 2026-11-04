@@ -23,7 +23,8 @@ from .safeio import safe_open
 
 CLAIM = {"type": "object", "additionalProperties": False, "required": ["claim", "quote", "date", "url", "snapshot_sha"],
          "properties": {"claim": {"type": "string"}, "quote": {"type": "string"}, "date": {"type": "string"},
-                        "url": {"type": "string"}, "snapshot_sha": {"type": "string"}}}
+                        "url": {"type": "string"}, "snapshot_sha": {"type": "string"},
+                        "in_force_date": {"type": "string"}}}
 
 
 def _fold(s) -> str:
@@ -50,8 +51,11 @@ def _accept(row, p, log, fetched) -> bool:
         schema.validate(row, CLAIM, "claim")
     except Exception:
         return False
-    if len(row["quote"]) > 300 or not re.fullmatch(r"[0-9a-f]{64}", row["snapshot_sha"]):
-        return False
+    if not 20 <= len(row["quote"].strip()) <= 300 or not re.fullmatch(r"[0-9a-f]{64}", row["snapshot_sha"]):
+        return False  # a quote of a word or two ("the") is on every page and proves nothing
+    from .normalize import quantity_tokens
+    if {v for _, v in quantity_tokens(row["claim"])} - {v for _, v in quantity_tokens(row["quote"])}:
+        return False  # every number the claim states must be in the quote
     if (row["url"], row["snapshot_sha"]) not in fetched:
         return False
     snap = p.run / "snapshots" / row["snapshot_sha"]
@@ -77,6 +81,8 @@ def on_subagent_stop(evt, ctx) -> dict:
     spawn = next((s for s in spawns if s.get("tool_use_id") == link.get("tool_use_id") and s.get("prompt_sha")), {})
     rec = {"ts": now(), "agent_type": agent_type, "agent_id": evt.get("agent_id"), "prompt_sha": spawn.get("prompt_sha"),
            "verdict_sha": canon.sha256_bytes(msg.encode("utf-8"))}
+    if agent_type == "dynamic-harness:verifier":  # its answers, so research.check can require every one is yes
+        rec["answers"] = [m.group(1).lower() for m in re.finditer(r"(?im)^\s*\d+[.)]\s*(yes|no)\b", msg)]
     if agent_type == RESEARCHER:
         flog = {(r.get("url"), r.get("snapshot_sha")): r for r in store.read_jsonl(p.run, log, "fetch_log.jsonl")
                 if r.get("status") == "OK"}

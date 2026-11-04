@@ -40,8 +40,17 @@ DEFAULT_TIMEOUT = 120
 PYTHON = "/usr/bin/python3"
 
 
-def _input(ctx, raw) -> tuple:
+def _written(ctx, sid) -> set:
+    """Files this session wrote (Write/Edit and Bash targets) plus the task folders: never an owner's source."""
+    from . import written
+    if not sid:
+        return set()
+    return {os.path.realpath(x) for x in written.self_written(ctx.data_root, sid, ctx.workspace)}
+
+
+def _input(ctx, raw, agent_written=frozenset()) -> tuple:
     """(source path relative to the workspace, bytes) of one --input, or Denied."""
+    import stat as _stat
     if not isinstance(raw, str) or not raw:
         raise Denied("an --input must be a file path")
     ws = Path(os.path.realpath(ctx.workspace))
@@ -50,7 +59,13 @@ def _input(ctx, raw) -> tuple:
     if (protected.outside_workspace(str(real), ctx) or protected.is_protected(str(real), ctx)
             or protected.is_read_protected(str(real), ctx)):
         raise Denied(f"input {raw!r} is outside the workspace or protected")
+    if any(str(real) == w or str(real).startswith(w.rstrip("/") + "/") for w in agent_written):
+        raise Denied(f"input {raw!r} was written in this session: a check reads the owner's own files, never a copy "
+                     "the assistant made")
     try:
+        st = os.lstat(path)
+        if not _stat.S_ISREG(st.st_mode):  # a FIFO or device would block the hook until its watchdog
+            raise Denied(f"input {raw!r} is not a regular file")
         if real.stat().st_size > MAX_INPUT:
             raise Denied(f"input {raw!r} is larger than {MAX_INPUT // (1024 * 1024)} MB")
         data = safe_open(path, [ws])
@@ -148,7 +163,8 @@ def apply(req, ctx, evt, runner=None) -> dict:
     raw_inputs = req.get("inputs") or []
     if not isinstance(raw_inputs, list) or len(raw_inputs) > MAX_INPUTS:
         raise Denied(f"at most {MAX_INPUTS} inputs")
-    inputs = [_input(ctx, x) for x in raw_inputs]
+    mine = _written(ctx, evt.get("session_id"))
+    inputs = [_input(ctx, x, mine) for x in raw_inputs]
     box = Path(os.path.realpath(tempfile.mkdtemp(prefix="harness-run-")))
     try:
         from .gate import _literal_dir

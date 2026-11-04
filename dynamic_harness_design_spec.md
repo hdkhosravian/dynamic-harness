@@ -2443,6 +2443,36 @@ profiles:
   `test_user_text`, `test_admin`, `test_localize` and `test_business_traps` (one test per trap class), with
   `test_r11_money_never_t0` to `test_r15_decision_record`. The done-mode, claim and model tests run the real
   fold_ledger under the real sandbox.
+- **Review fixes (P5).** An independent review found 17 issues; each is fixed and has a regression test in
+  `test_p5_review.py`:
+  - every agent-given file name in a check resolves inside the check's box (`checklib.safe_path`), so a check
+    cannot read, or answer yes/no about, files outside it;
+  - the answer header names its control source by file, never by model text; the lexicon catches the spaced
+    Persian forms ("بررسی شده", "تایید شده");
+  - a check must measure something: the control may not be the figure's own file; the second path is a
+    partition identity (rows used plus every row set aside equal the file's total, summed apart); a document
+    check needs required items; a research unit needs load-bearing claims, cited price and law claims are
+    always load-bearing, freshness rules cannot be relaxed through args, and an unknown rule fails;
+    `harness-run` refuses inputs written in the session and anything that is not a regular file;
+  - only the owner's approval of the rendered assumption sheet confirms an assumption (a matching number in
+    the owner's words does not); a scenario's delta is `source: scenario`; its values are checked before the
+    child job opens; sheet labels and units are quoted and capped;
+  - the definition sentence shows every field stored as owner-approved;
+  - a business or control change made through the harness after the gate makes the receipt stale ("run the
+    gate again"), not tampered with; an edit on disk is still tamper;
+  - claim rows need a quote of at least 20 characters that contains every number the claim states; a
+    verifier answer of "no" fails `research.check`; law claims can carry an in-force date;
+  - workbooks: a column beyond XFD, more than 5 million cells, or non-UTF-8 XML is refused;
+  - the answer header uses the latest run of the unit's check;
+  - spending limits say when they cannot work (no currency, no rate), and a Toman/Rial currency change converts
+    them; other currency changes drop them;
+  - the page budget is reserved under the lock; an unknown charset falls back to UTF-8; a URL the owner approved
+    verbatim in the plan skips the digit-run guard;
+  - exports keep to this folder's tasks and neutralise spreadsheet formulas; a fiscal year start must exist in
+    every year; Persian approvals written with Arabic letters count.
+- **Platforms.** The suite passes on macOS (sandbox-exec) and on Ubuntu 22.04 and 24.04 (bubblewrap,
+  `--privileged` containers, real fold_ledger, `HARNESS_REQUIRE_INTEGRATION=1`). Under bubblewrap `/tmp` is
+  private, so fold_ledger must not live under `/tmp`.
 - **Known gaps.** Check notes are in English inside Persian text. The rows behind an answer are not attached
   as an Excel file, and the model deliverable is a JSON model plus a CSV table, not a formula workbook (no
   `openpyxl` or `formulas` dependency). Monte Carlo runs are not built. The stall and saturation stop rules for

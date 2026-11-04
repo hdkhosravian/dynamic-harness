@@ -94,6 +94,32 @@ BUSINESS_USAGE = [
 ]
 
 
+def _money_warnings(ctx, field, value) -> list:
+    """What the owner must know for a spending limit to work: a currency, and a rate when prices are foreign."""
+    from . import protected
+    prof = dict(business.profile(ctx))
+    if field == "currency":
+        prof["currency"] = value
+    elif field == "fx.USD":
+        prof["fx"] = dict(prof.get("fx") or {}, USD=value)
+    if field not in ("caps.task", "caps.month", "currency", "fx.USD") or not (prof.get("caps") or field.startswith("caps")):
+        return []
+    out = []
+    cur = prof.get("currency")
+    try:
+        price_cur = protected.load_control("prices.json", ctx).get("currency")
+    except Exception:
+        price_cur = None
+    if not cur:
+        out.append("spending limits apply only once your currency is set (business set currency IRT)")
+    elif price_cur and price_cur != cur and not (prof.get("fx") or {}).get(price_cur):
+        out.append(f"model prices are in {price_cur}: spending limits apply only once you set the rate "
+                   f"(business set fx.{price_cur} <{cur} per {price_cur}>)")
+    if field == "currency" and (prof.get("caps") or {}) and {business.profile(ctx).get("currency"), value} != {"IRT", "IRR"}:
+        out.append("your spending limits are in the old currency and will be removed; set them again")
+    return out
+
+
 def _business(ctx, sid, args) -> dict:
     if not args or args == ["show"]:
         return _block(business.describe(ctx))
@@ -108,13 +134,15 @@ def _business(ctx, sid, args) -> dict:
         return _block(["Done. " + ch["sentence"], "New tasks use it from now on."])
     if args[0] == "set" and len(args) >= 3:
         field, raw = args[1], " ".join(args[2:])
-        value = business.parse_value(field, raw)
+        value = business.parse_value(field, raw, business.profile(ctx).get("calendar"))
         business.guard(ctx)
         shown = f"{business.CURRENCIES.get(value, value)} ({value})" if field == "currency" else value
         label = business.PROFILE_FIELDS[field]
         sentence = f"Set {label} to {shown}."
+        lines = [f"- {sentence}"]
+        lines += [f"- Note: {w}" for w in _money_warnings(ctx, field, value)]
         return _offer(ctx, sid, "business", {"op": "set", "field": field, "value": value, "sentence": sentence},
-                      [f"- {sentence}"])
+                      lines)
     if args[0] in ("add", "remove") and len(args) >= 3 and args[1] in business.LIST_FIELDS:
         value = " ".join(args[2:])
         business.guard(ctx)
@@ -260,6 +288,9 @@ def _export(ctx, sid, args) -> dict:
             rows += [json.loads(x) for x in Path(f).read_text("utf-8").splitlines() if x.strip()]
         except (OSError, ValueError):
             continue
+    from . import canon
+    here = canon.sha256_bytes(str(ctx.workspace).encode("utf-8"))
+    rows = [r for r in rows if r.get("workspace_sha") == here]  # only this folder's tasks land in this folder
     if args[0] == "--task":
         rows = [r for r in rows if r.get("job_id") == args[1]]
         label = re.sub(r"[^A-Za-z0-9._-]", "_", args[1])[:80]
@@ -275,14 +306,17 @@ def _export(ctx, sid, args) -> dict:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(EXPORT_COLUMNS)
+    def cell(v):  # a spreadsheet must never run a cell as a formula
+        t = "" if v is None else str(v)
+        return "'" + t if t[:1] in ("=", "+", "-", "@", "\t", "\r") else t
     for r in rows:
         last = (r.get("cards") or [{}])[-1]
         rec = r.get("receipt") or {}
-        w.writerow([r.get("job_id"), r.get("state"), r.get("interim"), r.get("ts"), r.get("requester"), r.get("tier"),
+        w.writerow(map(cell, [r.get("job_id"), r.get("state"), r.get("interim"), r.get("ts"), r.get("requester"), r.get("tier"),
                     r.get("task_type") or last.get("task_type"), r.get("request_sha"),
                     "; ".join(f"{c.get('unit')}={c.get('verdict')}" for c in r.get("checks") or []),
                     rec.get("mode"), ",".join(rec.get("caps") or []), r.get("report_sha"),
-                    (r.get("cost") or {}).get("calls"), (r.get("cost") or {}).get("money"), r.get("duration_s")])
+                    (r.get("cost") or {}).get("calls"), (r.get("cost") or {}).get("money"), r.get("duration_s")]))
     out_dir = Path(ctx.workspace) / "exports"
     if out_dir.is_symlink() or (out_dir.exists() and not out_dir.is_dir()):
         return _block("exports/ in this folder is not a plain folder; nothing was written.")
