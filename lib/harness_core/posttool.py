@@ -1,0 +1,28 @@
+"""PostToolUse, in order (spec §Hooks: writers, tripwire; build phase P3).
+
+1. Written files (``written.on_post``) for Write / Edit / MultiEdit / NotebookEdit.
+2. The spawn link for ``Agent`` (``lanes.link_spawn``).
+3. The writers (``writers.on_post``): harness-compile, harness-contact, AskUserQuestion.
+4. The tripwire, on the session state as the writers left it. The harness CLIs themselves never trip it.
+A writer's refusal wins over the tripwire.
+"""
+from __future__ import annotations
+
+from . import lanes, sessionstate, tripwire, writers, written
+
+
+def on_post(evt, ctx) -> dict:
+    tool = evt.get("tool_name")
+    if tool in written.WRITE_TOOLS:
+        written.on_post(evt, ctx)
+    lanes.link_spawn(evt, ctx)
+    res = writers.on_post(evt, ctx) or {}
+    if res.get("decision") == "block":
+        return res
+    sid = evt.get("session_id")
+    lone = writers._lone_harness((evt.get("tool_input") or {}).get("command")) if tool == "Bash" else None
+    if sid and lone is None:
+        trip = tripwire.on_post(evt, ctx, sessionstate.load(ctx, sid))
+        if trip:
+            return trip
+    return res

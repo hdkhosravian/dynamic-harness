@@ -9,13 +9,15 @@ boundaries writers: contacts, plan.json, egress grant; §Turns and contacts; bui
 - ``plan`` text shown to the owner is rendered from ``plan.json`` (hypotheses, domains, page budget, stop
   rule), never the model's wording, so the approval covers exactly what is granted.
 - ``plan --accept <turn_id>``: the cited turn must be the owner's reply to that plan contact (its
-  ``pending_contact_id``), come after it, and contain an approval word; the contact is then consumed. The
+  ``pending_contact_id``), come after it, and be an approval as a whole ("yes", "ok, go ahead"; no keyword search); the contact is
+  then consumed. The
   egress grant ``{plan_sha, domains, page_budget, active, expires_at}`` is written with a ``GRANT`` event,
   which is the only form ``hookmain`` honours. Domains come from the plan's URLs.
 - ``cost`` contacts come with the budget hook (P4) and are refused here.
 """
 from __future__ import annotations
 
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -36,8 +38,15 @@ PLAN_SCHEMA = {"type": "object", "additionalProperties": False,
                               "stop_rule": {"type": "string"},
                               "load_bearing": {"type": "array", "items": {"type": "string"}}}}
 GRANT_TTL = 24 * 3600
-APPROVE = ("yes", "ok", "okay", "approve", "approved", "accept", "accepted", "go ahead", "agreed",
-           "بله", "آره", "باشه", "تایید", "تأیید", "قبول", "موافقم")
+# the whole reply must be an approval (no keyword search: "no, don't, okay?" is not consent)
+_YES = r"(?:yes|y|ok|okay|sure|approve|approved|accept|accepted|agreed|go ahead|بله|آره|باشه|تایید|تأیید|قبول|موافقم)"
+_TAIL = r"(?:yes|ok|okay|go ahead|approved|approve it|approve the plan|go ahead with the plan|with the plan|please|thanks|thank you|تایید|قبول|ممنون|لطفا)"
+APPROVAL = re.compile(rf"{_YES}(?: {_TAIL})*")
+
+
+def is_approval(text) -> bool:
+    t = re.sub(r"[\s،,.!؛;:]+", " ", (text or "").replace("\u200c", " ")).strip().casefold()
+    return APPROVAL.fullmatch(t) is not None
 
 
 def _plan_text(plan) -> str:
@@ -103,7 +112,9 @@ def _accept(req, ctx, p, log) -> dict:
     last = plans[-1]
     if last.get("accepted"):
         raise Denied(f"plan contact {last['contact_id']} is already accepted")
-    turn = Turns(ctx.data_root).cite(req["accept"], after_seq=last.get("turn_seq", 0), must_match=APPROVE)
+    turn = Turns(ctx.data_root).cite(req["accept"], after_seq=last.get("turn_seq", 0))
+    if not is_approval(turn["text_norm"]):
+        raise Denied(f"turn {req['accept']} is not a plain approval of the plan (reply yes, or say what to change)")
     if turn.get("pending_contact_id") != last["contact_id"]:
         raise Denied(f"turn {req['accept']} is not the owner's reply to plan contact {last['contact_id']}")
     plan = store.read_json(p.run, log, "plan.json", None)

@@ -5,6 +5,10 @@ import json
 import re
 
 
+def _match(matcher, tool):
+    return matcher in (None, "*") or re.fullmatch(matcher, tool)  # "*" matches every tool in Claude Code
+
+
 def _entries(root):
     cfg = json.loads((root / "hooks" / "hooks.json").read_text())
     for event, groups in cfg["hooks"].items():
@@ -33,7 +37,7 @@ def test_post_tool_use_records_every_file_write(env):
     cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
     groups = cfg["hooks"]["PostToolUse"]
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
-        hits = [g for g in groups if re.fullmatch(g.get("matcher", ".*"), tool)]
+        hits = [g for g in groups if _match(g.get("matcher"), tool)]
         assert any(h["command"].endswith('harness-hook" PostToolUse') for g in hits for h in g["hooks"]), tool
 
 
@@ -42,12 +46,19 @@ def test_post_tool_use_failure_records_every_file_write(env):
     cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
     groups = cfg["hooks"]["PostToolUseFailure"]
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
-        hits = [g for g in groups if re.fullmatch(g.get("matcher", ".*"), tool)]
+        hits = [g for g in groups if _match(g.get("matcher"), tool)]
         assert any(h["command"].endswith('harness-hook" PostToolUseFailure') for g in hits for h in g["hooks"]), tool
 
 
 def test_bash_writes_are_not_left_to_post_tool_use(env):
-    # PreToolUse records Bash writes before the command runs; PostToolUse need not fire
+    # PreToolUse records Bash writes before the command runs; PostToolUse sees Bash only for the writers
+    from harness_core import written
     cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
-    for event in ("PostToolUse", "PostToolUseFailure"):
-        assert not any(re.fullmatch(g.get("matcher", ".*"), "Bash") for g in cfg["hooks"][event]), event
+    assert not any(_match(g.get("matcher"), "Bash") for g in cfg["hooks"]["PostToolUseFailure"])
+    assert "Bash" not in written.WRITE_TOOLS
+
+
+def test_subagent_stop_matcher_is_anchored(env):
+    cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
+    (g,) = cfg["hooks"]["SubagentStop"]
+    assert g["matcher"].startswith("^dynamic-harness:") and g["matcher"].endswith("$")

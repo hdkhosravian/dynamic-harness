@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "procedures": [
+    {
+      "path": "skills/task-card/SKILL.md",
+      "sha256": "cf1f78d99cbc30fe608994d98d654d0287bc77316a7e407aced37bc88cb65e72",
+      "approver": "release 0.2.0"
+    }
+  ]
+}

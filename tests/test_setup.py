@@ -240,10 +240,15 @@ def test_unknown_arguments_show_usage_and_change_nothing(ctx):
 # --- hook wiring ---
 
 
-def test_other_prompts_pass_through_without_any_state(tmp_path):
-    # no env at all: a normal prompt must never be blocked by the harness
-    assert hookmain.main("UserPromptSubmit", {"prompt": "hello", "session_id": SID}, {}) == (0, None)
-    assert hookmain.main("UserPromptSubmit", {"prompt": "/dynamic-harness:setupx"}, {}) == (0, None)
+def test_other_prompts_are_recorded_and_not_blocked(ctx):
+    # every prompt is a recorded turn (P3); a normal one is never blocked
+    env = {"CLAUDE_PLUGIN_DATA": str(ctx.data_root), "CLAUDE_PLUGIN_ROOT": str(ctx.plugin_root),
+           "CLAUDE_PROJECT_DIR": str(ctx.workspace), "HOME": str(ctx.home)}
+    code, out = hookmain.main("UserPromptSubmit", {"prompt": "hello", "session_id": SID, "prompt_id": "p1"}, env)
+    assert code == 0 and (out is None or out.get("decision") != "block")
+    from harness_core.turns import Turns
+    assert Turns(ctx.data_root).latest()["text_norm"] == "hello"
+    assert not setup.is_setup_prompt({"prompt": "/dynamic-harness:setupx"})
 
 
 def test_setup_prompt_is_blocked_with_the_plan_on_stdout(ctx):

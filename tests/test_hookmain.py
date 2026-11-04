@@ -27,6 +27,18 @@ def henv(tmp_path):
             "CLAUDE_PROJECT_DIR": str(ws), "LOOP_CONTRACT_ROOT": str(tmp_path / "lc")}
 
 
+def _session(henv, sid="s1", **fields):
+    """Session state as the hooks write it (sessions/<sid>.json is checked against its SESSION event)."""
+    from types import SimpleNamespace
+    from harness_core import sessionstate
+    return sessionstate.update(SimpleNamespace(data_root=Path(henv["CLAUDE_PLUGIN_DATA"])), sid, **fields)
+
+
+def _no_tripwire(henv, sid="s1"):
+    # a pending card turns the T0 tripwire off, so these tests see only the written-file record
+    _session(henv, sid, pending_card={"floor": "T1", "reason": "test", "turn_id": None})
+
+
 def bash(cmd, ws, sid="ok"):
     return {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": ws,
             "session_id": sid}
@@ -94,7 +106,7 @@ def test_ctx_loads_registry_and_session_state(henv, tmp_path):
     (data / "business" / "connector_registry.json").write_text(json.dumps({"mcp__gmail__search": "read"}))
     (data / "business" / "protected_terms.json").write_text(json.dumps({"terms": ["Acme"]}))
     (data / "sessions" / "s1").mkdir(parents=True)
-    (data / "sessions" / "s1.json").write_text(json.dumps({"active_task": "j1"}))
+    _session(henv, "s1", active_task="j1", prompt_scope="active_task")
     (data / "sessions" / "s1" / "written.json").write_text(json.dumps(["/x/y.py"]))
     evt = {"session_id": "s1", "cwd": henv["CLAUDE_PROJECT_DIR"], "agent_type": "dynamic-harness:web-researcher"}
     ctx = hookmain.build_ctx(evt, henv)
@@ -110,7 +122,7 @@ def test_ctx_loads_registry_and_session_state(henv, tmp_path):
 def grant_env(henv):
     data = Path(henv["CLAUDE_PLUGIN_DATA"])
     (data / "sessions").mkdir(exist_ok=True)
-    (data / "sessions" / "s1.json").write_text(json.dumps({"active_task": "j1"}))
+    _session(henv, "s1", active_task="j1", prompt_scope="active_task")
     run = data / "runs" / "j1"
     run.mkdir(parents=True)
     raw = json.dumps({"domains": ["a.example"], "active": True}).encode()
@@ -144,7 +156,7 @@ def test_symlinked_state_file_fails_closed(henv, tmp_path, rel):
     (data / "sessions" / "s1").mkdir(parents=True)
     (data / "runs" / "j1").mkdir(parents=True)
     if rel != "sessions/s1.json":
-        (data / "sessions" / "s1.json").write_text(json.dumps({"active_task": "j1"}))
+        _session(henv, "s1", active_task="j1", prompt_scope="active_task")
     (tmp_path / "planted.json").write_text(json.dumps({"active_task": "j1", "ok": True, "ts": time.time()}))
     (data / rel).symlink_to(tmp_path / "planted.json")
     evt = {**bash("ls", henv["CLAUDE_PROJECT_DIR"]), "session_id": "s1"}
@@ -213,6 +225,7 @@ def test_loop_contract_root_from_config_log_first(henv, tmp_path):
 
 def test_post_tool_use_records_writes(henv):
     data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    _no_tripwire(henv)
     (data / "sessions" / "s1").mkdir(parents=True)
     (data / "sessions" / "s1" / "written.json").write_text("[]")
     for tool, key, path in (("Write", "file_path", str(ws / "a.py")), ("Edit", "file_path", "b.py"),
@@ -374,6 +387,7 @@ def test_pre_tool_use_unresolvable_bash_write_drops_the_record(henv, monkeypatch
 
 def test_post_tool_use_ignores_bash(henv):
     data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    _no_tripwire(henv)
     (data / "sessions" / "s1").mkdir(parents=True)
     (data / "sessions" / "s1" / "written.json").write_text("[]")
     evt = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": 'printf x > "$(mktemp)"'}}
@@ -463,6 +477,7 @@ def test_ctx_cwd_is_the_event_cwd_but_workspace_stays_project_dir(henv, tmp_path
 def test_post_tool_use_with_a_dropped_record_stays_strict_without_failing(henv):
     # a Bash call dropped the record (strict fallback); later writes must not make every PostToolUse exit 2
     data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    _no_tripwire(henv)
     (data / "sessions" / "s1").mkdir(parents=True)
     evt = {"session_id": "s1", "tool_name": "Write", "tool_input": {"file_path": str(ws / "a.py")}}
     assert hookmain.main("PostToolUse", evt, henv) == (0, None)

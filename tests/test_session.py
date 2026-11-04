@@ -335,3 +335,47 @@ def test_session_without_setup_settings_is_refused(ctx):
     out = session.on_start({"session_id": "s1"}, ctx)
     assert out["state"] == "REFUSED" and "/dynamic-harness:setup" in out["reason"]
     assert "sandbox.enabled" in out["reason"] and status(ctx)["ok"] is False
+
+
+# --- R-5: only approved procedures load ---
+
+
+def _skill(ctx, rel="skills/x/SKILL.md", body="# x\n"):
+    f = ctx.plugin_root / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(body)
+    return f
+
+
+def test_an_unapproved_skill_stops_the_session_as_tamper(ctx):
+    _skill(ctx)
+    baseline(ctx)  # re-record the plugin hash: the skill is not a hash mismatch, only unapproved
+    out = session.on_start({"session_id": "s1"}, ctx)
+    assert out["state"] == "STOPPED_TAMPER" and "skills/x/SKILL.md" in out["reason"]
+
+
+def test_an_approved_skill_with_its_hash_passes(ctx):
+    import hashlib
+    f = _skill(ctx)
+    (ctx.data_root / "control" / "approved_procedures.json").write_text(json.dumps({"version": 1, "procedures": [
+        {"path": "skills/x/SKILL.md", "sha256": hashlib.sha256(f.read_bytes()).hexdigest(), "approver": "op"}]}))
+    baseline(ctx)
+    assert session.on_start({"session_id": "s1"}, ctx).get("decision") != "block"
+
+
+def test_a_changed_skill_is_no_longer_approved(ctx):
+    import hashlib
+    f = _skill(ctx)
+    (ctx.data_root / "control" / "approved_procedures.json").write_text(json.dumps({"version": 1, "procedures": [
+        {"path": "skills/x/SKILL.md", "sha256": hashlib.sha256(b"# other\n").hexdigest(), "approver": "op"}]}))
+    baseline(ctx)
+    assert session.on_start({"session_id": "s1"}, ctx)["state"] == "STOPPED_TAMPER"
+
+
+def test_the_release_approves_every_shipped_skill():
+    import hashlib
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    approved = {p["path"]: p["sha256"] for p in json.loads((root / "control/defaults/approved_procedures.json").read_text())["procedures"]}
+    shipped = {str(f.relative_to(root)): hashlib.sha256(f.read_bytes()).hexdigest() for f in root.glob("skills/**/SKILL.md")}
+    assert shipped and shipped == approved

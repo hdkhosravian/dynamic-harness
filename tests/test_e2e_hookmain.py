@@ -39,6 +39,23 @@ def _setup(h):
     setup._apply(ctx, setup.plan(ctx))
 
 
+CARD = {"task_type": "data_question", "deliverable": {"kind": "answer", "description": "orders this week"},
+        "oracle": {"type": "finance.reconcile", "executable": True, "criteria": ["ties out"]},
+        "reliance": "operations", "decision_class": "none",
+        "cost_of_error": {"money_at_stake": {"amount": 0, "currency": "IRT"}},
+        "risk": {"level": "medium"}, "units": 1, "unit_definition": "the answer", "domain": "sales",
+        "provenance": {"risk": "user", "reliance": "user"}}
+
+
+def _in_task(h):
+    """A compiled T1 task, through the real prompt hook and compile writer (the T0 tripwire is then off)."""
+    from harness_core import compile as compile_
+    hookmain.main("UserPromptSubmit", {"session_id": SID, "prompt_id": "p1", "prompt": "how many orders this week?",
+                                       "cwd": str(h["ws"])}, h["env"])
+    ctx = hookmain.build_ctx({"session_id": SID}, h["env"])
+    return compile_.apply({"tool": "compile", "card": CARD}, ctx, {"session_id": SID})["job_id"]
+
+
 def start(h, env=None):
     return hookmain.main("SessionStart", {"session_id": SID, "cwd": str(h["ws"]), "source": "startup",
                                           "permission_mode": "default"}, env or h["env"])
@@ -64,6 +81,7 @@ def events(h):
 def test_running_a_file_written_this_session_is_denied(h, capsys):
     _setup(h)
     assert start(h)[0] == 0
+    _in_task(h)
     assert pre(h, "Bash", command="python3 old.py") == 0  # pre-existing file
     (h["ws"] / "x.py").write_text("print(1)\n")
     assert post(h, "Write", file_path=str(h["ws"] / "x.py"), content="print(1)\n") == 0
@@ -244,6 +262,7 @@ def test_bash_write_is_recorded_before_the_command_runs(h):
 def test_compact_keeps_the_written_record(h):
     _setup(h)
     start(h)
+    _in_task(h)
     (h["ws"] / "x.py").write_text("print(1)\n")
     assert post(h, "Write", file_path=str(h["ws"] / "x.py")) == 0
     evt = {"session_id": SID, "cwd": str(h["ws"]), "source": "compact", "permission_mode": "default"}

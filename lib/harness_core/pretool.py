@@ -1,0 +1,56 @@
+"""PreToolUse, in order (spec §Hooks: safety, lanes, contacts; build phase P3). The first deny wins.
+
+1. Pending card: while ``pending_card`` is set, only reads, harness-internal tools (TodoWrite, Skill,
+   AskUserQuestion…), a spawn of the shadow drafter, and a lone ``harness-card`` / ``harness-compile`` run.
+2. Lanes (``lanes.on_pre``), for T1/T2 tasks.
+3. Contacts: ``AskUserQuestion`` and ``harness-contact <type>`` against the cap and the 50% rule.
+4. Safety (``safety.on_pre``): the class table, egress, protected paths, the session gate. It runs last,
+   so a call denied above is never recorded as a Bash write.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from . import classes, contacts, lanes, safety, writers
+
+CARD_DRAFTER = "dynamic-harness:card-drafter-2"
+
+
+def _template(key):
+    return json.loads((Path(__file__).resolve().parents[2] / "templates" / "en.json").read_text("utf-8")).get(key, key)
+
+
+def neutral(c) -> bool:
+    """A tool with no side effect of its own (the class table marks them harness-internal)."""
+    return c.cls == "read" or c.reason.endswith("(harness-internal)")
+
+
+def _deny(reason):
+    return {"decision": "deny", "reason": reason}
+
+
+def on_pre(evt, ctx) -> dict:
+    if not isinstance(evt, dict) or not isinstance(evt.get("tool_name"), str):
+        return safety.on_pre(evt, ctx)
+    tool, ti = evt["tool_name"], evt.get("tool_input") if isinstance(evt.get("tool_input"), dict) else {}
+    lone = writers._lone_harness(ti.get("command")) if tool == "Bash" else None
+    if getattr(ctx, "pending_card", None):
+        c = classes.classify(tool, ti, ctx.connector_registry, ctx)
+        ok = (c.cls == "read" or (neutral(c) and tool != "Agent")
+              or (tool == "Agent" and ti.get("subagent_type") == CARD_DRAFTER)
+              or (lone is not None and lone[0] in ("card", "compile")))
+        if not ok:
+            return _deny(f"harness: {_template('pending_card')} ({ctx.pending_card.get('reason', 'card needed')})")
+    r = lanes.on_pre(evt, ctx)
+    if r:
+        return r
+    why = None
+    if tool == "AskUserQuestion":
+        qs = ti.get("questions")
+        why = contacts.check("ask", ctx, questions=len(qs) if isinstance(qs, list) else 99)
+    elif lone is not None and lone[0] == "contact" and lone[1] and "--accept" not in lone[1]:
+        why = contacts.check(lone[1][0], ctx, handoff="--handoff" in lone[1])
+    if why:
+        return _deny(f"harness: {why}")
+    return safety.on_pre(evt, ctx)

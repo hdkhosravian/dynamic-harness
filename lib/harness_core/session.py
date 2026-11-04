@@ -87,6 +87,31 @@ def _block(state, reason, ctx, **extra):
     return {"decision": "block", "state": state, "reason": reason, **extra}
 
 
+def unapproved_procedures(ctx) -> list:
+    """Shipped skills (``skills/**/SKILL.md``) without a matching ``approved_procedures.json`` entry. A
+    symlinked skill file never counts as approved."""
+    import hashlib
+
+    from . import protected
+    approved = {p.get("path"): p.get("sha256") for p in protected.load_control("approved_procedures.json", ctx)
+                .get("procedures", []) if isinstance(p, dict)}
+    root = Path(ctx.plugin_root)
+    bad = []
+    for base, dirs, names in os.walk(root / "skills"):
+        for n in names:
+            if n != "SKILL.md":
+                continue
+            f = Path(base) / n
+            rel = str(f.relative_to(root))
+            try:
+                ok = not os.path.islink(f) and approved.get(rel) == hashlib.sha256(f.read_bytes()).hexdigest()
+            except OSError:
+                ok = False
+            if not ok:
+                bad.append(rel)
+    return sorted(bad)
+
+
 def canary(ctx) -> bool:
     """A known-irreversible call must be denied and a plain read allowed."""
     ctx = dataclasses.replace(ctx, log=None)  # the canary's own deny is not a SAFETY_DENY
@@ -168,6 +193,9 @@ def _checks(evt, ctx) -> dict:
     if mismatch:
         return _block("STOPPED_TAMPER", f"hash mismatch against config_log.jsonl: {', '.join(mismatch)}", ctx,
                       mismatch=mismatch)
+    bad = unapproved_procedures(ctx)
+    if bad:  # R-5: every loaded procedure carries an approval record (content hash + approver)
+        return _block("STOPPED_TAMPER", f"unapproved procedures (R-5): {', '.join(bad)}", ctx, mismatch=["procedures"])
     missing = setup.verify(ctx)
     if missing:  # the Claude Code sandbox and deny rules are the boundary; without them, reads only
         return _block("REFUSED", "this folder is not set up (" + "; ".join(missing[:4])

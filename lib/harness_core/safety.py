@@ -42,6 +42,9 @@ class Ctx:
     # set by hookmain from sessions/<sid>/status.json; None = no session gate (in-process callers)
     session_ok: Optional[bool] = None
     session_reason: Optional[str] = None
+    # set by hookmain from sessions/<sid>.json (P3): a card is pending, and where this prompt belongs
+    pending_card: Optional[dict] = None
+    prompt_scope: Optional[str] = None
 
 
 def _research_exception(tool, c, ctx) -> bool:

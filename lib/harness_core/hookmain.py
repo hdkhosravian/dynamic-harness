@@ -30,10 +30,10 @@ def watchdog(event: str) -> float:
     return WATCHDOG.get(event, DEFAULT_WATCHDOG)
 
 
-HANDLERS = {"PreToolUse": ("safety", "on_pre"), "SessionStart": ("session", "on_start"),
-            "ConfigChange": ("config_guard", "on_change"), "PostToolUse": ("written", "on_post"),
+HANDLERS = {"PreToolUse": ("pretool", "on_pre"), "SessionStart": ("session", "on_start"),
+            "ConfigChange": ("config_guard", "on_change"), "PostToolUse": ("posttool", "on_post"),
             "PostToolUseFailure": ("written", "on_post"),  # a failed Write/Edit may still have written
-            "UserPromptSubmit": ("setup", "on_prompt")}
+            "UserPromptSubmit": ("prompt", "on_prompt"), "SubagentStop": ("subagent", "on_subagent_stop")}
 
 
 def _handler(event):
@@ -139,8 +139,12 @@ def build_ctx(evt: dict, env, event=None):
     ctx.settings_baseline = load(sdir / "settings_baseline.json")
     if event in (None, "PreToolUse"):  # only the classifier reads them; one workspace walk per call
         ctx.written_this_task, ctx.untrusted_files = written.session_sets(data, sid, ctx.workspace)
-    sess = load(data / "sessions" / f"{sid}.json") or {}
-    job = sess.get("active_task")
+    from . import sessionstate
+    sess = sessionstate.load(ctx, sid)  # checked against its SESSION event: an out-of-band edit is tamper
+    ctx.pending_card = sess.get("pending_card") if isinstance(sess.get("pending_card"), dict) else None
+    ctx.prompt_scope = sess.get("prompt_scope")
+    # scope rule: hooks resolve to active_task only when this prompt belongs to it
+    job = sess.get("active_task") if sess.get("prompt_scope") == "active_task" else None
     if job:
         ctx.job = written.safe_id(job, "job")
         run = data / "runs" / ctx.job
@@ -222,10 +226,6 @@ def _main(event, stdin_json, env, handlers, timeouts):
     try:
         if not isinstance(stdin_json, dict):
             return _fail("hook input is not a JSON object (fail closed)")
-        if event == "UserPromptSubmit":
-            from .setup import is_setup_prompt
-            if not is_setup_prompt(stdin_json):
-                return 0, None, None  # only /dynamic-harness:setup is handled; no state is read for other prompts
         fn = handlers.get(event) if handlers is not None else _handler(event)
         if fn is None:
             return _fail(f"no handler for hook event {event!r} (fail closed)")

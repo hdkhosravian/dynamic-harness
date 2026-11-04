@@ -240,3 +240,18 @@ def test_the_cap_is_rechecked_under_the_lock(ctx):
     with pytest.raises(Denied, match="cap"):  # record() itself refuses, whatever a caller checked before
         contacts.record(ctx, "question", "sha")
     assert contacts.state(ctx)["count"] == 5
+
+
+@pytest.mark.parametrize("text, ok", [
+    ("yes", True), ("Yes, approved.", True), ("ok go ahead with the plan", True), ("بله", True), ("باشه، تایید", True),
+    ("no, don't do it okay?", False), ("yes but not the second source", False), ("not ok", False),
+    ("نه، تایید نمی‌کنم", False), ("I approve of nothing here", False),
+])
+def test_only_a_reply_that_is_an_approval_accepts_the_plan(ctx, text, ok):
+    row = C(ctx, "plan", text="plan", plan=PLAN)
+    reply(ctx, "r", text, row["contact_id"])
+    if ok:
+        assert C(ctx, "plan", accept="r")["granted"] is True
+    else:
+        with pytest.raises(Denied):
+            C(ctx, "plan", accept="r")
