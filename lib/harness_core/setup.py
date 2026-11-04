@@ -40,6 +40,7 @@ import secrets
 import shutil
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 from .safeio import atomic_write
@@ -221,14 +222,18 @@ def _inside(entry, protected, home) -> bool:
         entry = home + entry[1:]
     elif not entry.startswith("/") or entry.startswith("//"):
         return True
-    fold = (lambda x: x.casefold()) if sys.platform == "darwin" else (lambda x: x)
-    e = fold(os.path.realpath(entry))
+    def fold(x):  # APFS normalises Unicode and ignores case; compare the way it does
+        return unicodedata.normalize("NFD", x).casefold() if sys.platform == "darwin" else x
+
+    def forms(x):  # the literal path (Claude Code may match it) and where it leads
+        return {fold(os.path.normpath(x)), fold(os.path.realpath(x))}
+
+    es = forms(entry)
     if any(c in protected for c in "*?["):
         base = re.split(r"/[^/]*[*?\[]", protected, maxsplit=1)[0]
-        pat = fold(os.path.realpath(base) + protected[len(base):]).replace("**", "*")
-        return fnmatch.fnmatchcase(e, pat) or fnmatch.fnmatchcase(e, pat + "/*")
-    p = fold(os.path.realpath(protected)).rstrip("/")
-    return e == p or e.startswith(p + "/")
+        pats = {b + fold(protected[len(base):]).replace("**", "*") for b in forms(base)}
+        return any(fnmatch.fnmatchcase(e, pat) or fnmatch.fnmatchcase(e, pat + "/*") for e in es for pat in pats)
+    return any(e == p or e.startswith(p.rstrip("/") + "/") for e in es for p in forms(protected))
 
 
 def _read(path: Path):

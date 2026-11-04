@@ -5,6 +5,7 @@ import json
 import os
 import re
 import stat
+import sys
 import time
 
 import pytest
@@ -439,3 +440,19 @@ def test_ambiguous_or_aliased_allow_entries_count_as_overlapping(ctx, tmp_path, 
 
 def test_a_plain_unrelated_allow_entry_is_kept(ctx):
     assert not setup._inside("/opt/fine", os.path.realpath(ctx.data_root), setup._home(ctx))
+
+
+def test_a_literal_path_inside_protected_counts_even_when_its_symlink_leads_away(ctx, tmp_path):
+    data = os.path.realpath(ctx.data_root)
+    (tmp_path / "away").mkdir()
+    os.symlink(tmp_path / "away", os.path.join(data, "link"))  # Claude Code may match the literal path
+    assert setup._inside(os.path.join(data, "link"), data, setup._home(ctx))
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="APFS normalises Unicode and ignores case")
+def test_unicode_normal_forms_match_on_macos(ctx, tmp_path):
+    import unicodedata
+    prot = tmp_path / unicodedata.normalize("NFD", "déjà")
+    prot.mkdir()
+    entry = str(tmp_path / unicodedata.normalize("NFC", "DÉJÀ") / "x")
+    assert setup._inside(entry, str(prot), setup._home(ctx))
