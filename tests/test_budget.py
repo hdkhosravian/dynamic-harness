@@ -17,6 +17,12 @@ def log_of(h, job):
     return p, EventLog(p.run, p.heads)
 
 
+def blocked(res):
+    """A budget stop is a JSON block (exit 0) so the owner also sees the systemMessage."""
+    code, out = res
+    return code == 2 or (out or {}).get("decision") == "block"
+
+
 def set_cap(h, job, cap):
     p, log = log_of(h, job)
     b = store.read_json(p.run, log, "budget.json")
@@ -34,8 +40,9 @@ def test_tool_calls_in_a_task_are_charged(h):
 def test_over_the_call_cap_the_task_stops_with_a_cost_contact(h, capsys):
     job = compiled(h)
     set_cap(h, job, 2)
-    codes = [post(h, "Read", file_path=str(h["ws"] / "orders.csv"))[0] for _ in range(3)]
-    assert codes == [0, 0, 2] and "Stopped, not done" in capsys.readouterr().err
+    res = [post(h, "Read", file_path=str(h["ws"] / "orders.csv")) for _ in range(3)]
+    assert [blocked(r) for r in res] == [False, False, True]
+    assert "Stopped, not done" in res[-1][1]["reason"] and res[-1][1]["systemMessage"] == res[-1][1]["reason"]
     p, log = log_of(h, job)
     assert [e for e in log.events() if e["type"] == "STOPPED"][-1]["payload"]["state"] == "STOPPED_BUDGET"
     assert sessionstate.jobs(ctx_of(h))[job]["state"] == "STOPPED_BUDGET"
@@ -82,8 +89,9 @@ def test_cost_accept_needs_the_owner_reply_and_an_approval(h):
 def test_no_new_verdict_in_40_calls_is_a_stall(h, capsys):
     job = compiled(h)
     set_cap(h, job, 1000)
-    codes = [post(h, "Read", file_path=str(h["ws"] / "orders.csv"))[0] for _ in range(budget.STALL_CALLS + 1)]
-    assert codes[-1] == 2 and "Stuck" in capsys.readouterr().err
+    res = [post(h, "Read", file_path=str(h["ws"] / "orders.csv")) for _ in range(budget.STALL_CALLS)]
+    assert not any(blocked(r) for r in res[:-1]) and blocked(res[-1])  # the 40th call without a verdict
+    assert "Stuck" in res[-1][1]["reason"]
     p, log = log_of(h, job)
     assert [e for e in log.events() if e["type"] == "STOPPED"][-1]["payload"]["state"] == "STOPPED_STALL"
 
@@ -101,7 +109,7 @@ def test_money_cap_from_transcript_usage(h, tmp_path):
     evt = {"session_id": SID, "tool_name": "Read", "tool_input": {"file_path": str(h["ws"] / "orders.csv")},
            "tool_response": {}, "cwd": str(h["ws"]), "transcript_path": str(tr)}
     from harness_core import hookmain
-    assert hookmain.main("PostToolUse", evt, h["env"])[0] == 2
+    assert blocked(hookmain.main("PostToolUse", evt, h["env"]))
     p, log = log_of(h, job)
     assert [e for e in log.events() if e["type"] == "STOPPED"][-1]["payload"]["state"] == "STOPPED_COST"
 

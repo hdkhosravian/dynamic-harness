@@ -130,15 +130,15 @@ def _owner_reply(ctx, row, accept):
 def _accept_cost(req, ctx, p, log) -> dict:
     """Continue after STOPPED_BUDGET / STOPPED_COST: a one-time increment, recorded, then RESUMED."""
     from . import budget
-    st = contacts.state(ctx)
-    rows = [r for r in st.get("rows", []) if r.get("type") == "cost"]
-    if not rows or rows[-1].get("accepted"):
-        raise Denied("there is no open cost contact to accept")
-    row = rows[-1]
-    if budget.latest_stop(log) not in ("STOPPED_BUDGET", "STOPPED_COST"):
-        raise Denied("the task is not stopped on its budget")
-    turn_id = _owner_reply(ctx, row, req["accept"])
-    with log.lock():
+    with log.lock():  # one acceptance per contact, even for parallel calls
+        st = contacts.state(ctx)
+        rows = [r for r in st.get("rows", []) if r.get("type") == "cost"]
+        if not rows or rows[-1].get("accepted"):
+            raise Denied("there is no open cost contact to accept")
+        row = rows[-1]
+        if budget.latest_stop(log) not in ("STOPPED_BUDGET", "STOPPED_COST"):
+            raise Denied("the task is not stopped on its budget")
+        turn_id = _owner_reply(ctx, row, req["accept"])
         b = store.read_json(p.run, log, "budget.json", None) or {}
         b = dict(b, calls_cap=int(b.get("calls_cap") or 0) + int(row.get("calls") or 0),
                  money_increment=float(b.get("money_increment") or 0) + float(row.get("amount") or 0),
@@ -147,8 +147,8 @@ def _accept_cost(req, ctx, p, log) -> dict:
         store.write_json(p.run, log, "budget.json", b, "BUDGET", {"increment": True})
         log.append("APPROVAL", {"kind": "cost_increment", "calls": row.get("calls"), "amount": row.get("amount"),
                                 "turn_id": turn_id, "contact_id": row["contact_id"]})
+        contacts.mark(ctx, row["contact_id"], accepted=True, accepted_turn=turn_id)
         log.append("RESUMED", {"job": p.job, "turn_id": turn_id})
-    contacts.mark(ctx, row["contact_id"], accepted=True, accepted_turn=turn_id)
     sessionstate.set_job(ctx, p.job, state="EXECUTING")
     return {"resumed": True, "contact_id": row["contact_id"], "calls": row.get("calls"), "amount": row.get("amount")}
 

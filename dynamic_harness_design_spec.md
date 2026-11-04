@@ -2300,8 +2300,22 @@ profiles:
   - returns the rework notice as a statement.
 - **Follow-ups.** A prompt that matches the session's DONE task gets a hint to copy its card with the change and set `follows`. `compile` refuses `follows` unless it names a finished task. Refused and abandoned tasks are not followed up.
 - **Decision record (R-15).** `records/<job>.jsonl` gets interim rows at resumable stops and a final row at REFUSED, DONE and STOPPED_TAMPER. It is assembled from artefacts only, and every string is redacted.
-- **Tests.** `test_lease`, `test_budget`, `test_gatehook`, `test_stopgate` and `test_state_machine` cover these paths. The suite passes on macOS and on Ubuntu 22.04 and 24.04 (`--privileged` containers, real fold_ledger, `HARNESS_REQUIRE_INTEGRATION=1`).
-- **Known gaps carried to P5.** `harness-claims fetch`, `harness-run` and packs (done mode), `templates/fa.json`, `/dynamic-harness:memory`, the business layer (which turns the money cap on) and `/dynamic-harness:status --abandon`. The R-2 end-to-end run under `claude -p` with the P4 hooks is still to do.
+- **Review fixes (P4).** An independent review found 12 issues. All are fixed, and each has a regression test in `test_p4_review.py`:
+  - Stop re-hashes `work/` against the latest `SUBMITTED` tree, so an edit after the gate needs a new gate.
+  - The lexicon lint exempts only lines the harness rendered (the state line and `opening.txt`). It removes format characters and folds text the way the probe does.
+  - RE_UNDERSTAND drops a unit only when the correction names it. A unit replaced under the same label is superseded.
+  - A `PAUSED` task runs only reads.
+  - A call that a writer refused is still charged.
+  - The cost contact stays open after a reply that is not an approval. The owner ends a stall with a plain "continue" or "yes". Two concurrent stops write one record.
+  - Stop counts blocks per rule, not per reason text, and also caps the total of mixed blocks in one request.
+  - Cost acceptance and RE_UNDERSTAND run their checks under the event-log lock.
+  - Stall progress counts units with a terminal verdict, and the stall fires on the 40th call.
+  - Only a running `subagent` background task makes Stop wait.
+  - `budget.json` and `lease.json` are left out of the gate's run/ snapshot, because the parallel main hook writes them during the gate. A `GATE_STARTED` event keeps the lease live while a gate runs.
+  - The owner sees the cost question as a `systemMessage`. A PostToolUse block with a `systemMessage` exits 0 with JSON.
+- **Card drafts.** A live `claude -p` run showed that a model could not write its card draft while a card was pending. A `.json` file directly in `.claude/loops/drafts/` is now writable while a card is pending (no symlink on the way). That run also verified the Stop hook live: it blocked a plain-text answer three times and then ended the request with "Stopped, not done".
+- **Tests.** `test_lease`, `test_budget`, `test_gatehook`, `test_stopgate`, `test_state_machine` and `test_p4_review` cover these paths. The suite passes on macOS and on Ubuntu 22.04 and 24.04 (`--privileged` containers, real fold_ledger, `HARNESS_REQUIRE_INTEGRATION=1`).
+- **Known gaps carried to P5.** `harness-claims fetch`, `harness-run` and packs (done mode), `templates/fa.json`, `/dynamic-harness:memory`, the business layer (which turns the money cap on) and `/dynamic-harness:status --abandon`. A full R-2 run under `claude -p` in a set-up folder (gate to DONE) is still to do; it needs a setup that does not touch the real user settings.
 
 ### Build decisions (P5 setup, as built in `dynamic-harness` @ `feat/p1-p2`)
 

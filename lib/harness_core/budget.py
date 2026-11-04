@@ -49,7 +49,13 @@ def _template(key, **kw):
 
 
 def _verdicts(log) -> int:
-    return sum(1 for e in log.events() if e["type"] == "ROW" and e["payload"].get("kind") in ROW_SCHEMA)
+    """Units whose latest verdict is terminal: a repeated BLOCKED on one unit is not progress."""
+    from .lease import TERMINAL
+    latest = {}
+    for e in log.events():
+        if e["type"] == "ROW" and e["payload"].get("kind") in ROW_SCHEMA:
+            latest[e["payload"]["row"]["id"]] = e["payload"]["row"].get("verdict")
+    return sum(1 for v in latest.values() if v in TERMINAL)
 
 
 def _spend(ctx, transcript, since) -> float:
@@ -88,10 +94,14 @@ def sessionstate_business(ctx) -> dict:
     return v if isinstance(v, dict) else {}
 
 
-def stop(ctx, job, state, reason, sid=None, calls=None, amount=None) -> str:
+def stop(ctx, job, state, reason, sid=None, calls=None, amount=None):
+    """The stop message, or None when another hook stopped the task first."""
     p = job_paths(ctx.data_root, ctx.workspace, job)
     log = EventLog(p.run, p.heads)
-    log.append("STOPPED", {"state": state, "reason": reason})
+    with log.lock():
+        if latest_stop(log):
+            return None
+        log.append("STOPPED", {"state": state, "reason": reason})
     sessionstate.set_job(ctx, job, state=state)
     record.write(ctx, job, state, interim=True)
     from .lease import remaining
@@ -122,7 +132,7 @@ def charge(evt, ctx) -> dict:
         b = store.read_json(p.run, log, "budget.json", None) or {}
         b = dict(b, calls=int(b.get("calls") or 0) + 1)
         seen = _verdicts(log)
-        if seen != b.get("verdicts_seen"):
+        if seen != b.get("verdicts_seen", 0):
             b.update(verdicts_seen=seen, calls_at_verdict=b["calls"])
         store.write_json(p.run, log, "budget.json", b, "BUDGET_CHARGE", {"calls": b["calls"]})
     tier = store.read_json(p.run, log, "tier.json", None) or {}
@@ -145,4 +155,7 @@ def charge(evt, ctx) -> dict:
 
 
 def _block(msg):
-    return {"decision": "block", "reason": msg}
+    if msg is None:
+        return {}
+    # the owner sees the cost question as rendered here, not the model's retelling of it
+    return {"decision": "block", "reason": msg, "systemMessage": msg}

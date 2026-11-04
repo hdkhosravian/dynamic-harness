@@ -67,6 +67,8 @@ def on_pre(evt, ctx) -> dict:
         from .paths import job_paths
         jp = job_paths(ctx.data_root, ctx.workspace, ctx.job)
         stopped = budget.latest_stop(EventLog(jp.run, jp.heads)) if jp.run.is_dir() else None
+        if stopped == "PAUSED" and not neutral(tool, classes.classify(tool, ti, ctx.connector_registry, ctx)):
+            return _deny(f"harness: task {ctx.job} is paused until the owner replies; only reads run")
         if stopped in ("STOPPED_BUDGET", "STOPPED_COST", "STOPPED_STALL"):
             c = classes.classify(tool, ti, ctx.connector_registry, ctx)
             if not (neutral(tool, c) or (lone is not None and lone[0] == "contact" and lone[1][:2] == ["cost", "--accept"])):

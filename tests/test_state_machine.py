@@ -11,7 +11,7 @@ from harness_core.errors import Denied
 from harness_core.events import EventLog
 from harness_core.ledger import Ledger
 from harness_core.paths import job_paths
-from test_budget import set_cap
+from test_budget import blocked, set_cap
 from test_gate import FakeRunner
 from test_gatehook import gate_post
 from test_p3_hooks import CARD, SID, compiled, ctx_of, h, post, say, st  # noqa: F401  (fixture h)
@@ -27,7 +27,7 @@ def log_of(h, job):
 
 
 def read(h):
-    return post(h, "Read", file_path=str(h["ws"] / "orders.csv"))[0]
+    return 2 if blocked(post(h, "Read", file_path=str(h["ws"] / "orders.csv"))) else 0
 
 
 def test_lifecycle_budget_stop_resume_gate_done(h, monkeypatch):

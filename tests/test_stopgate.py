@@ -87,7 +87,7 @@ def test_state_words_after_the_gate_block(h, monkeypatch):
 
 def test_a_running_subagent_is_a_wait_not_a_block(h):
     job = compiled(h)
-    assert stop(h, "Waiting for the researcher.", background_tasks=[{"id": "a1", "status": "running"}]) == (0, None)
+    assert stop(h, "Waiting for the researcher.", background_tasks=[{"id": "a1", "type": "subagent", "status": "running"}]) == (0, None)
     assert sessionstate.jobs(ctx_of(h))[job]["state"] == "EXECUTING" and not st(h).get("stop_blocks")
 
 

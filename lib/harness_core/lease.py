@@ -44,13 +44,28 @@ def acquire(ctx, job, sid) -> dict:
     return lease
 
 
+GATE_MAX = 1860  # the gate hook's 1800 s timeout plus slack
+
+
+def _gate_running(ctx, job) -> bool:
+    p, log = _p(ctx, job)
+    start = None
+    for e in log.events():
+        if e["type"] == "GATE_STARTED":
+            start = e["payload"].get("at")
+        elif e["type"] in ("RECEIPT", "GATE_FAILED", "TAMPER", "GATE_ENDED"):
+            start = None
+    return start is not None and time.time() - float(start) < GATE_MAX
+
+
 def status(ctx, job, sid) -> str:
     lease = read(ctx, job)
     if not lease:
         return "none"
     if lease.get("session_id") == sid:
         return "owner"
-    return "stale" if time.time() - float(lease.get("heartbeat", 0)) > float(lease.get("ttl", TTL)) else "other"
+    stale = time.time() - float(lease.get("heartbeat", 0)) > float(lease.get("ttl", TTL))
+    return "stale" if stale and not _gate_running(ctx, job) else "other"
 
 
 def _indexed_owner(ctx, job, sid) -> bool:

@@ -262,6 +262,8 @@ def _main(event, stdin_json, env, handlers, timeouts):
             return _fail(f"handler returned {type(result).__name__} (fail closed)")
         if event == "UserPromptSubmit" and result.get("decision") == "block":
             return 0, result, None  # JSON block: the reason is shown to the user, not added to context
+        if event == "PostToolUse" and result.get("decision") == "block" and result.get("systemMessage"):
+            return 0, result, None  # JSON block: the reason goes to the model, the systemMessage to the owner
         if result.get("decision") in ("deny", "block"):
             return _fail(str(result.get("reason") or "denied"))
         return 0, result, None

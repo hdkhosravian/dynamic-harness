@@ -6,7 +6,8 @@
 - the cited turn is a correction the prompt hook recorded, after the latest scope freeze;
 - card v(n+1) keeps the owner's original request; the tier only goes up;
 - scope v(n+1): a unit identical to a current one (same oracle) keeps its id and verdicts; every other unit
-  gets a new id, so nothing carries over unverified. Units not kept are ``DESCOPED_BY_USER`` citing the turn;
+  gets a new id, so nothing carries over unverified. Units not kept get a ``DESCOPE`` citing the turn: a unit
+  whose label is gone is dropped only when the turn names it; one replaced under the same label is superseded;
 - the start-question allowance resets only when the turn names a changed unit;
 - the rework notice is a statement: "This changes X of Y items; applying now."
 """
@@ -37,6 +38,11 @@ def apply(req, ctx, evt, budget_of) -> dict:
     lease.require(ctx, job, sid)
     p = job_paths(ctx.data_root, ctx.workspace, job)
     log = EventLog(p.run, p.heads)
+    with log.lock():  # the once-per-task check, the reads and the writes form one step
+        return _apply(req, ctx, st, job, p, log, budget_of)
+
+
+def _apply(req, ctx, st, job, p, log, budget_of) -> dict:
     if budget.latest_stop(log):
         raise Denied(f"task {job} is {budget.latest_stop(log)}; resume it first")
     if any(e["type"] == "RE_UNDERSTAND" for e in log.events()):
@@ -76,14 +82,21 @@ def apply(req, ctx, evt, budget_of) -> dict:
             n += 1
             rows.append(dict(u, id=f"u{n}"))
     removed = [u["id"] for u in current if u["id"] not in kept]
+    labels_now = {r["label"] for r in rows}
+    dropped = [u for u in current if u["id"] in removed and u["label"] not in labels_now]
+    unnamed = [u["id"] for u in dropped if not (_names(turn["text_norm"], u["label"]) or _names(turn["text_norm"], u["id"]))]
+    if unnamed:  # a removal is the owner's decision: the correction must name each dropped unit
+        raise Denied(f"the correction does not name {unnamed}; a unit is dropped only when the owner names it")
     changed = len(rows) - len(kept) + len(removed)
     with log.lock():
         store.write_json(p.run, log, f"card.v{version}.json", c, "CARD", {"version": version, "task_type": c["task_type"]})
         if tier != old_tier:
             t = store.read_json(p.run, log, "tier.json")
             store.write_json(p.run, log, "tier.json", dict(t, tier=tier, prev_tier=old_tier), "TIER", {"tier": tier})
-        for uid in removed:
-            log.append("DESCOPE", {"unit": uid, "turn_id": turn["turn_id"], "version": len(led._scope_events()) + 1})
+        version_s = len(led._scope_events()) + 1
+        for uid in removed:  # superseded: replaced by a changed unit with the same label, or by a new oracle
+            log.append("DESCOPE", {"unit": uid, "turn_id": turn["turn_id"], "version": version_s,
+                                   "superseded": uid not in {u["id"] for u in dropped}})
         led._write_scope(rows, Turns(ctx.data_root), removed=removed)
         b = store.read_json(p.run, log, "budget.json")
         cap = budget_of(ctx, tier, c["units"])["calls_cap"]

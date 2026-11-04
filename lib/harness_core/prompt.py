@@ -80,6 +80,26 @@ def _resume_elsewhere(ctx, sid, text, turn_id):
     return job, note
 
 
+def _open_cost(ctx, job):
+    import copy
+
+    from . import contacts
+    c = copy.copy(ctx)
+    c.job = job
+    rows = [r for r in contacts.state(c).get("rows", []) if r.get("type") == "cost"]
+    return rows[-1]["contact_id"] if rows and not rows[-1].get("accepted") else None
+
+
+def _resume_stall(ctx, p, job, turn_id):
+    log = EventLog(p.run, p.heads)
+    with log.lock():
+        b = store.read_json(p.run, log, "budget.json", None) or {}
+        store.write_json(p.run, log, "budget.json", dict(b, calls_at_verdict=int(b.get("calls") or 0)), "BUDGET",
+                         {"stall_reset": True})
+        log.append("RESUMED", {"job": job, "turn_id": turn_id})
+    sessionstate.set_job(ctx, job, state="EXECUTING")
+
+
 def _context(text):
     return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}
 
@@ -121,9 +141,22 @@ def on_prompt(evt, ctx) -> dict:
     elif open_job:
         from . import lease
         lease.heartbeat(ctx, job, sid)
-    if row.get("pending_contact_id") and open_job:
+    if open_job:
         p = job_paths(ctx.data_root, ctx.workspace, job)
         from . import budget
+        from .contact import is_approval
+        stopped = budget.latest_stop(EventLog(p.run, p.heads))
+        if stopped == "STOPPED_STALL" and is_approval(text):  # only the owner's own turn ends a stall
+            _resume_stall(ctx, p, job, turn_id)
+            sessionstate.update(ctx, sid, pending_contact_id=None, prompt_scope="active_task", request_turn=turn_id)
+            return _context(f"harness: the owner resumed task {job}; the stall count starts again.")
+        if stopped in ("STOPPED_BUDGET", "STOPPED_COST") and not is_approval(text):
+            # the cost contact stays open: a later plain "yes" can still accept it
+            sessionstate.update(ctx, sid, prompt_scope="active_task", request_turn=turn_id,
+                                pending_contact_id=_open_cost(ctx, job) or row.get("pending_contact_id"))
+            return _context(f"harness: task {job} is {stopped}; the owner has not approved continuing. Answer "
+                            "the owner, but do no work on the task.")
+    if row.get("pending_contact_id") and open_job:
         if budget.latest_stop(EventLog(p.run, p.heads)) == "PAUSED":  # never ends a budget, cost or stall stop
             EventLog(p.run, p.heads).append("RESUMED", {"job": job, "turn_id": turn_id})
             sessionstate.set_job(ctx, job, state="EXECUTING")

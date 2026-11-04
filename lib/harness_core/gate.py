@@ -33,7 +33,9 @@ AFTER_RECEIPT = {"RECEIPT", "MODEL_REGISTERED", "RECORD", "BUDGET_CHARGE", "TURN
 GATE_FILES = ("ledger.jsonl", "verdicts.jsonl", "scope.jsonl", "profile.json", "decisions.jsonl", "lexicon.json",
               "fold_receipt.json")
 CHILD_OUT = ("gate/REPORT.md", "gate/fold_receipt.json")
-NOT_COPIED = {"receipt.json", "events.jsonl", "events.jsonl.lock", *CHILD_OUT}
+# budget.json and lease.json change in the parallel main PostToolUse hook (BUDGET_CHARGE, LEASE_HEARTBEAT are
+# after-receipt events); fold_ledger never reads them
+NOT_COPIED = {"receipt.json", "events.jsonl", "events.jsonl.lock", "budget.json", "lease.json", *CHILD_OUT}
 ORACLE_TIMEOUT_MAX = 1790
 SANDBOX_TIMEOUT = 1793  # > oracle cap, < the 1795 s gate watchdog
 TEXT_SUFFIXES = {".md", ".txt", ".csv", ".json", ".html", ".tsv"}  # compared lower-cased
@@ -85,6 +87,22 @@ def _submit(paths, log) -> str:
     tree = canon.tree_sha(_files(sub), sub)
     log.append("SUBMITTED", {"tree_sha": tree})
     return tree
+
+
+def work_changed(paths, log) -> bool:
+    """True when work/ no longer equals the copy the latest gate submitted (an edit after the gate)."""
+    sub = [e for e in log.events() if e["type"] == "SUBMITTED"]
+    if not sub:
+        return True
+    work = _literal_dir(paths, paths.work)
+    tmp = Path(tempfile.mkdtemp(prefix="harness-work-"))
+    try:
+        for f in _files(work) if work else []:
+            (tmp / f.relative_to(work)).parent.mkdir(parents=True, exist_ok=True)
+            (tmp / f.relative_to(work)).write_bytes(safe_open(f, [work]))
+        return canon.tree_sha(_files(tmp), tmp) != sub[-1]["payload"]["tree_sha"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _sha_or_empty(path: Path, root: Path) -> str:

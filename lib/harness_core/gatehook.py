@@ -71,7 +71,14 @@ def run(evt, ctx) -> dict:
     prof = _profile(ctx, tier, jobs(ctx).get(job, {}).get("task_type") or "default")
     if not ctx.loop_contract_root:
         raise Denied("loop-contract is not configured (run /dynamic-harness:setup)")
-    res = gate.run_gate(p, log, load_key(ctx.data_root), prof, os.path.join(os.fspath(ctx.loop_contract_root), *FOLD))
+    import time
+    log.append("GATE_STARTED", {"at": time.time()})  # keeps the lease live for the whole gate (lease._gate_running)
+    try:
+        res = gate.run_gate(p, log, load_key(ctx.data_root), prof,
+                            os.path.join(os.fspath(ctx.loop_contract_root), *FOLD))
+    except HarnessError:
+        log.append("GATE_ENDED", {"ok": False})
+        raise
     if not res.get("ok"):
         raise HarnessError(f"gate failed (exit {res.get('code')}): {(res.get('stderr') or '')[-500:]}")
     v = gate.verify_receipt(p, log, load_key(ctx.data_root))

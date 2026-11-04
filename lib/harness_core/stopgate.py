@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
+import unicodedata
 
 from . import budget, canon, contacts, gate, pii, probe, protected, record, sessionstate
 from .errors import HarnessError, TamperError
@@ -34,23 +34,24 @@ RUNNING = ("running", "pending", "in_progress", "started")
 _ASKS = re.compile(r"[?؟]\s*$", re.M)
 
 
-def _templates() -> list:
-    t = json.loads((Path(__file__).resolve().parents[2] / "templates" / "en.json").read_text("utf-8"))
-    return [re.compile(re.sub(r"\\\{\w+\\\}", ".+", re.escape(v))) for v in t.values() if isinstance(v, str)]
+def _fold(text) -> str:
+    """Format characters (zero-width joiners, bidi marks) removed, then the probe's folding."""
+    return probe._norm("".join(ch for ch in text if unicodedata.category(ch) != "Cf"))
 
 
 def lexicon_hits(ctx, text, allowed=()) -> list:
+    """State words outside lines the harness itself rendered (``allowed``: the state line, the opening line)."""
     lex = protected.load_control("state_lexicon.json", ctx)
-    terms = gate._flat(lex.get("terms"))
+    terms = [_fold(t) for t in gate._flat(lex.get("terms")) if t]
     pats = [re.compile(("(?<!\\w)" if re.match(r"\w", t) else "") + re.escape(t) + ("(?!\\w)" if re.search(r"\w$", t)
-                       else ""), re.IGNORECASE) for t in terms if t]
-    tpl, ok = _templates(), {a.strip() for a in allowed}
+                       else "")) for t in terms]
+    ok = {_fold(a).strip() for a in allowed if a}
     hits = []
     for line in (text or "").splitlines():
-        s = line.strip()
-        if s in ok or any(p.fullmatch(s) for p in tpl):
+        s = _fold(line)
+        if s.strip() in ok:
             continue
-        hits += [m.group() for p in pats for m in p.finditer(line)]
+        hits += [m.group() for p in pats for m in p.finditer(s)]
     return sorted(set(hits))
 
 
@@ -58,7 +59,9 @@ def _running(evt) -> bool:
     bt = evt.get("background_tasks")
     if not isinstance(bt, list):
         return False
-    return any(not isinstance(t, dict) or str(t.get("status", "running")).lower() in RUNNING for t in bt)
+    # only a running subagent is a wait; a background shell job is not (Stop input: {id, type, status, ...})
+    return any(isinstance(t, dict) and t.get("type") == "subagent" and str(t.get("status", "")).lower() in RUNNING
+               for t in bt)
 
 
 def _traced(p, log, rec) -> set:
@@ -71,17 +74,21 @@ def _traced(p, log, rec) -> set:
     return set(map(str, vals)) if canon.sha256_json(vals) == rec.get("traced_set_sha") else set()
 
 
-def _block(ctx, sid, st, reason, job=None):
-    """Block, or after STALL_BLOCKS identical blocks in this request, end it as a stall."""
+def _block(ctx, sid, st, rule, reason, job=None):
+    """Block, or after STALL_BLOCKS blocks under the same rule in this request, end it as a stall. The rule,
+    not the reason text, is counted: a reworded message cannot reset the count."""
     prev = st.get("stop_blocks") or {}
-    same = prev.get("turn") == st.get("request_turn") and prev.get("reason") == reason
-    n = int(prev.get("n", 0)) + 1 if same else 1
-    if n < STALL_BLOCKS:
-        sessionstate.update(ctx, sid, stop_blocks={"turn": st.get("request_turn"), "reason": reason, "n": n})
+    here = prev.get("turn") == st.get("request_turn")
+    n = int(prev.get("n", 0)) + 1 if here and prev.get("rule") == rule else 1
+    total = int(prev.get("total", 0)) + 1 if here else 1  # alternating rules cannot loop either
+    if n < STALL_BLOCKS and total < 2 * STALL_BLOCKS:
+        sessionstate.update(ctx, sid, stop_blocks={"turn": st.get("request_turn"), "rule": rule, "n": n,
+                                                   "total": total})
         return {"decision": "block", "reason": reason}
     sessionstate.update(ctx, sid, stop_blocks=None, pending_card=None)
     if job:  # the stall record carries no question (§Turns and contacts)
-        return {"systemMessage": budget.stop(ctx, job, "STOPPED_STALL", f"the stop was blocked {n} times: {reason}")}
+        msg = budget.stop(ctx, job, "STOPPED_STALL", f"the stop was blocked {n} times: {reason}")
+        return {"systemMessage": msg or f"Stopped, not done: {reason}"}
     return {"systemMessage": f"Stopped, not done: {reason}"}
 
 
@@ -98,10 +105,10 @@ def _tamper(ctx, job, why) -> dict:
 
 def _t0(evt, ctx, sid, st, msg) -> dict:
     if st.get("pending_card"):
-        return _block(ctx, sid, st, "a task card is pending: draft it and run harness-compile before answering")
+        return _block(ctx, sid, st, "card", "a task card is pending: draft it and run harness-compile before answering")
     hits = lexicon_hits(ctx, msg)
     if hits:
-        return _block(ctx, sid, st, f"a quick answer may not use state words {hits}; rephrase without them")
+        return _block(ctx, sid, st, "lexicon", f"a quick answer may not use state words {hits}; rephrase without them")
     money = probe._hits(probe._norm(msg), protected.load_control("probe.json", ctx)["money_words"])
     if money:
         turn = st.get("request_turn")
@@ -130,15 +137,18 @@ def _job(evt, ctx, sid, st, msg, job) -> dict:
     v = gate.verify_receipt(p, log, _key(ctx))
     if not v["ok"] and v["reason"].startswith("receipt HMAC"):
         return _tamper(ctx, job, v["reason"])
+    if v["ok"] and gate.work_changed(p, log):
+        return _block(ctx, sid, st, "work", "work/ changed after the gate: run harness-gate request again", job)
     if v["ok"]:
-        hits = lexicon_hits(ctx, msg, allowed=[v["state"]])
+        opening = (p.run / "opening.txt").read_text("utf-8") if (p.run / "opening.txt").is_file() else ""
+        hits = lexicon_hits(ctx, msg, allowed=[v["state"], *opening.splitlines()])
         if hits:
-            return _block(ctx, sid, st, f"the final message uses state words {hits} outside the state line", job)
+            return _block(ctx, sid, st, "lexicon", f"the final message uses state words {hits} outside the state line", job)
         rec = json.loads(safe_open(p.run / "receipt.json", [p.run]))
         traced = _traced(p, log, rec)
         untraced = sorted({t for t, _ in quantity_tokens(msg)} - traced)
         if untraced:
-            return _block(ctx, sid, st, f"numbers {untraced[:8]} are not in the gate's traced set; cite only "
+            return _block(ctx, sid, st, "numbers", f"numbers {untraced[:8]} are not in the gate's traced set; cite only "
                                         "figures from the report", job)
         sessionstate.set_job(ctx, job, state="DONE", result=v["state"])
         record.write(ctx, job, "DONE")
@@ -147,12 +157,12 @@ def _job(evt, ctx, sid, st, msg, job) -> dict:
     if _ASKS.search(msg or ""):
         why = contacts.check("question", ctx)
         if why:
-            return _block(ctx, sid, st, f"the final message asks the owner something, but {why}", job)
+            return _block(ctx, sid, st, "question", f"the final message asks the owner something, but {why}", job)
         row = contacts.record(ctx, "question", canon.sha256_bytes(pii.redact(msg).encode("utf-8")),
                               extra={"classified": True}, recheck=False)
         sessionstate.update(ctx, sid, pending_contact_id=row["contact_id"], stop_blocks=None)
         return {}
-    return _block(ctx, sid, st, f"task {job} is not done ({v['reason']}): finish the units, run harness-gate "
+    return _block(ctx, sid, st, "not_done", f"task {job} is not done ({v['reason']}): finish the units, run harness-gate "
                                 "request, or ask the owner through harness-contact", job)
 
 
