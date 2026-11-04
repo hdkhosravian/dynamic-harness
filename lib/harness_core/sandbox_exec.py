@@ -243,6 +243,32 @@ def outer_contained():
     return _proxy_check()
 
 
+def _creatable(p) -> bool:
+    made, d = [], os.path.dirname(p)
+    while not os.path.lexists(d):
+        made.append(d)
+        d = os.path.dirname(d)
+    if not os.path.isdir(d) or os.path.islink(d):
+        return False
+    ok = False
+    try:
+        for m in reversed(made):
+            os.mkdir(m, 0o700)
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+        os.unlink(p)
+        ok = True
+    except OSError:
+        pass
+    finally:
+        for m in made:  # deepest first; a directory we did not get to create is simply absent
+            try:
+                os.rmdir(m)
+            except OSError:
+                pass
+    return ok
+
+
 def _verify_outer(deny_read, deny_write):
     """Outer mode cannot enforce deny lists itself: each one must already hold, seen from here, or None."""
     for p in map(os.fspath, deny_read):
@@ -260,15 +286,11 @@ def _verify_outer(deny_read, deny_write):
         if os.path.islink(p):
             p = os.path.realpath(p)  # writing through the link changes the target: that must be denied
         if not os.path.lexists(p):
-            if not os.path.isdir(os.path.dirname(p)):
-                continue  # parent missing too: left to the guard (creating parents to test is too invasive)
-            try:  # a missing protected name must be uncreatable, or a process that outlives the guard could add it
-                fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            except OSError:
-                continue
-            os.close(fd)
-            os.unlink(p)
-            return f"{p} can be created"
+            # a missing protected name must be uncreatable, or a process that outlives the guard could add it;
+            # missing parents are created for the test and removed again, deepest first
+            if _creatable(p):
+                return f"{p} can be created"
+            continue
         if os.path.isdir(p):
             if _data_writable([p]):
                 return f"{p} is writable"

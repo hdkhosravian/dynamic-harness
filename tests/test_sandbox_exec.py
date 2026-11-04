@@ -697,3 +697,28 @@ def test_launcher_outer_mode_keeps_the_workspace_checks(box, monkeypatch, capfdb
     monkeypatch.setattr(mod.sys, "stdin", None)
     code = mod.main(["--cwd", str(cwd / ".git" / "hooks"), "--", PY, "-I", "-c", "print(1)"])
     assert code == 2 and b"protected" in capfdbinary.readouterr().err
+
+
+def test_outer_mode_proves_a_protected_path_with_a_missing_parent(box, monkeypatch):
+    cwd, _ = box  # no .claude/ yet: .claude/settings.json is creatable here, and the probe must leave nothing
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    with pytest.raises(HarnessError, match="can be created"):
+        py("print(1)", cwd, deny_write=[cwd / ".claude" / "settings.json"])
+    assert not (cwd / ".claude").exists()
+
+
+def test_launcher_outer_mode_checks_claude_md_in_every_directory_up_to_the_project(box, monkeypatch, capfdbinary):
+    cwd, _ = box
+    (cwd / ".git").mkdir()
+    (cwd / "a" / "b").mkdir(parents=True)
+    mod = _launcher()
+    seen = {}
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    monkeypatch.setattr(sandbox_exec, "_verify_outer", lambda dr, dw: seen.setdefault("dw", list(dw)) and None)
+    monkeypatch.setattr(mod.sys, "stdin", None)
+    mod.main(["--cwd", str(cwd / "a" / "b"), "--", PY, "-I", "-c", "print(1)"])
+    real = os.path.realpath(cwd)
+    for d in (real, os.path.join(real, "a"), os.path.join(real, "a", "b")):
+        assert os.path.join(d, "CLAUDE.md") in seen["dw"] and os.path.join(d, "CLAUDE.local.md") in seen["dw"], d

@@ -112,8 +112,14 @@ def _outer(sandbox_exec, cmd, cwd, deny_read, timeout):
         print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected workspace path; refusing to run", file=sys.stderr)
         return 2
     deny_write = [os.path.join(project, n) for n in OUTER_DENY_WRITE]
-    # the cwd's own CLAUDE*.md: proving them uncreatable proves setup's **/CLAUDE*.md deny holds here
-    deny_write += [os.path.join(real_cwd, "CLAUDE.md"), os.path.join(real_cwd, "CLAUDE.local.md")]
+    # CLAUDE*.md in the cwd and each ancestor up to the project (Claude Code loads them): proving them
+    # uncreatable proves setup's **/CLAUDE*.md deny holds there
+    d = real_cwd
+    while True:
+        deny_write += [os.path.join(d, "CLAUDE.md"), os.path.join(d, "CLAUDE.local.md")]
+        if d == project or not _under(d, project):
+            break
+        d = os.path.dirname(d)
     deny_write += glob.glob(os.path.join(project, "**", "CLAUDE*.md"), recursive=True)
     home = sandbox_exec._real_home()
     deny_read = list(deny_read) + sandbox_exec.secret_dirs(os.devnull, home)[2:]  # every plugin's keys/experience
