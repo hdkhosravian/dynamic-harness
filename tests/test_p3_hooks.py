@@ -260,3 +260,46 @@ def test_skills_and_todos_run_before_setup_but_writes_do_not(tmp_path):
     assert call("TodoWrite", todos=[]) == 0
     assert call("Agent", subagent_type="dynamic-harness:data-analyst", prompt="x") == 2
     assert call("Write", file_path=str(tmp_path / "a.txt"), content="x") == 2
+
+
+# --- review of f642461 ---
+
+
+def test_a_subagent_keeps_its_task_lanes_when_the_main_prompt_moves_on(h):
+    compiled(h)
+    say(h, "What is the capital of France?", "p2")  # main thread: inline T0
+    assert st(h)["prompt_scope"] == "inline_t0"
+    # the running data-analyst still may not use web tools
+    evt = {"session_id": SID, "tool_name": "WebFetch", "tool_input": {"url": "https://docs.python.org/3/", "prompt": "x"},
+           "cwd": str(h["ws"]), "agent_type": "dynamic-harness:data-analyst", "agent_id": "a9"}
+    assert hookmain.main("PreToolUse", evt, h["env"])[0] == 2
+
+
+def test_the_task_spawn_tool_is_gated_like_agent(h):
+    say(h, "how many orders came in this week?", "p1")  # card pending
+    assert pre(h, "Task", subagent_type="general-purpose", prompt="do it") == 2
+    compiled(h, pid="p9")
+    assert pre(h, "Task", subagent_type="general-purpose", prompt="x") == 2
+
+
+@pytest.mark.parametrize("tool, inp", [
+    ("Grep", {"pattern": "toman", "path": "orders.csv"}),
+    ("Glob", {"pattern": "*.csv"}),
+    ("Bash", {"command": "cat orders.csv"}),
+])
+def test_any_data_read_on_a_money_request_trips_the_wire(h, tool, inp):
+    say(h, "what is the total amount in toman?", "p1")
+    sessionstate.update(ctx_of(h), SID, pending_card=None)
+    assert post(h, tool, **inp)[0] == 2
+
+
+@pytest.mark.parametrize("tool, inp, code", [
+    ("Skill", {"skill": "x"}, 0), ("TodoWrite", {"todos": []}, 0), ("ToolSearch", {"query": "x"}, 0),
+    ("ExitPlanMode", {}, 2), ("TaskStop", {"task_id": "x"}, 2), ("KillShell", {"shell_id": "x"}, 2),
+])
+def test_only_named_side_effect_free_tools_pass_the_session_gate(tmp_path, tool, inp, code):
+    env = {"CLAUDE_PLUGIN_DATA": str(tmp_path / "d"), "CLAUDE_PLUGIN_ROOT": str(ROOT), "HOME": str(tmp_path / "h"),
+           "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    (tmp_path / "d").mkdir()
+    assert hookmain.main("PreToolUse", {"session_id": "x", "tool_name": tool, "tool_input": inp,
+                                        "cwd": str(tmp_path)}, env)[0] == code

@@ -98,6 +98,9 @@ def unapproved_procedures(ctx) -> list:
     root = Path(ctx.plugin_root)
     bad = []
     for base, dirs, names in os.walk(root / "skills"):
+        for d in dirs:  # os.walk does not enter a symlinked directory, but Claude Code would load from it
+            if os.path.islink(Path(base) / d):
+                bad.append(str((Path(base) / d).relative_to(root)))
         for n in names:
             if n != "SKILL.md":
                 continue

@@ -379,3 +379,14 @@ def test_the_release_approves_every_shipped_skill():
     approved = {p["path"]: p["sha256"] for p in json.loads((root / "control/defaults/approved_procedures.json").read_text())["procedures"]}
     shipped = {str(f.relative_to(root)): hashlib.sha256(f.read_bytes()).hexdigest() for f in root.glob("skills/**/SKILL.md")}
     assert shipped and shipped == approved
+
+
+def test_a_symlinked_skill_directory_is_unapproved(ctx, tmp_path):
+    other = tmp_path / "elsewhere" / "evil"
+    other.mkdir(parents=True)
+    (other / "SKILL.md").write_text("# evil\n")
+    (ctx.plugin_root / "skills").mkdir()
+    (ctx.plugin_root / "skills" / "evil").symlink_to(other)
+    baseline(ctx)
+    out = session.on_start({"session_id": "s1"}, ctx)
+    assert out["state"] == "STOPPED_TAMPER" and "skills/evil" in out["reason"]

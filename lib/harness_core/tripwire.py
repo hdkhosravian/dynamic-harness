@@ -12,25 +12,38 @@ so only reads are allowed until a card compiles. For an inline T0 with an open t
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import classes, contacts, protected, sessionstate
 from .events import EventLog
 from .paths import job_paths
 
-DATA_EXT = (".csv", ".tsv", ".xlsx", ".xls", ".json", ".parquet", ".sqlite", ".db")
-
-
 def _template(key):
     root = Path(__file__).resolve().parents[2] / "templates" / "en.json"
     return json.loads(root.read_text("utf-8")).get(key, key)
 
 
+def _strings(v):
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, dict):
+        for x in v.values():
+            yield from _strings(x)
+    elif isinstance(v, list):
+        for x in v:
+            yield from _strings(x)
+
+
+_DATA = re.compile(r"(?i)\.(?:csv|tsv|xlsx|xls|json|parquet|sqlite|db)\b|\*\.(?:csv|tsv|xlsx|xls|json)")
+
+
 def _data_tool(tool, ti, ctx) -> bool:
-    if tool in ("Read", "Grep", "Glob"):
-        target = ti.get("file_path") or ti.get("path") or ti.get("pattern") or ""
-        return isinstance(target, str) and target.lower().endswith(DATA_EXT)
-    return tool.startswith("mcp__") and tool in (ctx.connector_registry or {})
+    """Any field of the call names a data file (Read/Grep/Glob paths and patterns, Bash commands…), or the
+    tool is a registered connector."""
+    if tool.startswith("mcp__") and tool in (ctx.connector_registry or {}):
+        return True
+    return any(_DATA.search(x) for x in _strings(ti))
 
 
 def on_post(evt, ctx, st) -> dict:
@@ -49,7 +62,7 @@ def on_post(evt, ctx, st) -> dict:
     limit = int(protected.load_control("tiers.json", ctx)["t0_tripwire_calls"])
     c = classes.classify(tool, ti, ctx.connector_registry, ctx)
     why = None
-    if c.cls != "read" and not c.reason.endswith("(harness-internal)"):  # TodoWrite, Skill… are no side effect
+    if c.cls != "read" and tool not in classes.NEUTRAL_TOOLS:  # TodoWrite, Skill…: no side effect
         why = f"a side-effecting call ({c.cls})"
     elif calls[key] > limit:
         why = f"more than {limit} tool calls"

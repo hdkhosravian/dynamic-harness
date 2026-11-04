@@ -108,9 +108,7 @@ def on_pre(evt, ctx: Ctx) -> dict:
         return {"decision": "deny", "reason": "malformed PreToolUse event"}
     tool = evt["tool_name"]
     c = classes.classify(tool, evt.get("tool_input"), ctx.connector_registry, ctx)
-    # harness-internal tools with no side effect of their own (Skill, TodoWrite, ToolSearch…) are reads here;
-    # spawning an agent is not
-    reads = c.cls == "read" or (c.reason.endswith("(harness-internal)") and tool not in ("Agent", "Task"))
+    reads = c.cls == "read" or tool in classes.NEUTRAL_TOOLS  # Skill, TodoWrite…: no side effect of their own
     if ctx.session_ok is False and not reads:
         why = ctx.session_reason or "no passing SessionStart status for this session"
         return _deny(tool, "session", why, f"session checks have not passed ({why}): only reads are allowed", ctx)

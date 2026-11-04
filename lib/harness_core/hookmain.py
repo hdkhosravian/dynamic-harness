@@ -143,8 +143,10 @@ def build_ctx(evt: dict, env, event=None):
     sess = sessionstate.load(ctx, sid)  # checked against its SESSION event: an out-of-band edit is tamper
     ctx.pending_card = sess.get("pending_card") if isinstance(sess.get("pending_card"), dict) else None
     ctx.prompt_scope = sess.get("prompt_scope")
-    # scope rule: hooks resolve to active_task only when this prompt belongs to it
-    job = sess.get("active_task") if sess.get("prompt_scope") == "active_task" else None
+    # scope rule: hooks resolve to active_task only when this prompt belongs to it; a subagent's calls belong
+    # to the task it was spawned in, whatever the main thread's latest prompt was
+    subagent = bool(evt.get("agent_id") or evt.get("agent_type"))
+    job = sess.get("active_task") if (sess.get("prompt_scope") == "active_task" or subagent) else None
     if job:
         ctx.job = written.safe_id(job, "job")
         run = data / "runs" / ctx.job

@@ -15,15 +15,16 @@ from pathlib import Path
 from . import classes, contacts, lanes, safety, writers
 
 CARD_DRAFTER = "dynamic-harness:card-drafter-2"
+SPAWN = ("Agent", "Task")  # Task is the older name of the same tool
 
 
 def _template(key):
     return json.loads((Path(__file__).resolve().parents[2] / "templates" / "en.json").read_text("utf-8")).get(key, key)
 
 
-def neutral(c) -> bool:
-    """A tool with no side effect of its own (the class table marks them harness-internal)."""
-    return c.cls == "read" or c.reason.endswith("(harness-internal)")
+def neutral(tool, c) -> bool:
+    """A read, or a tool named in ``classes.NEUTRAL_TOOLS`` (no side effect of its own)."""
+    return c.cls == "read" or tool in classes.NEUTRAL_TOOLS
 
 
 def _deny(reason):
@@ -37,8 +38,8 @@ def on_pre(evt, ctx) -> dict:
     lone = writers._lone_harness(ti.get("command")) if tool == "Bash" else None
     if getattr(ctx, "pending_card", None):
         c = classes.classify(tool, ti, ctx.connector_registry, ctx)
-        ok = (c.cls == "read" or (neutral(c) and tool != "Agent")
-              or (tool == "Agent" and ti.get("subagent_type") == CARD_DRAFTER)
+        ok = (neutral(tool, c)
+              or (tool in SPAWN and ti.get("subagent_type") == CARD_DRAFTER)
               or (lone is not None and lone[0] in ("card", "compile")))
         if not ok:
             return _deny(f"harness: {_template('pending_card')} ({ctx.pending_card.get('reason', 'card needed')})")

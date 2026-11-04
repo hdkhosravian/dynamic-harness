@@ -25,6 +25,7 @@ WEB = ("WebSearch", "WebFetch")
 _BROWSER = re.compile(r"(?i)browser|playwright|chrome|puppeteer")
 _PREFIX = "dynamic-harness:"
 DATA_READ = ("Read", "Grep", "Glob", "NotebookRead", "LSP")
+SPAWN = ("Agent", "Task")  # Task is the older name of the same tool
 
 
 def _deny(reason):
@@ -81,7 +82,7 @@ def on_pre(evt, ctx) -> dict:
         return _deny(f"the researcher may use only WebSearch, WebFetch and `harness-claims fetch <url>`, not {tool}")
     if _web(tool):
         return _deny(f"{tool} belongs to the researcher lane (dynamic-harness:web-researcher in an investigation)")
-    if tool == "Agent":
+    if tool in SPAWN:
         kind = ti.get("subagent_type")
         if not isinstance(kind, str) or not kind.startswith(_PREFIX):
             return _deny(f"only dynamic-harness agents may be spawned in a T1/T2 task, not {kind!r}")
@@ -105,7 +106,7 @@ def on_pre(evt, ctx) -> dict:
 
 def link_spawn(evt, ctx) -> None:
     """PostToolUse on Agent: record which agent id the recorded spawn got."""
-    if not getattr(ctx, "job", None) or evt.get("tool_name") != "Agent":
+    if not getattr(ctx, "job", None) or evt.get("tool_name") not in SPAWN:
         return
     resp = evt.get("tool_response")
     agent_id = resp.get("agentId") if isinstance(resp, dict) else None  # spike: {"agentId": "a5cf…", …}

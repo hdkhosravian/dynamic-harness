@@ -245,6 +245,9 @@ SIPS_QUERY = {"-g", "--getProperty", "-1", "--oneLine", "-h", "--help", "-H", "-
 CONFIG_PKG = {"npm", "pnpm", "yarn", "pip", "pip3"}
 CONFIG_VERBS = {"set", "delete", "unset", "edit", "rm"}
 # agent-callable CLIs from the spec's bin list; harness-hook (hook entrypoint) and the [v2] outbox/approve are excluded
+# tools with no side effect of their own: every call they lead to still passes the hooks. Named by tool,
+# never inferred from a reason string (session gate, pending-card gate, tripwire)
+NEUTRAL_TOOLS = frozenset({"Skill", "TodoWrite", "TodoRead", "ToolSearch", "ListMcpResourcesTool", "AskUserQuestion"})
 HARNESS_CLIS = {
     "probe", "card", "compile", "ledger", "gate", "contact", "business", "normalize", "answer", "claims", "model",
     "doc", "decide", "critic", "sandbox-exec", "estimate", "run", "research", "admin", "lint-user-text",
