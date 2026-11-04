@@ -280,4 +280,4 @@ ${CLAUDE_PLUGIN_DATA}/            # the model can neither read nor write this
 - [`dynamic_harness_design_spec.md`](../dynamic_harness_design_spec.md): the full design. The "Build decisions"
   sections near the end say what was built and where it differs from the draft.
 - [`INTERFACES.md`](../INTERFACES.md): the contract between modules.
-- [`spike/RESULTS.md`](../spike/RESULTS.md): the Claude Code platform facts the design relies on.
+- [`spike/RESULTS.md`](../spike/RESULTS.md): the Claude Code platform behaviour the design relies on, as measured.

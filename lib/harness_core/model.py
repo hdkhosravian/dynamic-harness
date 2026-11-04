@@ -529,40 +529,61 @@ def workbook_sheets(model, A, lang="en") -> list:
 
 
 def workbook(req):
-    """The ``model.workbook`` check: the delivered workbook's calculation cells are formulas only, it has no
-    ``#REF``, every check cell is true, and its cached values equal the engine's cells."""
-    import re as _re
+    """The ``model.workbook`` check: the delivered workbook must be the one the model builds. Its structure
+    (workbook, relationships, content types), its Calc sheet and its Checks sheet must equal, byte for byte, what
+    ``workbook_sheets`` produces from model.json and the recorded assumptions; only the Assumptions and Summary
+    sheets are compared by value. A regex over the XML would let a crafted file pass."""
+    import io
+    import zipfile
     from .checklib import safe_path
-    from .xlsx import sheet_xml
+    from .xlsx import build
     a = req.get("args") or {}
     data = safe_path(req.get("work", "work"), a.get("workbook", "forecast.xlsx")).read_bytes()
     model, A = load(req)
+    want = build(workbook_sheets(model, A, a.get("lang", "en")))
+    want_fa = build(workbook_sheets(model, A, "fa"))
     notes = []
-    calc = sheet_xml(data, 2).decode("utf-8", "replace")
-    checks = sheet_xml(data, 3).decode("utf-8", "replace")
-    if "#REF" in calc or "#REF" in checks:
-        notes.append("the workbook has #REF errors")
-    constants = []
-    for m in _re.finditer(r'<c r="([A-Z]+)(\d+)"([^>]*)>(.*?)</c>', calc, _re.S):
-        colname, row, attrs, body = m.groups()
-        if colname != "A" and int(row) > 1 and "<f>" not in body:
-            constants.append(f"{colname}{row}")
-    if constants:
-        notes.append(f"calculation cells hold constants instead of formulas: {', '.join(constants[:8])}")
-    bad = [m.group(1) for m in _re.finditer(r'<c r="([B-Z]+\d+)" t="b"[^>]*><f>[^<]*</f><v>0</v></c>', checks)]
-    if bad:
-        notes.append(f"failing check cells: {', '.join(bad[:8])}")
-    r = run(model, A)
-    cached = {}
-    for m in _re.finditer(r'<row r="(\d+)">(.*?)</row>', calc, _re.S):
-        cells = _re.findall(r'<c r="([A-Z]+)\d+"[^>]*>(?:<is><t[^>]*>([^<]*)</t></is>|<f>[^<]*</f><v>([^<]*)</v>)', m.group(2))
-        if m.group(1) == "1":
-            continue
-        line = cells[0][1] if cells and cells[0][1] else None
-        for t, (_, _, v) in enumerate(cells[1:]):
-            if line and v and t < len(r["periods"]):
-                cached[f"{line}@{r['periods'][t]}"] = Decimal(v)
-    diff = [k for k, v in r["cells"].items() if k in cached and abs(cached[k] - v) > max(abs(v) * TOL, Decimal(1))]
-    if diff:
-        notes.append(f"the workbook's values differ from the model at {diff[:5]}")
-    return ("fail" if notes else "pass"), {"calc_cells": len(cached)}, notes
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            got = {n: z.read(n) for n in z.namelist() if z.getinfo(n).file_size <= 50 * 1024 * 1024}
+            names = z.namelist()
+    except zipfile.BadZipFile:
+        return "fail", {}, ["the workbook is not a valid .xlsx file"]
+    if sorted(names) != sorted(want):
+        notes.append(f"the workbook's parts differ from the model's: {sorted(set(names) ^ set(want))[:6]}")
+    fixed = ("[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml",
+             "xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml")
+    for part in fixed:
+        if got.get(part) not in (want.get(part), want_fa.get(part)):
+            label = {"xl/worksheets/sheet2.xml": "the Calc sheet (formulas)",
+                     "xl/worksheets/sheet3.xml": "the Checks sheet"}.get(part, part)
+            notes.append(f"{label} differs from the one the model builds: rebuild it with harness-model workbook")
+    if not notes:
+        headers, rows = _first_sheet(data)
+        if headers != ["id", "label", "value", "unit", "period", "source"] or \
+                [r[0] for r in rows] != [r[0] for r in _first_sheet(_zip(want))[1]]:
+            notes.append("the Assumptions sheet does not list the model's assumptions")
+    return ("fail" if notes else "pass"), {"parts_compared": len(fixed)}, notes
+
+
+def _zip(parts) -> bytes:
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, d in parts.items():
+            z.writestr(n, d)
+    return buf.getvalue()
+
+
+def _first_sheet(data: bytes):
+    import os
+    import tempfile
+    from . import tables
+    fd, tmp = tempfile.mkstemp(suffix=".xlsx")
+    try:
+        os.write(fd, data)
+        os.close(fd)
+        return tables.read(tmp)
+    finally:
+        os.unlink(tmp)

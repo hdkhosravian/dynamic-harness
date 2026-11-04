@@ -18,7 +18,7 @@ python3 -m pytest -q
   bubblewrap `/tmp` is private, so fold_ledger must not live under `/tmp`.
 - `tests/corpus/bypass.jsonl` holds 200+ attempts to get around the safety hook, each with its expected
   decision.
-- `spike/` holds the platform spike that settled how Claude Code hooks behave, and the setup spike. See
+- `spike/` holds the probe scripts that confirm how Claude Code hooks, the sandbox and setup behave. See
   [`spike/RESULTS.md`](../spike/RESULTS.md).
 
 Lint the harness's own user-facing text (internal terms, missing keys, placeholders, Persian orthography):
@@ -42,7 +42,7 @@ skills/             executor guidance (task-card) and the packs (finance, resear
 tools/              release tooling (pack hashes, skill approvals)
 templates/          user-facing text in English (en.json) and Persian (fa.json)
 tests/              pytest suite, bypass corpus, card fixtures
-spike/              Claude Code platform spike
+spike/              Claude Code platform probes
 ```
 
 Rules the code follows:

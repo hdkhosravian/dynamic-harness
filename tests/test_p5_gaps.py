@@ -86,7 +86,18 @@ def test_a_workbook_with_a_typed_over_formula_fails_the_lint(h, sim):
     sheets[1]["rows"][1][2] = 123456  # someone typed a number over a formula
     (p.work / "forecast.xlsx").write_bytes(xlsx.to_bytes(sheets))
     res = run_req(h, check="model.workbook", inputs=(), period=None)
-    assert res["result"] == "fail" and any("constants instead of formulas" in n for n in res["notes"])
+    assert res["result"] == "fail" and any("Calc sheet (formulas) differs" in n for n in res["notes"])
+
+
+def test_a_crafted_formula_that_is_a_constant_fails_the_lint(h, sim):
+    model_cmd.apply({"tool": "model", "sub": "workbook"}, ctx_of(h), {"session_id": SID})
+    p, _ = log_of(h, sim)
+    sheets = model.workbook_sheets(MODEL, A())
+    sheets[1]["rows"][1][2] = {"f": "999999", "v": 999999}  # looks like a formula, computes nothing
+    sheets[2]["rows"][1][1] = {"f": "TRUE", "v": True, "style": "check"}  # a check that checks nothing
+    (p.work / "forecast.xlsx").write_bytes(xlsx.to_bytes(sheets))
+    res = run_req(h, check="model.workbook", inputs=(), period=None)
+    assert res["result"] == "fail" and len(res["notes"]) == 2
 
 
 def test_monte_carlo_is_seeded_justified_and_reproducible(h, sim):

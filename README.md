@@ -1,12 +1,15 @@
 # dynamic-harness
 
-dynamic-harness is a Claude Code plugin that decides how much checking each request needs, and then enforces
-it with hooks. A quick question gets a quick answer; a figure you will act on is computed by a registered
-check in a sandbox, and the task ends as "done" only when a signed receipt says what was checked.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-0.4.0-green.svg)](CHANGELOG.md)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey.svg)](docs/getting-started.md)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](docs/development.md)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.295%2B-orange.svg)](https://docs.claude.com/en/docs/claude-code)
 
-> **Status (0.4.0):** build phases P1 to P5 are complete, in English and Persian. One check is still open: a
-> full end-to-end `claude -p` run from a request to a signed "Checked" in a set-up folder. See
-> [Status](#status).
+**Checked work from Claude Code, enforced by code.** dynamic-harness is a Claude Code plugin that decides how
+much checking each request needs, and then enforces it with hooks. A quick question gets a quick answer; a
+figure you will act on is computed by a registered check in a sandbox, and the task ends as "done" only when a
+signed receipt says what was checked.
 
 ## Who it is for
 
@@ -137,18 +140,13 @@ See the [owner guide](docs/owner-guide.md).
 Persian is a first-class language, not a translation. The harness's own messages are written natively in
 Persian (`templates/fa.json`), with Persian digits. Dates use the Jalali calendar, including leap Esfand and
 your fiscal year, next to the Gregorian dates. Amounts handle Toman and Rial (1 Toman = 10 Rial), with a check
-for a ×10 mix-up. Names match across ی/ي, ک/ك and ZWNJ. Check notes appear in your language.
+for a ×10 mix-up. Names match across Arabic and Persian letter forms and ZWNJ. Check notes appear in your language.
 
-## What is new in 0.4.0
+## What is new
 
-- **Forecast workbook.** `harness-model workbook` writes `work/forecast.xlsx` from `work/model.json`: an
-  Assumptions sheet, a protected Calc sheet of formulas, a Checks sheet that repeats the cash identities as
-  formulas, and a Summary sheet. `model.workbook` lints it, and `harness-model import` accepts it back.
-- **Monte Carlo.** A `monte_carlo` block in `model.json` makes `model.recalc` report P10, P50 and P90 of the
-  final cash and the chance of running out. Every distribution needs a `why`.
-- **Rows behind a figure.** `harness-answer header` also writes them to `work/rows-<unit>.xlsx`.
-- **Check notes in your language**, English or Persian.
-- **Research stops at saturation.** After 5 searches that found nothing new, further searches are denied.
+Release 0.4.0 completes the v1 scope: domain packs, a gate that replays every check, the business layer, answer
+headers, research with fetched sources, forecasts with a formula workbook and Monte Carlo, Persian, and the
+owner commands. See the [changelog](CHANGELOG.md).
 
 ## Requirements
 
@@ -171,21 +169,17 @@ for a ×10 mix-up. Names match across ی/ي, ک/ك and ZWNJ. Check notes appear 
 | [FAQ](docs/faq.md) | Short answers |
 | [Design spec](dynamic_harness_design_spec.md) | The normative design; "Build decisions" record what was built |
 | [Interfaces](INTERFACES.md) | The contract between modules |
+| [Changelog](CHANGELOG.md) | What changed in each release |
 
-## Status
+## Status and roadmap
 
-| Phase | Scope | State |
-| --- | --- | --- |
-| P1 | Hashing, event log, ledger, scope versions, gate adapter, receipts | Done |
-| P2 | Safety hook, irreversible classes, egress, protected paths, sandbox launcher, session checks | Done |
-| P3 | Probe, card, compiler, tier selector, contacts, memory, tripwire, subagent lanes | Done |
-| P4 | Lease, budget, stall and cost stops, gate hook, Stop hook, corrections, decision records | Done |
-| P5 | Setup, packs and `harness-run`, business layer, answer header, research, models, Persian, owner commands | Done |
-| P5 | End-to-end `claude -p` run to a signed receipt in a set-up folder | Open |
-| v2 | Write connectors, approval outbox, approval matrix, automations, learning editor | Planned |
+- **Release 0.4.0** covers the full v1 scope of the [design](dynamic_harness_design_spec.md). The test suite (about
+  1,680 tests) passes on macOS and on Ubuntu 22.04 and 24.04; see [development](docs/development.md).
+- **Being verified:** a live, end-to-end `claude -p` run from a request to a signed "Checked" in a set-up folder.
+- **Next (v2):** write connectors with an approval outbox, an approval matrix, scheduled automations and a
+  learning editor.
 
-Tests: `python3 -m pytest -q` runs about 1,670 tests. They pass on macOS and on Ubuntu 22.04 and 24.04. See
-[development](docs/development.md).
+Issues and pull requests are welcome.
 
 ## Limits
 

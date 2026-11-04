@@ -1,10 +1,10 @@
 # Dynamic Harness for Claude Code: Architecture Specification
 
-*   **Author:** @Sam
-*   **Status:** Draft v2 (revised after the EGM Goldfish review; see `egm-harness-review/`)
-*   **Date:** 2026-11-04
-*   **Companion paper:** `هارنسینگ پویا برای Claude Code.md` (the rationale; this file is the normative spec)
-*   **Builds on:** loop-contract-skill v1.0.0 (https://github.com/hdkhosravian/loop-contract-skill)
+*   **Author:** Sam Khosravian
+*   **Status:** Normative design. The "Build decisions" sections at the end record how release 0.4.0 was built.
+*   **Date:** 2026-11-05
+*   **License:** MIT (see `LICENSE`)
+*   **Builds on:** [loop-contract](https://github.com/hdkhosravian/loop-contract-skill) 1.1.0 or later
 
 --------------------------------------------------------------------------------
 
@@ -97,30 +97,25 @@ configurable default in `control/defaults/*.yaml` unless it is marked
 **Release.** Requirements tagged **[v2]** become normative when that
 release ships (§Release scope).
 
-**Origin column.**
-- §n: a section of the companion paper.
-- G-n: an invariant ID in draft v1.
-- Ax / Bx-n: a finding ID in `egm-harness-review/`.
-
-| ID | Requirement | Origin |
-| --- | --- | --- |
-| R-1 | In T0, no hook other than the always-on safety hooks and the tripwire blocks or alters a tool call | G1 |
-| R-2 | A completion record ("done") exists only if the gate wrote it, with a receipt hash matching the current ledger, scope and tree | G2 |
-| R-3 | The frozen work list does not shrink silently. At the end, the units equal the latest sanctioned scope version, plus any accepted leads. Each unit ends in one of these states: PASS, PASS_FLAGGED (reason), UNVERIFIED (no executable check), BLOCKED (with reason), DESCOPED_BY_USER (citing the user turn), or an investigation verdict (§Business investigations) | G3 |
-| R-4 | No action of an irreversible class executes without a recorded approval. **v1:** every irreversible class is denied (`v1_action`; v1 connectors are read-only). The one exception is researcher-lane GETs under a per-job grant written from an answered `plan` contact (§Irreversible-action control); `test_r4_v1_action` asserts this exception. **[v2]:** the approval is bound to the hash of the exact payload (§Outbox and approval) | G4 |
-| R-5 | The executor cannot read the experience store or load an unapproved procedure. Every loaded procedure carries an approval record (content hash + approver) | G5 |
-| R-6 | Control-layer writes are *prevented* for tool writes and *detected* for all writes. Detection fails the gate and the Stop hook | G6 |
-| R-7 | At most 5 blocking contacts per task, counted by a hook. These are not counted: safety approvals, `cost` and `decision_ack` contacts, one `--handoff` per task, and follow-ups that are the owner's own replies in the same thread (§Turns and contacts). At most 3 start questions, sent in one message | §7 |
-| R-8 | `AskUserQuestion` is denied once progress reaches 50%. Progress follows §Turns and contacts: units when the scope has more than 1 unit, otherwise milestones, where 50% is the draft milestone. `decision_ack`, `cost` and before-spend contacts are exempt | §7 rule 2 |
-| R-9 | User memory is written only by a hook, from structured answer events, using a closed schema | §7 rule 4 |
-| R-10 | Every business deliverable carries a provenance block and exactly one of three **user-facing states**: **Checked** · **Done, not fully checked: <named item>** · **Partly done: N of M** (§User-facing templates and localisation). Money figures never carry a generic label. A failed check shows its reason next to the number | new |
-| R-11 | A deliverable the owner will rely on (`reliance ≠ info`) or that contains computed numbers is never T0. Every aggregate is computed by a script, never summed by the model in context | new (BQ-1, BS-1, BV-1) |
-| R-12 | Every money figure states: metric (dictionary id and version), period in the owner's calendar plus Gregorian, source and as-of date, unit and currency, and exclusions | new (BQ-3) |
-| R-13 | Every factual claim and number in a research report traces to a claim-ledger row (snapshot, verbatim quote, date, source class). A claim with no row is dropped or labelled "model knowledge, not checked" | new (BI-1, BI-6) |
-| R-14 | Every number in a model or forecast report traces to a model cell. Results are ranges with drivers and a flip point. The report states "arithmetic checked; assumptions not" | new (BS-2, BS-6) |
-| R-15 | Every terminal task writes a code-generated decision record, kept outside the workspace and exportable (§Business governance). A T0-fast answer with no card is exempt; a tripwire promotion creates the card and its record | new (BG-1) |
-| R-16 | **[v2]** Above the owner's threshold, the requester cannot approve alone. Approvals follow the approval matrix, including out-of-band approval (§Business governance). v1 has a single owner and denies every irreversible class, so R-16 does not apply in v1 | new (BG-5, BU-2) |
-| R-17 | **[v2]** No persistent automation runs without a registered Automation Spec in state LIVE, a standing approval bound to its hash, and an owner (§Automations) | new (BA-1, BG-8) |
+| ID | Requirement |
+| --- | --- |
+| R-1 | In T0, no hook other than the always-on safety hooks and the tripwire blocks or alters a tool call |
+| R-2 | A completion record ("done") exists only if the gate wrote it, with a receipt hash matching the current ledger, scope and tree |
+| R-3 | The frozen work list does not shrink silently. At the end, the units equal the latest sanctioned scope version, plus any accepted leads. Each unit ends in one of these states: PASS, PASS_FLAGGED (reason), UNVERIFIED (no executable check), BLOCKED (with reason), DESCOPED_BY_USER (citing the user turn), or an investigation verdict (§Business investigations) |
+| R-4 | No action of an irreversible class executes without a recorded approval. **v1:** every irreversible class is denied (`v1_action`; v1 connectors are read-only). The one exception is researcher-lane GETs under a per-job grant written from an answered `plan` contact (§Irreversible-action control); `test_r4_v1_action` asserts this exception. **[v2]:** the approval is bound to the hash of the exact payload (§Outbox and approval) |
+| R-5 | The executor cannot read the experience store or load an unapproved procedure. Every loaded procedure carries an approval record (content hash + approver) |
+| R-6 | Control-layer writes are *prevented* for tool writes and *detected* for all writes. Detection fails the gate and the Stop hook |
+| R-7 | At most 5 blocking contacts per task, counted by a hook. These are not counted: safety approvals, `cost` and `decision_ack` contacts, one `--handoff` per task, and follow-ups that are the owner's own replies in the same thread (§Turns and contacts). At most 3 start questions, sent in one message |
+| R-8 | `AskUserQuestion` is denied once progress reaches 50%. Progress follows §Turns and contacts: units when the scope has more than 1 unit, otherwise milestones, where 50% is the draft milestone. `decision_ack`, `cost` and before-spend contacts are exempt |
+| R-9 | User memory is written only by a hook, from structured answer events, using a closed schema |
+| R-10 | Every business deliverable carries a provenance block and exactly one of three **user-facing states**: **Checked** · **Done, not fully checked: <named item>** · **Partly done: N of M** (§User-facing templates and localisation). Money figures never carry a generic label. A failed check shows its reason next to the number |
+| R-11 | A deliverable the owner will rely on (`reliance ≠ info`) or that contains computed numbers is never T0. Every aggregate is computed by a script, never summed by the model in context |
+| R-12 | Every money figure states: metric (dictionary id and version), period in the owner's calendar plus Gregorian, source and as-of date, unit and currency, and exclusions |
+| R-13 | Every factual claim and number in a research report traces to a claim-ledger row (snapshot, verbatim quote, date, source class). A claim with no row is dropped or labelled "model knowledge, not checked" |
+| R-14 | Every number in a model or forecast report traces to a model cell. Results are ranges with drivers and a flip point. The report states "arithmetic checked; assumptions not" |
+| R-15 | Every terminal task writes a code-generated decision record, kept outside the workspace and exportable (§Business governance). A T0-fast answer with no card is exempt; a tripwire promotion creates the card and its record |
+| R-16 | **[v2]** Above the owner's threshold, the requester cannot approve alone. Approvals follow the approval matrix, including out-of-band approval (§Business governance). v1 has a single owner and denies every irreversible class, so R-16 does not apply in v1 |
+| R-17 | **[v2]** No persistent automation runs without a registered Automation Spec in state LIVE, a standing approval bound to its hash, and an owner (§Automations) |
 
 ## Deployment surface and actors
 
@@ -726,7 +721,7 @@ copies.
   again. It also runs with `--allow-blocked = units`. That covers any PARTIAL
   state, too many BLOCKED units, or every unit BLOCKED. The receipt is
   written, and the state line shows the failed check next to the figure
-  (GL-7).
+ .
 
 `fold.project()` writes rows only for units with a terminal harness state.
 Open units have no row and are listed as remaining. `--remaining` exit 1
@@ -1722,7 +1717,7 @@ English, never machine-translated. The English versions:
     silently.
 - **Localisation and normalisation** (deterministic, in code, before any
   matching or arithmetic):
-  - Persian, Arabic and Latin digits; ی/ي and ک/ك; ZWNJ.
+  - Persian, Arabic and Latin digits; the Arabic and Persian forms of the letters yeh and kaf; ZWNJ.
   - Jalali dates, including Esfand in leap years. The fiscal year starts
     Farvardin 1 unless the profile says otherwise.
   - Mixed RTL/LTR text in cards (tested).
@@ -1771,11 +1766,11 @@ English, never machine-translated. The English versions:
 | E. loop-contract triage as is | Already exists | Prose only; no T1; no enforcement | It is extended, not replaced |
 | F. Harness²-style online evolution | Can improve per task | Not better than test-time scaling at equal budget on Terminal-Bench (2607.12227); needs a large budget | Future work |
 | G. LLM judge as the oracle | Covers non-code work | JudgeBench: many strong models are only slightly better than random; self-preference | The critic is V1 only, with binary criteria and a label |
-| H. All irreversible actions at the end (paper v1) | Least interruption | Breaks dependent work; certifies effects that have not happened | Replaced by the two lanes |
+| H. All irreversible actions at the end (earlier draft) | Least interruption | Breaks dependent work; certifies effects that have not happened | Replaced by the two lanes |
 | I. Two tiers instead of three | Simpler | Single-session verified work would pay for the full contract | Three tiers kept; T1 is the common business case |
 | J. Chat with Projects (the owner's default) | No setup; writes one-off documents without setup | No reconciliation, no approval binding, no persistent business rules, no receipts | Compete on relied-on numbers, sends and rules, not on writing (stage 8) |
 | K. Zapier/Make for recurring work | Deterministic, cheap per run | Building flows needs skill; no judgement steps | Automations compile to deterministic scripts where possible; this harness builds and verifies them |
-| L. Tier by side effects only (paper v1) | Simple | A read-only answer the owner relies on (cash, tax) gets no check | Replaced by reliance-aware selection (R-11) |
+| L. Tier by side effects only (earlier draft) | Simple | A read-only answer the owner relies on (cash, tax) gets no check | Replaced by reliance-aware selection (R-11) |
 
 --------------------------------------------------------------------------------
 
@@ -1819,7 +1814,7 @@ previous one passes.
 | 3 | Card and tier accuracy | Tier confusion matrix; under-classification of irreversible, multi-unit and decision-grade tasks | Upper 95% bound ≤ 3% for under-classification; over-classification ≤ 20%; per-field Krippendorff α ≥ 0.67 between 2 labellers | ≈ 400 real requests, stratified by task type | Shadow |
 | 3b | Two-draft value | AUROC of draft disagreement for predicting card error | ≥ 0.70 to keep the second draft | same set | Shadow |
 | 3c | Card ablation | Task outcome with a correct card vs a wrong card vs no card, on the same tasks (measures the cost of under-classification) | Wrong-card regret ≤ ε (set before the run) | ≥ 60 tasks × 3 arms | Offline replay |
-| 4 | Verifier sensitivity | Detection recall per error class; false alarms on clean outputs | Recall ≥ 80%, false alarms ≤ 10%. Business traps: the output must *report* the trap, recall ≥ 95%; 100% for the Toman/Rial ×10 and period classes (GL-7) | ≥ 30 plants per class, written by someone other than the verifier's author. **Classes:** calculation; formula; wrong file; Toman/Rial ×10; Jalali fiscal boundary and leap Esfand; ی/ي name variant; Persian-digit dates; missing dates; disagreeing sources; stale export; transfer between own accounts counted as revenue; fabricated citation; real citation that does not support the claim; stale source; prompt-injected page; syndicated copy counted as independent; contradicting sources; overfit forecast; extrapolation beyond the history | Offline |
+| 4 | Verifier sensitivity | Detection recall per error class; false alarms on clean outputs | Recall ≥ 80%, false alarms ≤ 10%. Business traps: the output must *report* the trap, recall ≥ 95%; 100% for the Toman/Rial ×10 and period classes | ≥ 30 plants per class, written by someone other than the verifier's author. **Classes:** calculation; formula; wrong file; Toman/Rial ×10; Jalali fiscal boundary and leap Esfand; Arabic/Persian letter variant in a name; Persian-digit dates; missing dates; disagreeing sources; stale export; transfer between own accounts counted as revenue; fabricated citation; real citation that does not support the claim; stale source; prompt-injected page; syndicated copy counted as independent; contradicting sources; overfit forecast; extrapolation beyond the history | Offline |
 | 4b | Business requirements | R-11…R-15 (v1): selector vs taxonomy table, answer header, claim trace, cell trace, decision record. R-16 and R-17 are added with v2 (`test_approvals.py`, `test_automations.py`) | 100% pass | `test_tier.py`, `test_business_traps.py`, `test_claims.py`, `test_model_checks.py`, `test_records.py` | Offline |
 | 5 | Shadow on real work | Would-block and would-ask events logged; would-block precision and recall vs operator labels; false-block rate; gate verdict vs later rework | False blocks ≤ 2%; ≥ 4 weeks; ≥ 50 tasks per tier | — | Shadow |
 | 6 | Equal-budget comparison | Win = passes an executable oracle, or a blind human preference; budget = total tokens including harness overhead | Harness ≥ raw on wins, with a paired sign test at p < 0.05 | ≈ 90 pairs | Live |
@@ -1836,28 +1831,11 @@ project plan.
 | 5 | operator review about 2 h per week | normal usage | ≥ 4 weeks |
 | 6–8 | pilot coordination; diaries | normal usage plus the baseline arms | 6–8 weeks |
 
-**Simulation (paper Appendix A).**
-- It is illustrative of structure only, until the code and priors are
-  published.
-- Required before any number is cited:
-  - a pre-registered utility U = value − λ·interruptions − Σ P(wrong
-    assumption)·cost;
-  - a frozen policy evaluated on held-out priors written by someone else;
-  - results per task type with confidence intervals, plus a λ sweep;
-  - a falsification rule: the claim fails if the policy is not within δ of
-    the best on ≥ 70% of held-out configurations;
-  - a user model that includes late replies, absent replies, partial
-    replies, changes of mind, blind approval, and phone versus desktop use;
-  - task types for investigation, forecasting, recurring work and decision
-    support.
-- Shadow mode cannot measure interruptions; stage 7 does.
-
 ## Open Questions
 
 | ID | Question | Decision criterion / owner |
 | --- | --- | --- |
 | OQ-1 | Deployment surface: Desktop/Cowork/CLI (assumed v1) vs an Agent SDK host | Owner; decide **before stage 1**, using the OQ-4 support matrix (hooks, sandbox, managed settings, `AskUserQuestion` on each surface) |
-| OQ-2 | Simulation code and priors: publish, or keep the result "illustrative" | Author; before the paper is submitted |
 | OQ-3 | Contact cap 5 and start questions 3: keep, or tune from the pilot | Stage 7 data |
 | OQ-4 | Platform behaviours: **resolved by the spike** (§Hooks, platform facts). Not yet tested: expiry at exactly 1800 s, and whether a ConfigChange hook can block a change | Re-run `spike/run_spike.sh` on each Claude Code upgrade |
 | OQ-5 | Second card draft: keep or drop | Stage 3b AUROC ≥ 0.70 |
@@ -2042,8 +2020,8 @@ mode it logs what it would have done without blocking anything.
 #### 8. `harness/templates/{en,fa}.json` (Create)
 *   **Type / Scope:** User-facing strings, in the form `{moment_id: string}`.
 *   **Proposed Changes:** Every template in §User-facing templates and
-    localisation. The Persian file is written natively under the
-    persian-writing skill. The lint runs on these files only.
+    localisation. The Persian file is written natively, never machine-translated.
+    The lint runs on these files only.
 
 #### 9. `harness/commands/*.md` (Create)
 *   **Type / Scope:** Slash commands. `setup`, `business`, `config`, `memory`,
@@ -2448,7 +2426,7 @@ profiles:
   - every agent-given file name in a check resolves inside the check's box (`checklib.safe_path`), so a check
     cannot read, or answer yes/no about, files outside it;
   - the answer header names its control source by file, never by model text; the lexicon catches the spaced
-    Persian forms ("بررسی شده", "تایید شده");
+    Persian forms of the state words;
   - a check must measure something: the control may not be the figure's own file; the second path is a
     partition identity (rows used plus every row set aside equal the file's total, summed apart); a document
     check needs required items; a research unit needs load-bearing claims, cited price and law claims are
@@ -2493,4 +2471,3 @@ profiles:
 *   **E2E:** `pytest harness/tests/e2e -m e2e`. Needs `claude` on PATH.
 *   **Dependencies (pinned, vendored):** `openpyxl` and `formulas`, used for spreadsheet writing and the independent recompute. JSON Schema validation uses the stdlib subset validator `harness_core.schema`. Everything else is stdlib.
 
-*Drafted with EGM*

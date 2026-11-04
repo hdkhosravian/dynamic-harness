@@ -165,7 +165,7 @@ Persian is supported natively, not through translation:
   dates.
 - Amounts in Toman and Rial are told apart from column headers and labels. 1 Toman is 10 Rial, and a total
   that jumps ten times against the prior period is flagged as a possible Toman/Rial mix-up.
-- Names are matched across Persian and Arabic letter forms (ی/ي, ک/ك), ZWNJ and Persian, Arabic or Latin
+- Names are matched across Persian and Arabic letter forms (yeh and kaf), ZWNJ and Persian, Arabic or Latin
   digits.
 
 The language comes from your profile's `language`, else from your latest message. If you write in Persian,
