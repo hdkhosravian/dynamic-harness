@@ -34,7 +34,8 @@ HANDLERS = {"PreToolUse": ("pretool", "on_pre"), "SessionStart": ("session", "on
             "ConfigChange": ("config_guard", "on_change"), "PostToolUse": ("posttool", "on_post"),
             "PostToolUseFailure": ("written", "on_post"),  # a failed Write/Edit may still have written
             "UserPromptSubmit": ("prompt", "on_prompt"), "SubagentStop": ("subagent", "on_subagent_stop"),
-            "SubagentStart": ("lanes", "on_subagent_start")}
+            "SubagentStart": ("lanes", "on_subagent_start"),
+            "gate": ("gatehook", "on_post")}  # PostToolUse --gate: its own 1800 s hooks.json entry
 
 
 def _handler(event):

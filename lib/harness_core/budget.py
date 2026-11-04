@@ -37,7 +37,7 @@ def latest_stop(log):
         if e["type"] == "STOPPED" and e["payload"].get("state") in STOPS:
             state = e["payload"]["state"]
         elif e["type"] == "PAUSED":
-            state = "PAUSED"
+            state = state or "PAUSED"  # a pause never masks a budget, cost or stall stop
         elif e["type"] == "RESUMED":
             state = None
     return state
@@ -101,7 +101,9 @@ def stop(ctx, job, state, reason, sid=None, calls=None, amount=None) -> str:
     if state in ("STOPPED_BUDGET", "STOPPED_COST"):
         more = f"{amount:.2f} {sessionstate_business(ctx).get('caps', {}).get('currency', '')}".strip() if amount \
             else f"{calls} more tool calls"
-        row = contacts.record(ctx, "cost", "", recheck=False, extra={"calls": calls, "amount": amount})
+        from .turns import Turns
+        seq = (Turns(ctx.data_root).latest() or {}).get("seq", 0)  # only a later reply can accept it
+        row = contacts.record(ctx, "cost", "", recheck=False, extra={"calls": calls, "amount": amount, "turn_seq": seq})
         if sid:
             sessionstate.update(ctx, sid, pending_contact_id=row["contact_id"])
         return _template("stopped_budget", done=done, total=total, more=more)

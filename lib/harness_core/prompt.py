@@ -120,8 +120,9 @@ def on_prompt(evt, ctx) -> dict:
         from . import lease
         lease.heartbeat(ctx, job, sid)
     if row.get("pending_contact_id") and open_job:
-        if sessionstate.jobs(ctx).get(job, {}).get("state") == "PAUSED":
-            p = job_paths(ctx.data_root, ctx.workspace, job)
+        p = job_paths(ctx.data_root, ctx.workspace, job)
+        from . import budget
+        if budget.latest_stop(EventLog(p.run, p.heads)) == "PAUSED":  # never ends a budget, cost or stall stop
             EventLog(p.run, p.heads).append("RESUMED", {"job": job, "turn_id": turn_id})
             sessionstate.set_job(ctx, job, state="EXECUTING")
         sessionstate.update(ctx, sid, pending_contact_id=None, prompt_scope="active_task", request_turn=turn_id)

@@ -104,3 +104,36 @@ def test_money_cap_from_transcript_usage(h, tmp_path):
     assert hookmain.main("PostToolUse", evt, h["env"])[0] == 2
     p, log = log_of(h, job)
     assert [e for e in log.events() if e["type"] == "STOPPED"][-1]["payload"]["state"] == "STOPPED_COST"
+
+
+def test_a_reply_before_the_stop_cannot_accept_the_cost_contact(h):
+    job = compiled(h)
+    set_cap(h, job, 1)
+    post(h, "Read", file_path=str(h["ws"] / "orders.csv"))
+    post(h, "Read", file_path=str(h["ws"] / "orders.csv"))
+    p, log = log_of(h, job)
+    row = store.read_json(p.run, log, "contacts.json")["rows"][-1]
+    assert row["turn_seq"] >= 1  # the stop records the latest turn; "p1" (the request) is not a reply
+    with pytest.raises(Denied):
+        contact.apply({"tool": "contact", "type": "cost", "accept": "p1"}, ctx_of(h), {"session_id": SID})
+
+
+def test_while_stopped_only_the_cost_accept_runs(h):
+    job = compiled(h)
+    set_cap(h, job, 1)
+    post(h, "Read", file_path=str(h["ws"] / "orders.csv"))
+    post(h, "Read", file_path=str(h["ws"] / "orders.csv"))
+    assert pre(h, "Bash", command="harness-contact question --text hi") == 2
+    with pytest.raises(Denied, match="only its cost contact"):
+        contact.apply({"tool": "contact", "type": "question", "text": "q", "handoff": True}, ctx_of(h),
+                      {"session_id": SID})
+
+
+def test_a_pause_never_masks_a_budget_stop(h):
+    job = compiled(h)
+    set_cap(h, job, 1)
+    post(h, "Read", file_path=str(h["ws"] / "orders.csv"))
+    post(h, "Read", file_path=str(h["ws"] / "orders.csv"))
+    p, log = log_of(h, job)
+    log.append("PAUSED", {"job": job})
+    assert budget.latest_stop(log) == "STOPPED_BUDGET"

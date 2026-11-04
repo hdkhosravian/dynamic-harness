@@ -1,0 +1,19 @@
+#!/usr/bin/python3 -I
+"""harness-gate request
+
+Only prints a request; the gate hook (PostToolUse, its own 1800 s entry) runs the gate for the open task and
+writes the receipt. Run it after the last ledger row and any decision_ack contact."""
+import json
+import sys
+
+
+def main(argv):
+    if argv != ["request"]:
+        print(__doc__, file=sys.stderr)
+        return 2
+    print(json.dumps({"tool": "gate", "action": "request"}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

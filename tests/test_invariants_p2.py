@@ -40,7 +40,9 @@ def test_r1_hooks_json_registers_only_safety_entry_points():
     for event, entries in hooks.items():
         for e in entries:
             for h in e["hooks"]:
-                assert h["command"].startswith("/usr/bin/python3 -I ") and h["command"].endswith(f"harness-hook\" {event}")
+                assert h["command"].startswith("/usr/bin/python3 -I ")
+                assert h["command"].endswith(f"harness-hook\" {event}") or (
+                    event == "PostToolUse" and h["command"].endswith('harness-hook" PostToolUse --gate'))
 
 
 @pytest.mark.parametrize(

@@ -55,8 +55,9 @@ def on_pre(evt, ctx) -> dict:
         stopped = budget.latest_stop(EventLog(jp.run, jp.heads)) if jp.run.is_dir() else None
         if stopped in ("STOPPED_BUDGET", "STOPPED_COST", "STOPPED_STALL"):
             c = classes.classify(tool, ti, ctx.connector_registry, ctx)
-            if not (neutral(tool, c) or (lone is not None and lone[0] == "contact")):
-                return _deny(f"harness: task {ctx.job} is {stopped}: only reads and harness-contact until it resumes")
+            if not (neutral(tool, c) or (lone is not None and lone[0] == "contact" and lone[1][:2] == ["cost", "--accept"])):
+                return _deny(f"harness: task {ctx.job} is {stopped}: only reads and harness-contact cost --accept "
+                             "until it resumes")
         from . import lease
         if lease.status(ctx, ctx.job, evt.get("session_id")) in ("other", "stale"):
             c = classes.classify(tool, ti, ctx.connector_registry, ctx)

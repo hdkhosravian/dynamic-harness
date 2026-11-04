@@ -82,6 +82,9 @@ def apply(req, ctx, evt) -> dict:
         raise Denied("cost contacts are written by the budget hook; answer one with harness-contact cost --accept")
     p = job_paths(ctx.data_root, ctx.workspace, job)
     log = EventLog(p.run, p.heads)
+    from . import budget
+    if kind != "cost" and budget.latest_stop(log) in budget.STOPS[:3]:
+        raise Denied(f"task {job} is {budget.latest_stop(log)}: only its cost contact can be answered")
     if req.get("accept"):
         return _accept_cost(req, ctx, p, log) if kind == "cost" else _accept(req, ctx, p, log)
     handoff = req.get("handoff") is True
@@ -109,13 +112,14 @@ def apply(req, ctx, evt) -> dict:
 
 
 def _owner_reply(ctx, row, accept):
+    after = int(row.get("turn_seq") or 0)
     if accept == "latest":
-        replies = [r for r in Turns(ctx.data_root)._rows()
-                   if r.get("pending_contact_id") == row["contact_id"] and not r.get("system")]
+        replies = [r for r in Turns(ctx.data_root)._rows() if r.get("pending_contact_id") == row["contact_id"]
+                   and not r.get("system") and r.get("seq", 0) > after]
         if not replies:
             raise Denied(f"the owner has not replied to contact {row['contact_id']}")
         accept = replies[-1]["turn_id"]
-    turn = Turns(ctx.data_root).cite(accept)
+    turn = Turns(ctx.data_root).cite(accept, after_seq=after)
     if turn.get("pending_contact_id") != row["contact_id"]:
         raise Denied(f"turn {accept} is not the owner's reply to contact {row['contact_id']}")
     if not is_approval(turn["text_norm"]):

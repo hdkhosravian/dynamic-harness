@@ -1,5 +1,5 @@
 {
-  "description": "Dynamic harness safety hooks. /usr/bin/python3 -I (absolute: no PATH lookup, no user site-packages); hookmain watchdog = timeout - 1 s (gate/fetch: - 5 s); any handler failure exits 2; onFailure=block makes crashes/timeouts block (needs Claude Code >= 2.1.295, OQ-4 spike S1). Files written this session (sessions/<sid>/written.json): PreToolUse records Bash write targets before the command runs; PostToolUse and PostToolUseFailure record Write/Edit/MultiEdit/NotebookEdit. UserPromptSubmit records every turn, routes it (setup, contact reply, open task, inline T0, new) and runs the probe and pre-filter; /dynamic-harness:setup is blocked so the model never sees it. PreToolUse runs the pending-card gate, lanes, contacts, then safety. PostToolUse (every tool) runs written-file records, the writers and the tripwire. SubagentStop records harness subagents and researcher claim rows.",
+  "description": "Dynamic harness safety hooks. /usr/bin/python3 -I (absolute: no PATH lookup, no user site-packages); hookmain watchdog = timeout - 1 s (gate/fetch: - 5 s); any handler failure exits 2; onFailure=block makes crashes/timeouts block (needs Claude Code >= 2.1.295, OQ-4 spike S1). Files written this session (sessions/<sid>/written.json): PreToolUse records Bash write targets before the command runs; PostToolUse and PostToolUseFailure record Write/Edit/MultiEdit/NotebookEdit. UserPromptSubmit records every turn, routes it (setup, contact reply, open task, inline T0, new) and runs the probe and pre-filter; /dynamic-harness:setup is blocked so the model never sees it. PreToolUse runs the pending-card gate, lanes, contacts, then safety. PostToolUse (every tool) runs written-file records, the writers and the tripwire. A second PostToolUse entry (matcher Bash, 1800 s) runs the gate on a lone harness-gate request and returns at once for any other command. SubagentStop records harness subagents and researcher claim rows.",
   "hooks": {
     "PreToolUse": [
       {
@@ -22,6 +22,17 @@
             "type": "command",
             "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PostToolUse",
             "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PostToolUse --gate",
+            "timeout": 1800,
             "onFailure": "block"
           }
         ]
