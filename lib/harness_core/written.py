@@ -103,7 +103,8 @@ def start(data_root, sid, workspace, run=subprocess.run, source="startup") -> No
                 os.unlink(sdir / "written.json")
         atomic_write(sdir / "started.json", json.dumps({"ctime_ns": time.time_ns()}).encode())  # before the snapshot
         snap = {}
-        for p in tracked_files(workspace, run):
+        # baseline lost: a fresh snapshot would trust tracked files the agent already changed, so trust none
+        for p in tracked_files(workspace, run) if fresh else ():
             try:
                 snap[p] = _ctime(p)
             except OSError:
@@ -155,7 +156,7 @@ def on_post(evt, ctx) -> dict:
     path = (evt.get("tool_input") or {}).get(key)
     if isinstance(path, str) and path and not os.path.isabs(path):
         path = os.path.join(os.fspath(ctx.workspace), path)
-    if not _append(ctx.data_root, evt.get("session_id"), [path if isinstance(path, str) and path else None]):
+    if not _append(ctx.data_root, evt.get("session_id"), [path if isinstance(path, str) and path else None], True):
         raise ValueError(f"{evt.get('tool_name')}: write not recordable; record dropped (strict fallback)")
     return {}
 
@@ -175,7 +176,8 @@ def _expand(rec) -> set:
     for r in rec:
         if os.path.isdir(r) and not os.path.islink(r):
             # shortcut: walks each recorded directory per call; a huge destination can hit the 4 s watchdog (deny)
-            for base, _, names in os.walk(r):
+            for base, dirs, names in os.walk(r):
+                dirs[:] = [d for d in dirs if d != ".git"]  # as _scan: git's own files are not workspace code
                 out.update(os.path.realpath(os.path.join(base, n)) for n in names)
     return out
 

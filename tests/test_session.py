@@ -298,3 +298,22 @@ def test_non_startup_without_a_record_stays_strict(ctx):
     session.on_start({"session_id": "s2", "source": "fork"}, ctx)
     sdir = ctx.data_root / "sessions" / "s2"
     assert not (sdir / "written.json").exists() and (sdir / "tracked.json").exists()
+
+
+def test_non_startup_with_a_lost_baseline_trusts_no_tracked_file(tmp_path):
+    # tracked.json present, started.json lost (pre-upgrade session): a re-snapshot would trust files the agent changed
+    import subprocess
+    from harness_core import written
+
+    ws, data = tmp_path / "ws", tmp_path / "data"
+    ws.mkdir()
+    data.mkdir()
+    (ws / "foo.py").write_text("")
+    git = lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=b"foo.py\0")
+    written.start(data, "s1", ws, run=git, source="startup")
+    sdir = data / "sessions" / "s1"
+    assert json.loads((sdir / "tracked.json").read_text())  # foo.py is tracked
+    (sdir / "started.json").unlink()
+    written.start(data, "s1", ws, run=git, source="resume")
+    assert json.loads((sdir / "tracked.json").read_text()) == {}
+    assert not (sdir / "written.json").exists()

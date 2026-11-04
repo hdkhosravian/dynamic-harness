@@ -217,7 +217,7 @@ DANGEROUS_ENV = {
     "LESSCLOSE", "LESS", "LESSKEY", "MANPAGER", "MANOPT", "BROWSER", "GIT_EXTERNAL_DIFF", "GIT_EDITOR",
     "GIT_SEQUENCE_EDITOR", "GIT_ASKPASS", "SSH_ASKPASS",
 }
-DANGEROUS_ENV_PREFIXES = ("DYLD_", "LD_", "GIT_TRACE")
+DANGEROUS_ENV_PREFIXES = ("DYLD_", "LD_", "GIT_TRACE", "PYTEST_")  # PYTEST_ADDOPTS/PLUGINS add discovery roots
 SYSTEM_DIRS = ("/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/libexec", "/opt/homebrew/bin", "/System")
 DEV_OK = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "/dev/zero"}
 
@@ -763,6 +763,8 @@ class _Bash:
         listed = {os.path.realpath(os.fspath(x)) for x in getattr(self.ctx, "written_this_task", ()) or ()}
         if p in listed or p in self.written or p in self.untrusted():  # maintainer R4
             return True
+        if any(w.endswith("/") and p.startswith(w) for w in self.track.writes):  # a dir filled earlier in this command
+            return True
         if protected.is_scratch(p, self.ctx) and os.path.lexists(p):  # pathtrack rule 4: job folders are agent-written
             return True
         started = getattr(self.ctx, "task_started", None)
@@ -780,13 +782,13 @@ class _Bash:
         Makefile) in one of the root's ancestor directories.
         """
         listed = [os.fspath(x) for x in getattr(self.ctx, "written_this_task", ()) or ()]
-        if any(_code_like(p) for p in list(self.written) + listed):
+        if any(_code_like(p) for p in list(self.written) + listed) or any(w.endswith("/") for w in self.track.writes):  # a filled dir may hold code
             return True
         code = [p for p in self.untrusted() if _code_like(p)]
         if not code:
             return False
-        if None in self.cwds:
-            return True  # unknown cwd: fail closed
+        if None in self.cwds or any(a.startswith("@") for a in args):
+            return True  # unknown cwd, or arguments read from a file (pytest @args.txt): fail closed
         roots = list(self.cwds)
         for a in args:
             for part in (a, a.split("=", 1)[-1]) + ((a[2:],) if re.match(r"-[A-Za-z].", a) else ()):
@@ -1169,12 +1171,23 @@ class _Bash:
                 break
             if name == "env" and a in ("-S", "--split-string") and i + 1 < len(rest):
                 return self.nested(rest[i + 1] + " " + " ".join(shlex.quote(x) for x in rest[i + 2:]))
-            if name == "env" and (a in ("-C", "--chdir") or a.startswith("--chdir=")):
+            if name == "env" and (a in ("--chdir", "-C") or a.startswith("--chdir=")):
                 d = a.split("=", 1)[1] if "=" in a else (rest[i + 1] if i + 1 < len(rest) else None)
                 if d is None:
                     return self.add("unknown", "env -C without a directory")
                 self.dispatch("cd", ["cd", d], stdin_code, stdin_file, dynamic)  # inner command runs in d
                 i += 1 if "=" in a else 2
+                continue
+            if name == "env" and re.fullmatch(r"-[^-].+", a):  # a short cluster such as -iC DIR or -C/dir
+                m = re.fullmatch(r"-[i0v]*(?:([CuP])(.*))?", a)
+                if not m:
+                    return self.add("unknown", f"env option {a!r} is not understood")
+                if m.group(1) == "C":
+                    rest = rest[:i] + ["-C"] + ([m.group(2)] if m.group(2) else []) + rest[i + 1:]
+                elif m.group(1):
+                    i += 1 if m.group(2) else 2
+                else:
+                    i += 1
                 continue
             if name == "env" and _ASSIGN.match(a):
                 n = a.split("=", 1)[0]
@@ -1537,8 +1550,16 @@ class _Bash:
 
     def find(self, rest):
         starts, j = [], 0
-        while j < len(rest) and (rest[j] in ("-H", "-L", "-P", "-E", "-X", "-s", "-x", "-d") or re.fullmatch(r"-O\d*", rest[j]) or rest[j] == "-D"):
-            j += 2 if rest[j] == "-D" else 1  # BSD/GNU options before the start paths
+        while j < len(rest):  # BSD/GNU options before the start paths
+            m = re.fullmatch(r"-[HLPEXsxd]*f(.*)", rest[j])
+            if m:  # BSD -f path; GNU reads -fstype etc. as a primary, so the cwd is checked too
+                starts += [m.group(1) or (rest[j + 1] if j + 1 < len(rest) else "."), "."]
+                j += 0 if m.group(1) else 1
+            elif rest[j] == "-D":
+                j += 1
+            elif not re.fullmatch(r"-[HLPEXsxd]+|-O\d*", rest[j]):
+                break
+            j += 1
         for a in rest[j:]:
             if a.startswith("-") or a in ("(", "!", ")"):
                 break

@@ -311,8 +311,10 @@ its last `file_sha`, appends the row, then appends an event carrying
     `unknown`. `NAME=literal` is tracked; a quoted or escaped `$` is literal.
   - Rule 2: `cd`/`pushd` inside eval, source, subshells and substitutions
     either propagates (a union of possible cwds) or adds an unknown cwd.
-    `env -C DIR`/`--chdir[=]DIR` changes the cwd the same way. A cwd inside a
-    protected read tree makes relative reads there protected.
+    `env -C DIR`/`--chdir[=]DIR`/`-iC DIR`/`-CDIR` changes the cwd the same
+    way. A `cd`, `pushd` or `env -C` into, or to an ancestor of, `keys/` or
+    `experience/` is `protected_path` (maintainer R2), including `cd ~` when
+    the data root is under home.
   - Rule 3: creating a link inside a job's `work/` or `requests/`, or
     recreating one removed earlier in the command, is `protected_path`.
   - Rule 4: files under `work/` and `requests/` always count as agent-written,
@@ -396,15 +398,17 @@ its last `file_sha`, appends the row, then appends an event carrying
 - Every writer holds an `flock` on `sessions/<sid>/written.lock`.
 - `start(...)` writes fresh state only for `source == "startup"`: `written.json
   = []`, `started.json` `{ctime_ns}` and `tracked.json`. Compact, resume, clear
-  and fork keep the existing files.
+  and fork keep the existing files when both baseline files exist; otherwise
+  they delete `written.json` and write `tracked.json = {}`.
 - `record_bash(evt, ctx) -> None` (PreToolUse writer). Called by
   `safety.on_pre` once a Bash call is allowed, before it runs. Appends
   `pathtrack.bash_write_targets(command, ctx)`; a `None` target deletes the
   record.
 - `on_post(evt, ctx) -> dict` (PostToolUse and PostToolUseFailure writer).
   Appends the realpath that Write, Edit, MultiEdit or NotebookEdit wrote to
-  `written.json`. Any failure deletes the record and re-raises, so readers
-  fall back to the strict rule.
+  `written.json`. A missing record is left missing (already strict). Any
+  other failure deletes the record and re-raises, so readers fall back to
+  the strict rule.
 - `session_sets(data_root, sid, workspace) -> (written, untrusted)`. One
   workspace walk (`.git` skipped). A recorded directory covers every file
   under it. `untrusted` is every file with ctime at or after `started.json`,

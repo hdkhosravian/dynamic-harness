@@ -458,3 +458,52 @@ def test_env_chdir_into_protected_tree_is_denied(ctx):
                 f"env --chdir {ctx.data_root} ls keys"):
         r = classes.classify("Bash", {"command": cmd}, None, ctx)
         assert r.irreversible, cmd
+
+
+# review of ddf4b30..de86b27
+
+
+@pytest.mark.parametrize("cmd", [
+    "tar -xf a.tar -C src && python3 src/app.py",
+    "cp -r /tmp/y/. src && python3 src/app.py",
+    "rsync -a /tmp/y/ src/ && bash src/run.sh",
+    "tar -xf a.tar -C src && pytest",
+])
+def test_running_code_inside_a_directory_filled_earlier_in_the_command_is_self_written(ctx, cmd):
+    assert B(ctx, cmd).cls == "self_written_exec"
+
+
+@pytest.mark.parametrize("cmd", [
+    "find -f {data} -- -type f -exec cat {{}} +",
+    "find -L -f {data} -- -name k",
+    "find -f{data} -- -name k",
+])
+def test_bsd_find_dash_f_start_path_is_checked(ctx, cmd):
+    assert B(ctx, cmd).cls == "protected_path"
+
+
+@pytest.mark.parametrize("cmd", [
+    "env -C{data} cat keys/k",
+    "env -iC {data} cat keys/k",
+    "env -iC{data} cat keys/k",
+])
+def test_env_attached_or_clustered_chdir_is_tracked(ctx, cmd):
+    assert B(ctx, cmd).irreversible
+
+
+def test_env_unknown_short_cluster_fails_closed(ctx):
+    assert B(ctx, "env -iZ ls").cls == "unknown"
+
+
+@pytest.mark.parametrize("cmd", [
+    "PYTEST_ADDOPTS=../tests pytest", "env PYTEST_ADDOPTS=../tests pytest", "pytest @args.txt",
+    "export PYTEST_ADDOPTS=../tests; pytest",
+])
+def test_runner_arguments_from_env_or_file_fail_closed(ctx, cmd):
+    (ctx.workspace / "tests").mkdir()
+    conf = ctx.workspace / "tests" / "conftest.py"
+    conf.write_text("import os\n")
+    (ctx.workspace / "src" / "args.txt").write_text("../tests\n")
+    object.__setattr__(ctx, "untrusted_files", {os.path.realpath(conf)})
+    _cwd(ctx, ctx.workspace / "src")
+    assert B(ctx, cmd).irreversible, cmd

@@ -458,3 +458,23 @@ def test_ctx_cwd_is_the_event_cwd_but_workspace_stays_project_dir(henv, tmp_path
     sub.mkdir()
     ctx = hookmain.build_ctx({"session_id": "a", "cwd": str(sub)}, henv)
     assert str(ctx.cwd) == str(sub) and str(ctx.workspace) == henv["CLAUDE_PROJECT_DIR"]
+
+
+def test_post_tool_use_with_a_dropped_record_stays_strict_without_failing(henv):
+    # a Bash call dropped the record (strict fallback); later writes must not make every PostToolUse exit 2
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    (data / "sessions" / "s1").mkdir(parents=True)
+    evt = {"session_id": "s1", "tool_name": "Write", "tool_input": {"file_path": str(ws / "a.py")}}
+    assert hookmain.main("PostToolUse", evt, henv) == (0, None)
+    assert not (data / "sessions" / "s1" / "written.json").exists()
+
+
+def test_recorded_directory_walk_skips_git(henv):
+    from harness_core import written
+
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    (ws / ".git" / "objects").mkdir(parents=True)
+    (ws / ".git" / "objects" / "o").write_text("")
+    (data / "sessions" / "s1").mkdir(parents=True)
+    (data / "sessions" / "s1" / "written.json").write_text(json.dumps([os.path.realpath(ws)]))
+    assert os.path.realpath(ws / ".git" / "objects" / "o") not in written.self_written(data, "s1", ws)
