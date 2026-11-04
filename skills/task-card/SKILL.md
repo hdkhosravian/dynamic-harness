@@ -77,3 +77,24 @@ If the harness says the task is refused, tell the owner exactly the line it give
 
 Corrections the owner sends during a task are logged as evidence. Announce the rework ("This changes 9 of
 14 items; applying now."); do not ask about it.
+
+## 6. Checks, the report and the gate
+
+- An executable oracle must be a registered check: `finance.reconcile`, `finance.kpi`, `finance.bridge`,
+  `finance.list`, `research.check`, `research.report`, `model.recalc`, `model.checks`, `model.report`,
+  `doc.check` or `decide.score_flip`. Each pack's skill (`finance`, `research`, `model`, `operations`) says how
+  to call it. A script you write is evidence, never the oracle.
+- Never add up numbers yourself. Run the unit's check: `harness-run <check> --unit <id> --attempt <n>
+  --input <file> --arg key=value`. The hook runs it in a sandbox and prints the output sha and the values. Cite
+  that sha in the unit's ledger row (`"outputs": ["<sha>"]`, same attempt). In the report, use only the values
+  the checks printed.
+- A metric the owner relies on needs a confirmed definition: `harness-contact definition_confirm --metric
+  <file>` (`{metric_id, inclusions, exclusions, unit, currency}`), then, after the owner says yes,
+  `harness-contact definition_confirm --accept latest`. Re-run the check with `--arg metric_id=<id>`, then
+  `harness-answer header --unit <id> --output <sha>` and put the three header lines at the top of the answer.
+- Write `work/report.md` before the gate. Notes a check printed (rows left out, sources that disagree, data
+  that ends early) go next to the figure they concern. Do not describe your own work as checked, verified,
+  confirmed or matching: the harness adds the state line.
+- Then run `harness-gate request` on its own. After it, change nothing in `work/`; a change needs a new gate.
+- If the owner writes Persian, write the report in Persian too; the harness renders its own lines in the
+  owner's language.

@@ -23,8 +23,8 @@
     },
     {
       "path": "skills/task-card/SKILL.md",
-      "sha256": "1bc2af5db07f32fc94da3d3f51983a7cf20ff34af19b4bd975002dbe60134e47",
-      "approver": "release 0.3.0"
+      "sha256": "322bf19a7809b5e038fc5bd5d8de66c7b922cf8b43f5b74ad090303a24b3133b",
+      "approver": "release 0.4.0"
     }
   ]
 }

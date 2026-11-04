@@ -8,9 +8,9 @@ dynamic-harness is a Claude Code plugin built on
 never writes its own record of progress. A quick question still gets a quick answer. A figure that someone will
 act on goes through a frozen scope, a recorded check and an HMAC-signed receipt.
 
-> **Status:** build phases P1 to P4 and the P5 setup step are complete. The rest of P5 (domain packs and
-> `harness-run`, the business layer, claim fetching, the model checks, Persian templates and the admin commands)
-> is in progress. See [Status and roadmap](#status-and-roadmap).
+> **Status (0.4.0):** build phases P1 to P5 are complete: the v1 scope of the design spec, in English and
+> Persian. One check is still open: a full end-to-end `claude -p` run from a request to a signed "Checked" in a
+> set-up folder. See [Status and roadmap](#status-and-roadmap).
 
 ---
 
@@ -68,9 +68,10 @@ The design spec states these as numbered requirements. The ones built so far:
 | R-9 | User memory is written only by a hook, from structured answers, using a closed schema. |
 | R-10 | Every deliverable carries exactly one of three plain-language states (see [What the owner sees](#what-the-owner-sees)). |
 | R-11 | A figure someone will rely on is never a quick answer, and every aggregate is computed by a script. |
+| R-12 | Every money figure states its metric and definition version, the period in the owner's calendar and Gregorian, the source and its data-up-to date, the unit and currency, and the exclusions. |
+| R-13 | Every claim in a research report traces to a claim row: a page the harness fetched itself, a verbatim quote, a date and a source class; load-bearing claims need two independent sources. |
+| R-14 | Every number in a forecast traces to a model cell; results are ranges with drivers and a flip point; the report says "Arithmetic checked; assumptions not." |
 | R-15 | Every finished or stopped task writes a decision record outside the workspace, with personal data redacted. |
-
-R-12 to R-14 (answer headers, claim tracing and model-cell tracing) arrive with the rest of P5.
 
 ## How a request flows
 
@@ -175,7 +176,11 @@ All of them live in `bin/` and only print a request; the hook that owns each one
 | `harness-card validate\|merge` | Validate a card draft; merge two drafts. |
 | `harness-compile --card FILE [--reunderstand TURN]` | Compile a card into a task, or re-understand the open task after a correction. |
 | `harness-ledger append --kind unit\|verdict\|decision\|contradiction\|milestone` | Append a ledger row under the ledger's rules. |
-| `harness-run CHECK --unit U --attempt N [--input FILE]` | Run a registered pack check (in progress). |
+| `harness-run CHECK --unit U --attempt N [--input FILE] [--arg K=V]` | Run a registered pack check in the hook's sandbox and record its output. |
+| `harness-answer header --unit U --output SHA` | Render the answer header from a recorded check and the business layer. |
+| `harness-claims fetch URL`, `harness-claims cite --unit U --claims N,M` | Fetch a page for the researcher; say which claim rows decide a unit. |
+| `harness-model assume\|register\|scenario\|import` | Record assumptions, register a model after its gate, run a scenario, import a returned sheet. |
+| `harness-normalize`, `harness-lint-user-text` | Show how the harness reads a value; lint the harness's own user-facing text. |
 | `harness-contact TYPE [--handoff\|--accept latest]` | Ask the owner something within the contact rules; accept a plan or a cost increment. |
 | `harness-research render`, `harness-critic render` | Render the only prompts the researcher and verifier subagents may receive. |
 | `harness-gate request` | Ask the gate hook to run the gate. |
@@ -184,6 +189,30 @@ All of them live in `bin/` and only print a request; the hook that owns each one
 Subagents (`agents/`): `web-researcher` (web only, returns claim rows), `data-analyst` (owner files, no web),
 `verifier` (read only, prompt rendered by the harness) and `card-drafter-2` (a second card draft, logged in
 shadow mode).
+
+## Packs
+
+| Pack | Checks | For |
+| --- | --- | --- |
+| `finance` | `finance.reconcile`, `finance.kpi`, `finance.bridge`, `finance.list` | Questions on the owner's own data: two computation paths, control totals, coverage, own-account transfers, a ×10 magnitude check, data that ends early |
+| `research` | `research.check`, `research.report` | Investigations: fetched snapshots, verbatim quotes, freshness, two independent origins, a recorded verifier verdict, confidence |
+| `model` | `model.recalc`, `model.checks`, `model.report` | Forecasts: every cell, ranges, runway, flip point, top drivers; identities, tags, metamorphic tests, back-cast, backtest against a naive baseline |
+| `operations` | `doc.check`, `decide.score_flip` | Documents (required items, placeholders, footer, do-not-contact) and decisions (weighted scores, constraints, flip test) |
+
+In done mode the gate's oracle replays every check a passing unit cites, on the deliverables as submitted.
+
+## Owner commands
+
+All of them run in a hook; Claude never sees them. Anything that changes something shows the change in plain
+words with a one-time code first.
+
+| Command | What it does |
+| --- | --- |
+| `/dynamic-harness:business` | Currency, calendar, fiscal year, spending limits, own accounts, protected names, language |
+| `/dynamic-harness:memory` | What the harness remembers about how you like your work; set or forget it |
+| `/dynamic-harness:status` | Your tasks; abandon one, or close one that was stopped for tampering |
+| `/dynamic-harness:export` | Decision records as CSV, by task or by month |
+| `/dynamic-harness:config`, `/dynamic-harness:off` | Operator settings; put the contact cap and the tripwire in shadow mode |
 
 ## Requirements
 
@@ -264,8 +293,8 @@ ${CLAUDE_PLUGIN_DATA}/            # read- and write-denied to the agent
 python3 -m pytest -q
 ```
 
-- About 1,500 tests, standard library plus pytest. On macOS the full suite passes (1513 passed, 7 skipped,
-  3 xfailed at the last release).
+- About 1,650 tests, standard library plus pytest. On macOS the full suite passes (1645 passed, 7 skipped,
+  3 xfailed at release 0.4.0).
 - The gate integration tests use a real `fold_ledger.py` from a `loop-contract-skill` checkout next to this
   repository, or from `HARNESS_FOLD_LEDGER`. `HARNESS_REQUIRE_INTEGRATION=1` turns a missing fold_ledger into a
   failure instead of a skip.
@@ -284,10 +313,13 @@ python3 -m pytest -q
 | P3 | Probe, card, compiler, tier selector, contacts, user memory, tripwire, lanes, SubagentStop, PII redaction, corrections, shadow second draft | Done |
 | P4 | Lease, budget, stall and cost stops, gate hook, Stop hook, RE_UNDERSTAND, follow-ups, decision record | Done |
 | P5 | `/dynamic-harness:setup` | Done |
-| P5 | Domain packs and `harness-run`; gate done mode with a replaying oracle | In progress |
-| P5 | Business layer (`/dynamic-harness:business`, metric dictionary, money caps), answer header (R-12) | In progress |
-| P5 | Claim fetching and the research pack (R-13); model checks for forecasts (R-14) | In progress |
-| P5 | Persian templates, `harness-lint-user-text`, `/dynamic-harness:memory`, `status`, `export`, `config`, `off` | In progress |
+| P5 | Domain packs and `harness-run`; gate done mode with a replaying oracle | Done |
+| P5 | Business layer (`/dynamic-harness:business`, metric dictionary, money caps, estimates), answer header (R-12) | Done |
+| P5 | Claim fetching and the research pack (R-13); the model-checks pack and `harness-model` (R-14) | Done |
+| P5 | Operations pack (`doc.check`, `decide.score_flip`) | Done |
+| P5 | Persian templates, `harness-lint-user-text`, `/dynamic-harness:memory`, `status`, `export`, `config`, `off` | Done |
+| P5 | Business trap suite and R-11 to R-15 tests | Done |
+| P5 | End-to-end `claude -p` run to a signed receipt in a set-up folder | Open |
 | v2 | Write connectors, the two-lane outbox, approval matrix, automations, learning editor | Planned |
 
 Persian and Jalali support is part of the design: Persian and Arabic digits, ی/ي and ک/ك, ZWNJ, Jalali dates
@@ -299,13 +331,14 @@ including leap Esfand, the fiscal year, and Toman and Rial with a ×10 magnitude
 .claude-plugin/     plugin.json, marketplace.json
 agents/             plugin subagents (tool-restricted; hooks enforce the rest)
 bin/                harness-* CLIs (request printers) and harness-hook (the hook entry point)
-commands/           slash commands (setup)
+commands/           slash commands (setup, business, memory, status, export, config, off)
 control/defaults/   default control layer: classes, egress allowlist, protected paths, gate profiles, tiers, ...
 hooks/hooks.json    hook registration (every entry fails closed)
 lib/harness_core/   the library: one module per concern
 schema/             JSON Schemas for run records and the card
-skills/             executor guidance (task-card) and domain packs
-templates/          user-facing text
+skills/             executor guidance (task-card) and the domain packs (finance, research, model, operations)
+tools/              release tooling (pack hashes, skill approvals)
+templates/          user-facing text in English and Persian
 tests/              pytest suite, bypass corpus, card fixtures
 spike/              Claude Code platform spike
 ```
@@ -324,3 +357,5 @@ spike/              Claude Code platform spike
 - v1 connectors are read-only. Sending, paying and publishing are denied, not queued for approval.
 - Claude Code's own sandbox on Linux has not been verified live; the harness's sandbox has.
 - Professional sign-off classes (tax, legal, employment) stay "prepared, not final".
+- Check notes (rows left out, sources that disagree) are written in English, also inside Persian text.
+- A forecast is a JSON driver model plus a CSV table, not a formula workbook; Monte Carlo runs are not built.

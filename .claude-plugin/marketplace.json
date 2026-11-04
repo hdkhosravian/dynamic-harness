@@ -1,19 +1,33 @@
 {
   "name": "dynamic-harness",
-  "owner": { "name": "hdkhosravian", "url": "https://github.com/hdkhosravian" },
+  "owner": {
+    "name": "hdkhosravian",
+    "url": "https://github.com/hdkhosravian"
+  },
   "metadata": {
     "description": "A per-task harness for Claude Code: fail-closed hooks, a hash-chained run ledger, and a gate that signs what was actually checked.",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "plugins": [
     {
       "name": "dynamic-harness",
       "source": "./",
       "description": "Sizes each request (quick answer, checked task, careful task), freezes the work list, runs registered checks in a sandbox, and lets a task end as done only on an HMAC-signed gate receipt. Built on loop-contract.",
-      "version": "0.3.0",
-      "author": { "name": "hdkhosravian" },
+      "version": "0.4.0",
+      "author": {
+        "name": "hdkhosravian"
+      },
       "category": "productivity",
-      "keywords": ["agents", "harness", "hooks", "verification", "sandbox", "audit", "business", "persian"]
+      "keywords": [
+        "agents",
+        "harness",
+        "hooks",
+        "verification",
+        "sandbox",
+        "audit",
+        "business",
+        "persian"
+      ]
     }
   ]
 }

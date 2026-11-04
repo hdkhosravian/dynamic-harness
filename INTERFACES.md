@@ -655,3 +655,49 @@ its last `file_sha`, appends the row, then appends an event carrying
 - `record.write(ctx, job, state, interim=False) -> row` appends `records/<job>.jsonl` (redacted).
 - `normalize.quantity_tokens(text) -> [(token, Decimal)]`: the vendored loop-contract tokeniser.
 - Card field `follows`: a DONE job id; `compile.apply` refuses any other value.
+
+## P5: packs, harness-run, business layer, claims, models, templates, commands
+
+- `packs.manifests(ctx) -> {pack: manifest}` (`skills/<pack>/manifest.json`, schema `harness/pack@1`),
+  `spec(ctx, check_id)`, `registered(ctx, check_id)`, `entry(ctx, check_id) -> Path` (regular file in the pack,
+  sha256 equal to the manifest's), `hash_entries(pack_dir)`. A check id is registered by exactly one pack.
+  `tools/release_hashes.py <label>` re-hashes manifests and approves shipped skills.
+- `checklib`: a check reads `{check_id, unit, attempt, args, inputs[{name, path, sha256}], work, run, business,
+  card, today}` on stdin, with `inputs/`, `work/` and `run/` in its cwd, and prints
+  `{result: pass|fail, values, notes}`. `checklib.main(fn)` with `fn(req) -> (result, values, notes)`.
+- `run.apply(req, ctx, evt)` (event `run`, `harness-hook PostToolUse --run`, 300 s) -> `{check_id, unit,
+  attempt, result, sha256, values, notes}`; `Outputs.record(..., extra, blobs)` keeps `inputs[{source, sha256}]`,
+  `stdin_sha`, `work_sha`, `notes`, `pack`, `entry_sha` and the stdin and input blobs.
+  `bin/harness-run CHECK --unit U --attempt N [--input F]... [--args F | --arg K=V]...`.
+- `oracle.py` (run by fold_ledger in done mode): replays every output a PASS gate row cites, on
+  `outputs/submitted/`; exit 0 only when result and values match. `gatehook._oracle` sets `oracle_cmd` when the
+  card's oracle is an executable registered check.
+- `localize`: `digits`, `fold_name`, `to_gregorian`, `to_jalali`, `is_leap_jalali`, `month_length`,
+  `parse_date`, `parse_amount`, `currency_of`, `to_unit`, `period(spec, profile)`, `prior_period`, `label_fa`.
+  `tables.read(path) -> (headers, rows)` (CSV/TSV, stdlib XLSX; DTDs refused). `bin/harness-normalize`.
+- Packs: `finance` (`finance.reconcile|kpi|bridge|list`, `finance.py`), `research` (`research.check|report`,
+  `research.py`), `model` (`model.recalc|checks|report`, `model.py`), `operations` (`doc.check`,
+  `decide.score_flip`, `operations.py`).
+- `business`: `profile`, `dictionary`, `sources`, `snapshot`, `parse_value`, `set_field`, `change_list`,
+  `define_metric`, `remove_metric`, `register_source`, `guard(ctx, layers)` (the layer still equals its
+  recorded hash), `baseline(ctx, why, layers)` (appends `config_log.jsonl`), `describe`.
+- `admin.on_prompt(evt, ctx)` for `/dynamic-harness:business|memory|status|export|config|off`; two-step changes
+  through `admin/pending.json` `{cmd, change, code, sid, ts}`.
+- `contact.apply`: `definition_confirm --metric F` (stores `definition.json`, text rendered from it) and
+  `--accept latest` (writes the dictionary entry); `assumption_sheet` (text from `assumptions.json`) and
+  `--accept latest` (marks every assumption owner-confirmed). `bin/harness-contact ... [--metric F]`.
+- `answer.apply` for `harness-answer header --unit U --output SHA [--control-label T]` writes
+  `run/answer_header.md` (`ANSWER_HEADER` event); `answer.status_line(paths, log)`.
+- `claims.apply_fetch` (event `fetch`, `harness-hook PostToolUse --fetch`, 60 s), `claims.fetch(url, allowed,
+  opener)`, `page_text`, `log_search`, `apply_cite` (`cites.jsonl {unit, claims, load_bearing}`), `claim_row`.
+  `bin/harness-claims fetch URL | cite --unit U --claims N,M [--load-bearing N]`. `fold._claims` projects
+  `gate/claims.jsonl`.
+- `model_cmd.apply` for `harness-model assume|register|scenario|import`; `registry(ctx)`
+  (`${CLAUDE_PLUGIN_DATA}/models/registry.json`). `compile.apply(req, ctx, evt, scenario_parent=None,
+  job_id=None)`: only `model_cmd.scenario` passes the last two.
+- `templates.render(key, ctx=None, lang=None, **values)`, `language(ctx)`, `state_line(state, ctx)`,
+  `currency(code, lang)`; `templates/{en,fa}.json` (`model.*` keys are hints to the model).
+  `lint_text.lint() -> [problem]`, `bin/harness-lint-user-text`.
+- `enforcement.mode(component, ctx)`, `shadowed(component, ctx, reason)`: `control/enforcement.json`
+  `{contacts, tripwire, shadow_draft}`.
+- `estimate.estimate(ctx, tier) -> {minutes, money, samples} | None`; `budget.rate(ctx)`, `month_spent(ctx)`.

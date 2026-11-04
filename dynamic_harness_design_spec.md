@@ -2315,7 +2315,7 @@ profiles:
   - The owner sees the cost question as a `systemMessage`. A PostToolUse block with a `systemMessage` exits 0 with JSON.
 - **Card drafts.** A live `claude -p` run showed that a model could not write its card draft while a card was pending. A `.json` file directly in `.claude/loops/drafts/` is now writable while a card is pending (no symlink on the way). That run also verified the Stop hook live: it blocked a plain-text answer three times and then ended the request with "Stopped, not done".
 - **Tests.** `test_lease`, `test_budget`, `test_gatehook`, `test_stopgate`, `test_state_machine` and `test_p4_review` cover these paths. The suite passes on macOS and on Ubuntu 22.04 and 24.04 (`--privileged` containers, real fold_ledger, `HARNESS_REQUIRE_INTEGRATION=1`).
-- **Known gaps carried to P5.** `harness-claims fetch`, `harness-run` and packs (done mode), `templates/fa.json`, `/dynamic-harness:memory`, the business layer (which turns the money cap on) and `/dynamic-harness:status --abandon`. A full R-2 run under `claude -p` in a set-up folder (gate to DONE) is still to do; it needs a setup that does not touch the real user settings.
+- **Known gaps carried to P5.** `harness-claims fetch`, `harness-run` and packs (done mode), `templates/fa.json`, `/dynamic-harness:memory`, the business layer (which turns the money cap on) and `/dynamic-harness:status --abandon`. All were built in P5 (see below).
 
 ### Build decisions (P5 setup, as built in `dynamic-harness` @ `feat/p1-p2`)
 
@@ -2372,6 +2372,81 @@ profiles:
   - The launcher's outer path finds the project from `CLAUDE_PROJECT_DIR` or the nearest `.git`/`.claude` ancestor. It keeps the protected-cwd refusal and passes Claude Code's protected names and every `CLAUDE*.md` as `deny_write`.
   - Verified live: the command printed 42 with exit 0; the sandbox proxy refused the probe's CONNECT; `--cwd .git` was refused.
   - Not verified: Claude Code's Linux sandbox. There the probe has to prove containment, and a failed bwrap counts as nested.
+
+### Build decisions (P5, as built in `dynamic-harness` @ `feat/p1-p2`, release 0.4.0)
+
+- **Packs.** A pack is a skill directory with a `manifest.json` (`harness/pack@1`) that registers check
+  entrypoints with their sha256. A check id is `<family>.<name>` and exactly one pack registers it; the
+  `operations` pack registers `doc.check` and `decide.score_flip` as §7 lists them. Shipped packs: `finance`
+  (`finance.reconcile`, `.kpi`, `.bridge`, `.list`), `research` (`research.check`, `.report`), `model` (the
+  model-checks pack: `model.recalc`, `.checks`, `.report`) and `operations`. `card` refuses an executable oracle
+  that no pack registers, and each unit takes the oracle's check unless it names another registered one.
+  `tools/release_hashes.py` re-hashes manifests and approves the shipped skills (R-5).
+- **`harness-run`.** It has its own PostToolUse entry (matcher `Bash`, 300 s, watchdog 295 s); the main entry
+  treats it as print-only. The hook runs the check under `sandbox_exec` on copies: each `--input` (a regular
+  workspace file outside protected paths, at most 20 MB), `work/`, and the run-state files the manifest names.
+  The output row keeps the check's stdout, its stdin and every input as blobs. A crash, a missing result line
+  or a timeout is recorded as `error` and never backs a PASS. The `harness-doc`, `harness-decide` and
+  `harness-estimate` CLIs of §4 are not separate tools: documents and decisions run through `harness-run
+  doc.check | decide.score_flip`, and the estimate is part of the opening line.
+- **Done mode.** When the card's oracle is an executable registered check, the gate profile gets
+  `oracle_cmd = python3 -I lib/harness_core/oracle.py`. Inside the gate sandbox the oracle replays every output
+  a PASS row cites, with the recorded stdin and input snapshots but the submitted deliverables, and requires
+  the same result and values. An edit after a check, a tampered blob or a changed pack entry fails the gate.
+- **Business layer.** `/dynamic-harness:business show | set | add | remove | metric remove` runs in the
+  UserPromptSubmit hook, like setup: a plain-language change, a one-time code, `confirm` in the same session
+  within 10 minutes. There is no model-callable `harness-business`; the classifier keeps refusing it. Every
+  write first checks that the layer still equals its recorded hash (`business.guard`), then appends the new
+  hash to `config_log.jsonl`, so an owner's change never shows as tamper and an outside edit is never
+  re-baselined. Metric definitions come from `harness-contact definition_confirm --metric F`: the owner sees a
+  sentence rendered from the metric and confirms it with a plain yes; a changed definition gets a new version.
+- **Money.** `control/defaults/prices.json` is in USD; an owner in another currency sets `fx.USD`. With no rate
+  the money caps stay off and the call caps still apply. The monthly cap adds this month's recorded spend. The
+  estimate is stored in `budget.json` `money` and copied into the decision record with the task's duration.
+  The opening line carries the median time (and money) of at least 3 past DONE tasks at the same tier, ±30%.
+- **Answer header (R-12).** `harness-answer header --unit U --output SHA` renders three lines from a
+  recorded `finance.reconcile` output and the business layer; a metric with no confirmed definition, or a
+  check on an older definition version, is refused. The source is registered with the facts the check
+  computed. The gate includes the header and traces its numbers; its status line, read back from the recorded
+  file, is the one extra line the gate and Stop let use state words. Control labels lose state words.
+- **Claims (R-13).** `harness-claims fetch` has its own PostToolUse entry (60 s). The hook fetches for the
+  web-researcher only, under the active grant: https, every resolved address public, the connection pinned to
+  the checked address, redirects re-checked by hand, 2 MB. The snapshot is the page's visible text; the fetch
+  log keeps the raw hash, the status and an `injection_suspect` flag. SubagentStop writes full claim-ledger
+  rows; `harness-claims cite` says which rows decide a unit. The gate checks only cited claims, with each
+  unit's load-bearing rows under one key, so `check_claims` and `research.check` agree on independence.
+  Accepting a plan opens `search_log.jsonl` and `contradictions.jsonl`. Confidence is a value of
+  `research.check`; there is no separate `harness-claims confidence`.
+- **Models (R-14).** A forecast is `work/model.json` over `run/assumptions.json`. `model.recalc` records every
+  cell, so `numbers_traced` checks R-14 on the first forecast; the gate also passes `--assumptions`. Period
+  labels are written `1405/09`, which the shared tokenizer reads as a date. `harness-model assume` marks a
+  value owner-confirmed only when the owner's own latest turn states it; the assumption sheet confirms the
+  rest. `register` runs after a receipt that verifies and writes `models/registry.json`, outside the business
+  layer, because the receipt's HMAC covers the business hash. `scenario` opens `<job>.s<n>` through
+  `compile.apply` in-process (`scenario_of` cannot come from a CLI request); `import` reads a returned CSV sheet.
+  The back-cast rebuilds the bank export's month-end balances; the backtest compares the model with a naive
+  seasonal baseline on the last 3 months.
+- **Templates.** `templates/en.json` holds the owner-facing moments; hints to the model are `model.*` keys.
+  `templates/fa.json` is written natively. The language is the profile's `language`, else the owner's latest
+  turn. The opening line, budget and stall stops, the research plan, the answer header and the Stop state
+  line follow it, with Persian digits. The stall message no longer quotes internal reasons.
+  `harness-lint-user-text` checks internal terms, missing keys, placeholders and Persian orthography.
+- **Commands.** `/dynamic-harness:memory`, `status [--abandon|--repair]`, `export --task|--period`, `config`
+  and `off` run in the hook like setup; every change needs a code. `config` edits only the tunable control
+  files: classes, protected paths, approved procedures and the lexicon are fixed in v1. `--repair` closes a
+  `STOPPED_TAMPER` task as ABANDONED without trusting or re-signing it; layer hashes are re-baselined by setup.
+  `control/enforcement.json` ships `contacts` and `tripwire` as `enforce` (stage 1 runs every key in enforce);
+  `/dynamic-harness:off` sets them to `shadow`, where they log `SHADOW_WOULD_BLOCK` and block nothing.
+- **Fix found in P5.** `gate.work_changed` hashed its temporary copy through macOS's `/var` symlink, so Stop saw
+  any non-empty `work/` as tamper. It now uses the real path; a regression test covers it.
+- **Tests.** `test_run`, `test_business`, `test_answer`, `test_claims`, `test_model`, `test_operations`,
+  `test_user_text`, `test_admin`, `test_localize` and `test_business_traps` (one test per trap class), with
+  `test_r11_money_never_t0` to `test_r15_decision_record`. The done-mode, claim and model tests run the real
+  fold_ledger under the real sandbox.
+- **Known gaps.** Check notes are in English inside Persian text. The rows behind an answer are not attached
+  as an Excel file, and the model deliverable is a JSON model plus a CSV table, not a formula workbook (no
+  `openpyxl` or `formulas` dependency). Monte Carlo runs are not built. The stall and saturation stop rules for
+  research are recorded but not enforced. v2 items stay v2.
 
 ### Verification Plan
 

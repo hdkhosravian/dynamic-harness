@@ -1,5 +1,5 @@
 {
   "name": "dynamic-harness",
-  "version": "0.3.0",
-  "description": "Dynamic harness for Claude Code: fail-closed safety hooks, hash-chained run ledger and loop-contract gate adapter"
+  "version": "0.4.0",
+  "description": "Dynamic harness for Claude Code: fail-closed safety hooks, a hash-chained run ledger, registered pack checks run in a sandbox, and a gate that signs what was checked. English and Persian."
 }
