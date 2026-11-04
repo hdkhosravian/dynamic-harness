@@ -249,3 +249,19 @@ def test_claude_md_and_mcp_json_are_never_writable(box):
         code, _, _ = py(f"open({rel!r}, 'w').write('x')", cwd, allow_write=[cwd])
         assert code != 0 and not (cwd / rel).exists(), rel
     assert py("open('a/b/notes.md', 'w').write('x'); open('a/mcp.json', 'w').write('x')", cwd)[0] == 0
+
+
+@pytest.mark.parametrize("name", ["claude.md", "Claude.md", "CLAUDE.MD", "claude.local.md", ".MCP.json", ".mcp.JSON"])
+def test_case_variants_of_instruction_files_are_not_writable(box, name):
+    # macOS file systems are case-insensitive: Claude Code would load claude.md as CLAUDE.md
+    cwd, _ = box
+    code, _, _ = py(f"open({name!r}, 'w').write('x')", cwd)
+    assert code != 0 and not (cwd / name).exists()
+
+
+def test_case_variant_of_denied_dir_is_not_writable(box):
+    cwd, _ = box
+    (cwd / ".claude").mkdir()
+    code, _, _ = py("import os; open(os.path.join('.CLAUDE', 'settings.json'), 'w').write('x')", cwd,
+                    deny_write=[str(cwd / ".claude")])
+    assert code != 0 and not (cwd / ".claude" / "settings.json").exists()

@@ -76,22 +76,35 @@ def start(data_root, sid, workspace, run=subprocess.run) -> None:
 def on_post(evt, ctx) -> dict:
     """PostToolUse writer. A failure invalidates the record, so readers fall back to the strict rule."""
     evt = evt if isinstance(evt, dict) else {}
-    key = WRITE_TOOLS.get(evt.get("tool_name"))
-    if key is None:
+    tool = evt.get("tool_name")
+    key = WRITE_TOOLS.get(tool)
+    if key is None and tool != "Bash":
         return {}
     sdir = session_dir(ctx.data_root, evt.get("session_id"))
     try:
-        path = (evt.get("tool_input") or {}).get(key)
-        if not isinstance(path, str) or not path:
-            raise ValueError(f"{evt.get('tool_name')} without a path")
-        if not os.path.isabs(path):
-            path = os.path.join(os.fspath(ctx.workspace), path)
+        if tool == "Bash":
+            from . import pathtrack
+
+            cmd = (evt.get("tool_input") or {}).get("command")
+            if not isinstance(cmd, str):
+                raise ValueError("Bash without a command")
+            targets = pathtrack.bash_write_targets(cmd, ctx)
+            if any(t is None for t in targets):
+                raise ValueError("Bash wrote to a path that cannot be resolved")
+            paths = list(targets)
+        else:
+            path = (evt.get("tool_input") or {}).get(key)
+            if not isinstance(path, str) or not path:
+                raise ValueError(f"{tool} without a path")
+            if not os.path.isabs(path):
+                path = os.path.join(os.fspath(ctx.workspace), path)
+            paths = [path]
         rec = _load(sdir / "written.json", ctx.data_root)
         if not isinstance(rec, list):
             raise ValueError("written.json missing or not a list")
-        real = os.path.realpath(path)
-        if real not in rec:
-            atomic_write(sdir / "written.json", json.dumps(rec + [real]).encode())
+        new = [r for r in (os.path.realpath(p) for p in paths) if r not in rec]
+        if new:
+            atomic_write(sdir / "written.json", json.dumps(rec + new).encode())
         return {}
     except Exception:
         if os.path.lexists(sdir / "written.json"):

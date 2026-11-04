@@ -342,3 +342,29 @@ def test_debug_log_failure_is_reported(henv, tmp_path, capsys):
 def test_watchdog_docstring_matches_values():
     assert "minus 5 s" in hookmain.__doc__ and "minus 1 s" in hookmain.__doc__
     assert hookmain.watchdog("gate") == 1795 and hookmain.watchdog("fetch") == 55
+
+
+def test_post_tool_use_records_bash_writes(henv):
+    # automated commit review: a script written through Bash must count as self-written too
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    (data / "sessions" / "s1").mkdir(parents=True)
+    (data / "sessions" / "s1" / "written.json").write_text("[]")
+    evt = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": f"printf 'x' > {ws / 'run.sh'}"}}
+    assert hookmain.main("PostToolUse", evt, henv) == (0, None)
+    rec = json.loads((data / "sessions" / "s1" / "written.json").read_text())
+    assert os.path.realpath(ws / "run.sh") in rec
+
+
+def test_post_tool_use_unresolvable_bash_write_drops_the_record(henv):
+    data = Path(henv["CLAUDE_PLUGIN_DATA"])
+    (data / "sessions" / "s1").mkdir(parents=True)
+    (data / "sessions" / "s1" / "written.json").write_text("[]")
+    evt = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": 'printf x > "$(mktemp)"'}}
+    hookmain.main("PostToolUse", evt, henv)
+    assert not (data / "sessions" / "s1" / "written.json").exists()  # strict fallback from now on
+
+
+def test_post_tool_use_hook_matches_bash(env):
+    cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
+    import re as _re
+    assert any(_re.fullmatch(g.get("matcher", ".*"), "Bash") for g in cfg["hooks"]["PostToolUse"])
