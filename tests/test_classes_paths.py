@@ -526,3 +526,10 @@ def test_find_attached_f_word_is_a_start_path(ctx):
 @pytest.mark.parametrize("cmd", ["env -P /tmp/evil ls", "env -iP/tmp/evil ls", "env -P/tmp/evil ls"])
 def test_env_alternate_utility_path_is_unknown(ctx, cmd):
     assert B(ctx, cmd).cls == "unknown"
+
+
+@pytest.mark.parametrize("word", ["-fls", "-fstype", "-follow"])
+def test_find_f_primary_words_also_get_their_bsd_start_path_checked(ctx, word):
+    # BSD find (macOS /usr/bin/find) reads -fls as start path "ls"
+    os.symlink(str(ctx.data_root), str(ctx.workspace / word[2:]))
+    assert B(ctx, f"find {word} -- -name k").cls == "protected_path"

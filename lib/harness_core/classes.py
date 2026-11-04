@@ -1554,9 +1554,8 @@ class _Bash:
         starts, j = [], 0
         while j < len(rest):  # BSD/GNU options before the start paths
             m = re.fullmatch(r"-[HLPEXsxd]*f(.*)", rest[j])
-            if re.fullmatch(r"-(false|fls|follow|fprint0?|fprintf|fstype)", rest[j]):
-                break  # GNU primaries: the expression starts here
-            if m:  # BSD -f path; GNU reads -fstype etc. as a primary, so the cwd is checked too
+            if m:  # BSD -f path; GNU reads -fls/-fprint etc. as a primary: both readings are checked
+                # (the start path here and the cwd; write primaries are scanned over every word below)
                 starts += [m.group(1) or (rest[j + 1] if j + 1 < len(rest) else "."), "."]
                 j += 0 if m.group(1) else 1
             elif rest[j] == "-D":
