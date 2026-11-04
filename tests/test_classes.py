@@ -389,3 +389,36 @@ def test_git_index_ops_are_local_reversible(ctx, cmd):
 ])
 def test_git_destructive_ops_unchanged(ctx, cmd, cls):
     assert B(ctx, cmd).cls == cls
+
+
+# --- harness-sandbox-exec option checks (automated security review, commit 18277c7) ---
+
+def _cls(cmd, ctx):
+    return classes.classify("Bash", {"command": cmd}, None, ctx)
+
+
+def test_sandbox_exec_cwd_outside_workspace_is_denied(ctx):
+    r = _cls(f"harness-sandbox-exec --cwd {ctx.home}/.claude -- true", ctx)
+    assert r.irreversible, r
+
+
+def test_sandbox_exec_cwd_in_plugin_data_is_denied(ctx):
+    r = _cls(f"harness-sandbox-exec --cwd {ctx.data_root} -- true", ctx)
+    assert r.irreversible, r
+
+
+def test_sandbox_exec_cwd_in_job_work_is_allowed(ctx):
+    work = ctx.workspace / ".claude" / "loops" / "j1" / "work"
+    work.mkdir(parents=True)
+    r = _cls(f"harness-sandbox-exec --cwd {work} -- python3 -c 'print(1)'", ctx)
+    assert not r.irreversible, r
+
+
+def test_sandbox_exec_unknown_option_is_denied(ctx):
+    r = _cls("harness-sandbox-exec --allow-write / -- true", ctx)
+    assert r.irreversible, r
+
+
+def test_sandbox_exec_env_override_of_plugin_data_is_denied(ctx):
+    r = _cls("CLAUDE_PLUGIN_DATA=/tmp/x harness-sandbox-exec -- cat /tmp/x/keys/k", ctx)
+    assert r.irreversible, r

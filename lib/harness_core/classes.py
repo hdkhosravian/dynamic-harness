@@ -211,6 +211,7 @@ SUBST = "$__SUBST__"
 KEYWORDS = {"!", "{", "}", "then", "do", "else", "elif", "fi", "done", "esac", "if", "while", "until", "time", "coproc"}
 HEADERS = {"for", "case", "select", "in"}
 DANGEROUS_ENV = {
+    "CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR", "TMPDIR",
     "PATH", "BASH_ENV", "ENV", "PROMPT_COMMAND", "IFS", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME",
     "NODE_OPTIONS", "NODE_PATH", "PERL5OPT", "PERL5LIB", "RUBYOPT", "RUBYLIB", "GIT_SSH_COMMAND",
     "GIT_EXEC_PATH", "GIT_DIR", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_PARAMETERS", "SHELLOPTS",
@@ -937,6 +938,14 @@ class _Bash:
         if name == "harness-sandbox-exec":
             i = 0
             while i < len(rest) and rest[i] != "--" and rest[i].startswith("--"):
+                opt = rest[i]
+                if opt not in ("--cwd", "--deny-read", "--timeout") or i + 1 >= len(rest):
+                    return self.add("unknown", f"harness-sandbox-exec option {opt!r} is not allowed")
+                if opt == "--cwd":
+                    # the sandbox allows writes under its cwd: it must stay inside the workspace
+                    cwd = rest[i + 1]
+                    if protected.outside_workspace(cwd, self.ctx) or protected.is_protected(cwd, self.ctx):
+                        return self.add("destructive", f"harness-sandbox-exec --cwd {cwd!r} is outside the workspace or protected")
                 i += 2
             inner = rest[i + 1:] if i < len(rest) and rest[i] == "--" else rest[i:]
             if not inner:

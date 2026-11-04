@@ -112,3 +112,40 @@ def test_bin_wrapper_blocks_network_and_keys(box, tmp_path):
         cwd=cwd, env=env, capture_output=True, timeout=30,
     )
     assert r.returncode == 0 and r.stdout.strip() == b"4"
+
+
+def _bin(args, cwd, env):
+    return subprocess.run([sys.executable, "-I", str(ROOT / "bin" / "harness-sandbox-exec"), *args],
+                          cwd=cwd, env=env, capture_output=True, timeout=30)
+
+
+def test_bin_refuses_without_plugin_data(box):
+    cwd, _ = box
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PLUGIN_DATA"}
+    r = _bin(["--", PY, "-I", "-c", "print(1)"], cwd, env)
+    assert r.returncode == 2 and b"CLAUDE_PLUGIN_DATA" in r.stderr
+
+
+def test_bin_refuses_cwd_inside_claude_home(box, tmp_path):
+    cwd, _ = box
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    data = tmp_path / "data"
+    data.mkdir()
+    env = {**os.environ, "HOME": str(home), "CLAUDE_PLUGIN_DATA": str(data)}
+    r = _bin(["--cwd", str(home / ".claude"), "--", PY, "-I", "-c", "open('x','w').write('1')"], cwd, env)
+    assert r.returncode == 2 and not (home / ".claude" / "x").exists()
+
+
+def test_bin_denies_keys_of_every_installed_plugin(box, tmp_path):
+    # env points CLAUDE_PLUGIN_DATA elsewhere; keys under ~/.claude/plugins/data/*/keys stay unreadable
+    cwd, _ = box
+    home = tmp_path / "home"
+    k = home / ".claude" / "plugins" / "data" / "harness" / "keys"
+    k.mkdir(parents=True)
+    (k / "hmac.key").write_text("s3cret")
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    env = {**os.environ, "HOME": str(home), "CLAUDE_PLUGIN_DATA": str(decoy)}
+    r = _bin(["--", PY, "-I", "-c", f"print(open({str(k / 'hmac.key')!r}).read())"], cwd, env)
+    assert b"s3cret" not in r.stdout
