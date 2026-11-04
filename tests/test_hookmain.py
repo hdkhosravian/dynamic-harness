@@ -112,11 +112,11 @@ def test_ctx_loads_registry_and_session_state(henv, tmp_path):
     ctx = hookmain.build_ctx(evt, henv)
     assert ctx.connector_registry == {"mcp__gmail__search": "read"}
     assert ctx.protected_terms == ["Acme"]
-    assert ctx.job is None
+    assert ctx.job == "j1"  # agent_type without agent_id: the main thread run as an agent
     assert ctx.written_this_task == {"/x/y.py"}
     assert ctx.agent_type == "dynamic-harness:web-researcher"
-    # main-thread calls resolve to the task; this researcher has no recorded spawn in it, so it does not
-    assert hookmain.build_ctx({"session_id": "s1", "cwd": henv["CLAUDE_PROJECT_DIR"]}, henv).job == "j1"
+    unlinked = hookmain.build_ctx(dict(evt, agent_id="a-unlinked"), henv)  # a real subagent, not spawned in j1
+    assert unlinked.subagent_unlinked is True and unlinked.grant is None
     assert str(ctx.workspace) == henv["CLAUDE_PROJECT_DIR"]
     assert ctx.log is not None and ctx.session_ok is False  # no SessionStart status for s1
 

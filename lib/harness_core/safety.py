@@ -45,6 +45,8 @@ class Ctx:
     # set by hookmain from sessions/<sid>.json (P3): a card is pending, and where this prompt belongs
     pending_card: Optional[dict] = None
     prompt_scope: Optional[str] = None
+    # a subagent call that the open task's spawn record does not link: task gates on, no grant, reads only
+    subagent_unlinked: bool = False
 
 
 def _research_exception(tool, c, ctx) -> bool:

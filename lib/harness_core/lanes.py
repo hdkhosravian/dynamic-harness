@@ -72,6 +72,10 @@ def on_pre(evt, ctx) -> dict:
         return {}
     tool, ti = evt.get("tool_name"), evt.get("tool_input") or {}
     agent = evt.get("agent_type")
+    if getattr(ctx, "subagent_unlinked", False):
+        from . import classes
+        if classes.classify(tool, ti, ctx.connector_registry, ctx).cls != "read" or _web(tool):
+            return _deny("this subagent was not spawned in the open task: it may only read")
     if agent == RESEARCHER:
         if _task_type(ctx) != "investigation":
             return _deny("the researcher works only in an investigation task")

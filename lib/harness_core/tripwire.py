@@ -3,8 +3,8 @@
 Active while no T1/T2 task is in scope and no card is pending. Triggers:
 - a side-effecting call (anything the class table does not classify as ``read``);
 - more than ``t0_tripwire_calls`` (8) tool calls, counted per session (per turn for an inline T0);
-- a data-tool call (reading a data file, or a registered read connector) when the probe saw money or a
-  data class.
+- any call other than the named neutral tools when the probe saw money or a data class (a data read, with
+  no tool-name or file-name list to get around).
 Effect: ``pending_card`` with a floor of T1 (T2 when the probe saw an irreversible class) and a block reason,
 so only reads are allowed until a card compiles. For an inline T0 with an open task, that task gets
 ``PAUSED{handoff}``.
@@ -21,15 +21,6 @@ from .paths import job_paths
 def _template(key):
     root = Path(__file__).resolve().parents[2] / "templates" / "en.json"
     return json.loads(root.read_text("utf-8")).get(key, key)
-
-
-READS = ("Read", "Grep", "Glob", "NotebookRead", "Bash", "LSP")
-
-
-def _data_tool(tool, ti, ctx) -> bool:
-    """On a money or personal-data request, any read counts as a data read: a file-name pattern would be
-    one more parser to get around. Registered connectors count too."""
-    return tool in READS or (tool.startswith("mcp__") and tool in (ctx.connector_registry or {}))
 
 
 def on_post(evt, ctx, st) -> dict:
@@ -52,8 +43,8 @@ def on_post(evt, ctx, st) -> dict:
         why = f"a side-effecting call ({c.cls})"
     elif calls[key] > limit:
         why = f"more than {limit} tool calls"
-    elif (probe.get("money_tokens") or probe.get("data_classes")) and _data_tool(tool, ti, ctx):
-        why = "a data read on a request with money or personal data"
+    elif (probe.get("money_tokens") or probe.get("data_classes")) and tool not in classes.NEUTRAL_TOOLS:
+        why = "a data read on a request with money or personal data"  # any non-neutral call: no name list
     if why is None:
         sessionstate.update(ctx, sid, t0_calls=calls)
         return {}

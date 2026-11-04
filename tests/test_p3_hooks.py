@@ -308,7 +308,7 @@ def test_only_named_side_effect_free_tools_pass_the_session_gate(tmp_path, tool,
 def test_a_subagent_not_spawned_in_the_task_does_not_get_its_context(h):
     job = compiled(h)
     c = hookmain.build_ctx({"session_id": SID, "agent_id": "stranger", "agent_type": lanes.RESEARCHER}, h["env"])
-    assert c.job is None
+    assert c.grant is None and c.subagent_unlinked is True
     # a spawn recorded in the task, linked to its agent id, keeps the task
     assert pre(h, "Agent", subagent_type="dynamic-harness:data-analyst", prompt="count") == 0
     post(h, "Agent", {"agentId": "analyst01"}, subagent_type="dynamic-harness:data-analyst", prompt="count")
@@ -324,6 +324,30 @@ def test_a_subagent_not_spawned_in_the_task_does_not_get_its_context(h):
     ("Bash", {"command": "sqlite3 shop.sqlite3 'select 1'"}),
 ])
 def test_any_read_on_a_money_request_counts_as_a_data_read(h, tool, inp):
+    say(h, "what is the total amount in toman?", "p1")
+    sessionstate.update(ctx_of(h), SID, pending_card=None)
+    assert post(h, tool, **inp)[0] == 2
+
+
+def test_an_unlinked_subagent_keeps_the_task_gates_but_no_grant_and_only_reads(h):
+    job = compiled(h)
+    c = hookmain.build_ctx({"session_id": SID, "agent_id": "stranger", "agent_type": lanes.RESEARCHER}, h["env"])
+    assert c.job == job and c.grant is None
+    evt = {"session_id": SID, "tool_name": "Write", "tool_input": {"file_path": str(h["ws"] / "x.txt"), "content": "x"},
+           "cwd": str(h["ws"]), "agent_id": "stranger", "agent_type": "dynamic-harness:data-analyst"}
+    assert hookmain.main("PreToolUse", evt, h["env"])[0] == 2
+    evt.update(tool_name="Read", tool_input={"file_path": str(h["ws"] / "orders.csv")})
+    assert hookmain.main("PreToolUse", evt, h["env"])[0] == 0
+
+
+def test_agent_type_without_agent_id_is_the_main_thread(h):
+    job = compiled(h)
+    assert hookmain.build_ctx({"session_id": SID, "agent_type": "dynamic-harness:data-analyst"}, h["env"]).job == job
+
+
+@pytest.mark.parametrize("tool, inp", [("ReadMcpResourceTool", {"uri": "x"}), ("LS", {"path": "."}),
+                                       ("WebFetch", {"url": "https://docs.python.org/3/", "prompt": "x"})])
+def test_every_non_neutral_call_on_a_money_request_trips(h, tool, inp):
     say(h, "what is the total amount in toman?", "p1")
     sessionstate.update(ctx_of(h), SID, pending_card=None)
     assert post(h, tool, **inp)[0] == 2

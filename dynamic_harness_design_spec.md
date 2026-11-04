@@ -2239,8 +2239,8 @@ profiles:
 - **Lanes** (`lanes.py`).
   - Web tools are allowed only for the researcher, in an investigation.
   - Researcher and verifier spawns need a recorded `harness-research render` or `harness-critic render`. Neither renderer is built yet, so such spawns are denied until P4/P5.
-  - A subagent's calls keep the task it was spawned in, and only that one: its agent id must be linked in the task's `spawns.jsonl`.
-- **Tripwire.** It is active at T0 while no card is pending. It trips on a side effect, or on the 9th call. When the probe saw money or personal data, it also trips on any read (Read, Grep, Glob, Bash) or registered-connector call; there is no file-name pattern to get around.
+  - A subagent's calls keep the task it was spawned in: its agent id must be linked in the task's `spawns.jsonl`. A subagent that is not linked keeps the open task's gates, with no grant, and may only read. A call with `agent_type` but no `agent_id` is the main thread.
+- **Tripwire.** It is active at T0 while no card is pending. It trips on a side effect, or on the 9th call. When the probe saw money or personal data, it trips on any call other than the named neutral tools; there is no tool or file-name list to get around.
 - **R-5.** SessionStart stops as `STOPPED_TAMPER` when a shipped `skills/**/SKILL.md` has no matching `approved_procedures.json` entry, and when there is any symlink under `skills/`.
 - **Corrections and shadow.** Corrections are logged verbatim, as evidence only, and cite a real owner turn. The second draft is logged in shadow and never changes the card.
 - **Known gaps carried to P4.**
