@@ -16,14 +16,14 @@ import os
 import re
 import shlex
 
-from . import answer, claims
+from . import answer, claims, model_cmd
 from . import compile as compile_
 from . import contact, contacts, memory, renders
 from .errors import HarnessError
 
 WRITERS = {"compile": compile_.apply, "contact": contact.apply, "ledger": renders.ledger_apply,
            "research": renders.research_apply, "critic": renders.critic_apply, "answer": answer.apply,
-           "claims": claims.apply}
+           "claims": claims.apply, "model": model_cmd.apply}
 JOB_SCOPED = ("contact", "ledger", "research", "critic", "answer", "claims")
 _OPERATORS = re.compile(r"[;&|<>`$()\n\\]")
 
@@ -79,6 +79,8 @@ def _say(tool, res):
             restated = (f" It replaces version {res['restated']}: show the restated figure." if res.get("restated")
                         else "")
             return f"harness: the owner confirmed metric {res['defined']} (version {res['version']}).{restated}"
+        if res.get("confirmed") is not None:
+            return f"harness: the owner confirmed the assumption sheet ({', '.join(res['confirmed'])})."
         if res.get("granted"):
             return f"harness: research plan {res['plan_sha'][:12]} accepted; grant for {', '.join(res['domains'])}."
         return (f"harness: contact {res['contact_id']} ({res['type']}) recorded. Show it to the owner and wait for "
@@ -89,6 +91,8 @@ def _say(tool, res):
                 f"changes) as the Agent prompt. PROMPT:\n{res['prompt']}")
     if tool == "claims":
         return claims._say(res)
+    if tool == "model":
+        return model_cmd.say(res)
     if tool == "answer":
         return ("harness: answer header recorded for the gate. Put these three lines at the top of the answer, "
                 f"exactly:\n{res['header']}")
@@ -119,7 +123,7 @@ def on_post(evt, ctx) -> dict:
     if not res:  # harness-claims fetch: its own hook entry does the work
         return {}
     out = _context(_say(name, res))
-    if name == "contact" and res.get("type") in ("plan", "definition_confirm") and res.get("text") \
+    if name == "contact" and res.get("type") in ("plan", "definition_confirm", "assumption_sheet") and res.get("text") \
             and not res.get("granted") and not res.get("defined"):
         out["systemMessage"] = res["text"]  # the owner sees the rendered plan itself, not the model's retelling
     return out

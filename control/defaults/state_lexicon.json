@@ -1,8 +1,33 @@
 {
   "version": 1,
-  "note": "State words that may appear only in template-rendered state lines (spec §Gate and Stop semantics, final-message lint).",
+  "note": "State words that may appear only in template-rendered state lines (spec §Gate and Stop semantics, final-message lint). template_lines: fixed harness sentences that name what was and was not checked.",
   "terms": {
-    "en": ["checked", "verified", "reconciled", "confirmed", "matches", "✓", "✔"],
-    "fa": ["بررسی شد", "بررسی‌شده", "تأیید شد", "تایید شد", "تأییدشده", "تطبیق داده شد", "مطابقت دارد", "صحت‌سنجی شد"]
+    "en": [
+      "checked",
+      "verified",
+      "reconciled",
+      "confirmed",
+      "matches",
+      "✓",
+      "✔"
+    ],
+    "fa": [
+      "بررسی شد",
+      "بررسی‌شده",
+      "تأیید شد",
+      "تایید شد",
+      "تأییدشده",
+      "تطبیق داده شد",
+      "مطابقت دارد",
+      "صحت‌سنجی شد"
+    ]
+  },
+  "template_lines": {
+    "en": [
+      "Arithmetic checked; assumptions not."
+    ],
+    "fa": [
+      "محاسبات بررسی شد؛ فرض‌ها نه."
+    ]
   }
 }

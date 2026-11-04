@@ -105,6 +105,13 @@ def apply(req, ctx, evt) -> dict:
         store.write_json(p.run, log, "plan.json", stored, "PLAN", {"plan_sha": plan_sha})
         extra["plan_sha"] = plan_sha
         text = _plan_text(stored)  # the model's own wording is not what the owner approves
+    if kind == "assumption_sheet":
+        from . import model_cmd
+        rows = model_cmd._rows(p, log)
+        if not rows:
+            raise Denied("record the assumptions first (harness-model assume); the sheet is rendered from them")
+        extra["sheet_sha"] = canon.sha256_json(rows)
+        text = model_cmd.sheet_text(rows, ctx)  # the owner confirms the recorded values, not a retelling
     if kind == "definition_confirm" and req.get("metric") is not None:
         metric = _metric(req["metric"])
         store.write_json(p.run, log, "definition.json", metric, "DEFINITION", {"metric_id": metric["metric_id"]})
@@ -209,11 +216,25 @@ def _accept_definition(req, ctx, p, log) -> dict:
     return {"defined": metric["metric_id"], "version": entry["version"], "restated": entry.get("previous_version")}
 
 
+def _accept_sheet(req, ctx, p, log) -> dict:
+    from . import model_cmd
+    rows = [r for r in contacts.state(ctx).get("rows", []) if r.get("type") == "assumption_sheet"]
+    if not rows or rows[-1].get("accepted"):
+        raise Denied("there is no open assumption sheet to accept")
+    turn_id = _owner_reply(ctx, rows[-1], req["accept"])
+    out = model_cmd.accept_sheet(ctx, p, log, rows[-1], turn_id)
+    contacts.mark(ctx, rows[-1]["contact_id"], accepted=True, accepted_turn=turn_id)
+    log.append("APPROVAL", {"kind": "assumption_sheet", "turn_id": turn_id, "contact_id": rows[-1]["contact_id"]})
+    return out
+
+
 def _accept(req, ctx, p, log) -> dict:
     if req.get("type") == "definition_confirm":
         return _accept_definition(req, ctx, p, log)
+    if req.get("type") == "assumption_sheet":
+        return _accept_sheet(req, ctx, p, log)
     if req.get("type") != "plan":
-        raise Denied("only plan and definition_confirm contacts are accepted this way")
+        raise Denied("only plan, definition_confirm and assumption_sheet contacts are accepted this way")
     st = contacts.state(ctx)
     plans = [r for r in st.get("rows", []) if r.get("type") == "plan"]
     if not plans:

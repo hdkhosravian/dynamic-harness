@@ -45,7 +45,8 @@ def lexicon_hits(ctx, text, allowed=()) -> list:
     terms = [_fold(t) for t in gate._flat(lex.get("terms")) if t]
     pats = [re.compile(("(?<!\\w)" if re.match(r"\w", t) else "") + re.escape(t) + ("(?!\\w)" if re.search(r"\w$", t)
                        else "")) for t in terms]
-    ok = {_fold(a).strip() for a in allowed if a}
+    # fixed harness sentences (template_lines) are never model-influenced, so they are always allowed
+    ok = {_fold(a).strip() for a in list(allowed) + gate._flat(lex.get("template_lines")) if a}
     hits = []
     for line in (text or "").splitlines():
         s = _fold(line)

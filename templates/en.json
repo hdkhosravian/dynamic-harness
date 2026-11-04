@@ -19,5 +19,6 @@
   "header.not_for_tax": "Don't use this for tax or payments yet.",
   "header.transfers": "{n} transfers between your own accounts",
   "header.rows_left_out_undated": "{n} rows with no date",
-  "header.rows_left_out_unparsable": "{n} rows whose amount could not be read"
+  "header.rows_left_out_unparsable": "{n} rows whose amount could not be read",
+  "assumption_sheet": "These are the numbers I'll assume. The first ones matter most. Change any of them, or say OK."
 }

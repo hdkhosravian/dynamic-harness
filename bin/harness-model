@@ -1,0 +1,59 @@
+#!/usr/bin/python3 -I
+"""harness-model assume ID VALUE --unit U --period month|year|once --source history|benchmark|guess|owner [--label L]
+harness-model register [--deliverable FILE]
+harness-model scenario --set ID=VALUE [--set ID=VALUE ...]
+harness-model import FILE
+
+Only prints a request; the PostToolUse writer records assumptions, registers a model after its gate, or opens a
+scenario run. VALUE is a number, or a JSON list of 12 monthly factors for a seasonality."""
+import json
+import sys
+
+
+def _num(v):
+    x = json.loads(v)
+    if isinstance(x, bool) or not isinstance(x, (int, float, list)):
+        raise ValueError(f"{v!r} is not a number or a list of numbers")
+    return x
+
+
+def main(argv):
+    if not argv:
+        print(__doc__, file=sys.stderr)
+        return 2
+    sub, rest = argv[0], argv[1:]
+    req = {"tool": "model", "sub": sub}
+    if sub == "assume" and len(rest) >= 2:
+        req.update(id=rest[0], value=_num(rest[1]))
+        rest = rest[2:]
+    elif sub == "import" and len(rest) == 1:
+        req["file"] = rest[0]
+        rest = []
+    elif sub not in ("register", "scenario"):
+        print(__doc__, file=sys.stderr)
+        return 2
+    i = 0
+    while i < len(rest):
+        if i + 1 >= len(rest):
+            print(__doc__, file=sys.stderr)
+            return 2
+        a, v = rest[i], rest[i + 1]
+        if a == "--set" and "=" in v:
+            k, _, val = v.partition("=")
+            req.setdefault("set", {})[k] = _num(val)
+        elif a in ("--unit", "--period", "--source", "--label", "--deliverable", "--as-of"):
+            req[a[2:].replace("-", "_")] = v
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+        i += 2
+    print(json.dumps(req, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-model: {e}", file=sys.stderr)
+        sys.exit(2)

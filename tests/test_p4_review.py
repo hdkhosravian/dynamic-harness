@@ -197,3 +197,18 @@ def test_the_opening_line_is_not_a_lint_exemption(h, monkeypatch):
     gate_post(h)
     p, _ = logp(h, job)
     assert stop(h, (p.run / "opening.txt").read_text() + "\nAll totals verified.")[0] == 2
+
+
+def test_work_changed_reads_a_real_work_tree(h):
+    """Regression (P5): the temp copy lived under a symlinked /var on macOS, so a non-empty work/ looked like tamper."""
+    from harness_core import gate
+    from harness_core.events import EventLog
+    from harness_core.paths import job_paths
+    job = compiled(h)
+    p = job_paths(h["data"], h["ws"], job)
+    log = EventLog(p.run, p.heads)
+    (p.work / "a.md").write_text("x")
+    gate._submit(p, log)
+    assert gate.work_changed(p, log) is False
+    (p.work / "a.md").write_text("y")
+    assert gate.work_changed(p, log) is True

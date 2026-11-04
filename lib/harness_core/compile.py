@@ -83,7 +83,9 @@ def _opening(ctx, c, tier, job) -> str:
     return line
 
 
-def apply(req, ctx, evt) -> dict:
+def apply(req, ctx, evt, scenario_parent=None, job_id=None) -> dict:
+    """``scenario_parent`` / ``job_id``: only ``harness-model scenario`` passes them, in-process; a CLI request
+    never can (the writers dispatcher calls ``apply(req, ctx, evt)``)."""
     from . import session
 
     sid = evt.get("session_id")
@@ -121,14 +123,14 @@ def apply(req, ctx, evt) -> dict:
     c.setdefault("follows", None)
     if c["follows"] and not sessionstate.jobs(ctx).get(c["follows"], {}).get("terminal"):
         raise CardError([f"follows {c['follows']!r} is not a finished task; an open task is continued, not followed"])
-    c["scenario_of"] = None  # set only by harness-model scenario (P5)
+    c["scenario_of"] = scenario_parent  # set only by harness-model scenario, in-process
     pending = st.get("pending_card") or {}
     floor = tier_select.tier_max(p.get("floor_tier", "T2"), pending.get("floor", "T0"))
     tier = tier_select.select_tier(c, dict(p, floor_tier=floor), stored_tier=lambda j: sessionstate.tier_of(ctx, j),
                                    ctx=ctx)
     if tier != tier_select.REFUSE and tier != "T0" and not _profile(ctx, tier, c["task_type"]):
         raise CardError([f"no gate profile for {tier}.{c['task_type']} (or {tier}.default): the card is refused"])
-    job = _job_id(c)
+    job = job_id or _job_id(c)
     paths = job_paths(ctx.data_root, ctx.workspace, job)
     log = EventLog(paths.run, paths.heads)
     hashes = session.current_hashes(ctx)

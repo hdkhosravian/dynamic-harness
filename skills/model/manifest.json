@@ -1,0 +1,46 @@
+{
+  "schema": "harness/pack@1",
+  "pack": "model",
+  "version": "1.0.0",
+  "description": "The model-checks pack: forecasts, what-ifs and break-even (task type 6).",
+  "checks": {
+    "model.recalc": {
+      "entry": "checks/recalc.py",
+      "sha256": "27239114c78197f33247ab0826dcce63eb22b185ba06b414ae16e5c38e8906af",
+      "task_types": [
+        "simulation",
+        "decision_support",
+        "planning"
+      ],
+      "timeout": 120,
+      "run_files": [
+        "assumptions.json"
+      ],
+      "description": "Every cell of work/model.json from the recorded assumptions; low/base/high, runway, flip point, top 3 drivers (R-14)."
+    },
+    "model.checks": {
+      "entry": "checks/checks.py",
+      "sha256": "a597527411512a8303804618613995d32ed57c6a5400112b7467a5767430efec",
+      "task_types": [
+        "simulation"
+      ],
+      "timeout": 120,
+      "run_files": [
+        "assumptions.json"
+      ],
+      "description": "Identities, unit and period tags, metamorphic tests, delivered-table cross-check, bank back-cast, backtest against a naive seasonal baseline, model-risk flags."
+    },
+    "model.report": {
+      "entry": "checks/report.py",
+      "sha256": "aa2bda02fdf70be990282a545afc4107e374e3d38232af8cc70733c4645aaa0a",
+      "task_types": [
+        "simulation"
+      ],
+      "timeout": 60,
+      "run_files": [
+        "assumptions.json"
+      ],
+      "description": "The report gives ranges, the top drivers, the flip point and the two required sentences."
+    }
+  }
+}

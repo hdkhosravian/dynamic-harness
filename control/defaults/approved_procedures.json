@@ -7,6 +7,11 @@
       "approver": "release 0.4.0"
     },
     {
+      "path": "skills/model/SKILL.md",
+      "sha256": "63bac8430de066276b93ba5c84fa8cc550ddf70cef66637ce7f4c9cc15f7db56",
+      "approver": "release 0.4.0"
+    },
+    {
       "path": "skills/research/SKILL.md",
       "sha256": "e8eef194cfc5cb121dbcfabe13c262aaa456af8610efba25c6045b00489402fe",
       "approver": "release 0.4.0"

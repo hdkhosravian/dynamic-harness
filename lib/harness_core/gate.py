@@ -95,7 +95,7 @@ def work_changed(paths, log) -> bool:
     if not sub:
         return True
     work = _literal_dir(paths, paths.work)
-    tmp = Path(tempfile.mkdtemp(prefix="harness-work-"))
+    tmp = Path(os.path.realpath(tempfile.mkdtemp(prefix="harness-work-")))  # /var is a symlink on macOS
     try:
         for f in _files(work) if work else []:
             (tmp / f.relative_to(work)).parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +176,8 @@ def _argv(run: Path, proj: dict, profile: dict, fold_ledger_path, events_head: s
     texts = sorted(str(f) for f in _files(sub) if f.suffix.lower() in TEXT_SUFFIXES) if sub.exists() else []
     if texts:  # spec §Gate adapter numbers_traced: report.md and every submitted text deliverable
         argv += ["--outputs", str(outputs) if outputs.exists() else os.devnull, "--numbers-trace", *texts]
+        if (run / "assumptions.json").exists():  # owner-confirmed assumption values trace too
+            argv += ["--assumptions", str(run / "assumptions.json")]
     if profile.get("lint_lexicon", True):
         argv += ["--lint-lexicon", str(g / "lexicon.json")]
     if (run / "answer_header.md").exists():
