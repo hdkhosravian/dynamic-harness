@@ -74,7 +74,10 @@ def on_prompt(evt, ctx) -> dict:
         row["pending_contact_id"] = st["pending_contact_id"]
     turns = Turns(ctx.data_root)
     known = next((r for r in turns._rows() if r.get("turn_id") == turn_id), None)
-    turn = known or turns.append(row)  # the same prompt_id twice (a retried hook) is one turn
+    if known is not None and known.get("text_norm") != row["text_norm"]:
+        row["turn_id"] = turn_id = f"{turn_id}:{secrets.token_hex(4)}"  # same id, other text: a new turn
+        known = None
+    turn = known or turns.append(row)  # the same prompt_id and text twice (a retried hook) is one turn
     if turn["system"]:
         return {}
     job = st.get("active_task")

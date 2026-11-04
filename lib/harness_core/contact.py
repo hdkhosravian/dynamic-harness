@@ -116,7 +116,15 @@ def _accept(req, ctx, p, log) -> dict:
     last = plans[-1]
     if last.get("accepted"):
         raise Denied(f"plan contact {last['contact_id']} is already accepted")
-    turn = Turns(ctx.data_root).cite(req["accept"], after_seq=last.get("turn_seq", 0))
+    accept = req["accept"]
+    if accept == "latest":  # the model never sees prompt ids: the owner's latest reply to this plan contact
+        replies = [r for r in Turns(ctx.data_root)._rows()
+                   if r.get("pending_contact_id") == last["contact_id"] and not r.get("system")]
+        if not replies:
+            raise Denied(f"the owner has not replied to plan contact {last['contact_id']}")
+        accept = replies[-1]["turn_id"]
+    req = dict(req, accept=accept)
+    turn = Turns(ctx.data_root).cite(accept, after_seq=last.get("turn_seq", 0))
     if not is_approval(turn["text_norm"]):
         raise Denied(f"turn {req['accept']} is not a plain approval of the plan (reply yes, or say what to change)")
     if turn.get("pending_contact_id") != last["contact_id"]:

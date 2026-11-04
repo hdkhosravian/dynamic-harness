@@ -111,3 +111,21 @@ def test_9_start_questions_through_harness_contact_too(h):
     compiled(h)
     contacts.record_ask({"tool_input": {"questions": [{}, {}]}}, ctx_of(h))
     assert "one message" in contacts.check("question", ctx_of(h))
+
+
+def test_a_reused_prompt_id_with_new_text_is_a_new_turn(h):
+    say(h, "first text", "same")
+    say(h, "different text", "same")
+    rows = Turns(h["data"])._rows()
+    assert [r["text_norm"] for r in rows[-2:]] == ["first text", "different text"]
+    assert rows[-1]["turn_id"] != "same"
+
+
+def test_plan_accept_latest_resolves_to_the_owner_reply(h):
+    from test_contacts import PLAN
+    compiled(h, card=dict(CARD, task_type="investigation"))
+    row = contact.apply({"tool": "contact", "type": "plan", "text": "p", "plan": PLAN}, ctx_of(h), {"session_id": SID})
+    say(h, "yes", "r1")  # routed as the reply to the plan contact
+    assert Turns(h["data"]).latest()["pending_contact_id"] == row["contact_id"]
+    out = contact.apply({"tool": "contact", "type": "plan", "accept": "latest"}, ctx_of(h), {"session_id": SID})
+    assert out["granted"] is True

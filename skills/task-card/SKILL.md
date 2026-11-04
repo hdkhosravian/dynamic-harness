@@ -53,6 +53,8 @@ If the harness says the task is refused, tell the owner exactly the line it give
   with the suggested option.
 - In a headless run, use `harness-contact <type> --text "..."` (types: question, plan, assumption_sheet,
   definition_confirm, decision_ack) and stop; the owner's reply comes as the next prompt.
+- A research plan (investigations only): `harness-contact plan --plan <file>` shows the owner the plan.
+  After the owner replies yes, run `harness-contact plan --accept latest`.
 
 ## 4. Corrections
 

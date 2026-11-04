@@ -3,7 +3,7 @@
   "procedures": [
     {
       "path": "skills/task-card/SKILL.md",
-      "sha256": "cf1f78d99cbc30fe608994d98d654d0287bc77316a7e407aced37bc88cb65e72",
+      "sha256": "9e01346e41b3b114dfb7f63783c3d1106474303304e851b36e0896effdb4b249",
       "approver": "release 0.2.0"
     }
   ]
