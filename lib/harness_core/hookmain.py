@@ -21,7 +21,7 @@ import threading
 import time
 from pathlib import Path
 
-WATCHDOG = {"Stop": 9, "fetch": 55, "gate": 1795}
+WATCHDOG = {"Stop": 9, "fetch": 55, "gate": 1795, "UserPromptSubmit": 9}
 DEFAULT_WATCHDOG = 4
 STATUS_MAX_AGE = 24 * 3600  # shortcut: a day-old SessionStart status goes stale; resume/compact re-run SessionStart
 
@@ -32,7 +32,8 @@ def watchdog(event: str) -> float:
 
 HANDLERS = {"PreToolUse": ("safety", "on_pre"), "SessionStart": ("session", "on_start"),
             "ConfigChange": ("config_guard", "on_change"), "PostToolUse": ("written", "on_post"),
-            "PostToolUseFailure": ("written", "on_post")}  # a failed Write/Edit may still have written
+            "PostToolUseFailure": ("written", "on_post"),  # a failed Write/Edit may still have written
+            "UserPromptSubmit": ("setup", "on_prompt")}
 
 
 def _handler(event):
@@ -221,6 +222,10 @@ def _main(event, stdin_json, env, handlers, timeouts):
     try:
         if not isinstance(stdin_json, dict):
             return _fail("hook input is not a JSON object (fail closed)")
+        if event == "UserPromptSubmit":
+            from .setup import is_setup_prompt
+            if not is_setup_prompt(stdin_json):
+                return 0, None, None  # only /dynamic-harness:setup is handled; no state is read for other prompts
         fn = handlers.get(event) if handlers is not None else _handler(event)
         if fn is None:
             return _fail(f"no handler for hook event {event!r} (fail closed)")
@@ -230,6 +235,8 @@ def _main(event, stdin_json, env, handlers, timeouts):
             return 0, None, None
         if not isinstance(result, dict):
             return _fail(f"handler returned {type(result).__name__} (fail closed)")
+        if event == "UserPromptSubmit" and result.get("decision") == "block":
+            return 0, result, None  # JSON block: the reason is shown to the user, not added to context
         if result.get("decision") in ("deny", "block"):
             return _fail(str(result.get("reason") or "denied"))
         return 0, result, None

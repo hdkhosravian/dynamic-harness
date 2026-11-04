@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_core import classes, safety, session
+from harness_core import classes, safety, session, setup
 from harness_core.safety import RESEARCHER, Ctx
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +34,9 @@ def test_r1_hooks_json_registers_only_safety_entry_points():
     hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text())["hooks"]
     # PostToolUse only records writes (written.py); it never blocks or alters a T0 call
     # PostToolUseFailure records writes of failed calls too; neither blocks or alters a T0 call
-    assert set(hooks) == {"PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "ConfigChange"}
+    # UserPromptSubmit acts only on a typed /dynamic-harness:setup; every other prompt passes untouched (test_setup)
+    assert set(hooks) == {"PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "ConfigChange",
+                          "UserPromptSubmit"}
     for event, entries in hooks.items():
         for e in entries:
             for h in e["hooks"]:
@@ -155,6 +157,7 @@ def test_r6_out_of_band_write_detected(ctx, tmp_path):
         (ROOT / "control" / "defaults" / "classes.json").read_text())
     with open(ctx.data_root / "config_log.jsonl", "w") as fh:
         fh.write(json.dumps({"hashes": session.current_hashes(ctx)}) + "\n")
+    setup._apply(ctx, setup.plan(ctx))
     assert session.on_start({}, ctx) == {}
     # a write that bypassed the tool layer (same OS user, outside the sandbox)
     (ctx.data_root / "control" / "classes.json").write_text("{}")

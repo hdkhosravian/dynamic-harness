@@ -1,5 +1,5 @@
 {
-  "description": "Dynamic harness safety hooks. /usr/bin/python3 -I (absolute: no PATH lookup, no user site-packages); hookmain watchdog = timeout - 1 s (gate/fetch: - 5 s); any handler failure exits 2; onFailure=block makes crashes/timeouts block (needs Claude Code >= 2.1.295, OQ-4 spike S1). Files written this session (sessions/<sid>/written.json): PreToolUse records Bash write targets before the command runs; PostToolUse and PostToolUseFailure record Write/Edit/MultiEdit/NotebookEdit.",
+  "description": "Dynamic harness safety hooks. /usr/bin/python3 -I (absolute: no PATH lookup, no user site-packages); hookmain watchdog = timeout - 1 s (gate/fetch: - 5 s); any handler failure exits 2; onFailure=block makes crashes/timeouts block (needs Claude Code >= 2.1.295, OQ-4 spike S1). Files written this session (sessions/<sid>/written.json): PreToolUse records Bash write targets before the command runs; PostToolUse and PostToolUseFailure record Write/Edit/MultiEdit/NotebookEdit. UserPromptSubmit handles only /dynamic-harness:setup (two-step consent; the prompt is blocked so the model never sees it); every other prompt passes untouched.",
   "hooks": {
     "PreToolUse": [
       {
@@ -59,6 +59,18 @@
             "type": "command",
             "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" ConfigChange",
             "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" UserPromptSubmit",
+            "timeout": 10,
             "onFailure": "block"
           }
         ]

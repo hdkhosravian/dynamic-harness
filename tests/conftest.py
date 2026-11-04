@@ -23,3 +23,9 @@ def env(tmp_path):
 def _cc_version(monkeypatch):
     """Hermetic SessionStart version check: tests never shell out to `claude --version`."""
     monkeypatch.setenv("CLAUDE_CODE_VERSION", "2.1.296")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path_factory, monkeypatch):
+    """No test may read or write the real ~/.claude (setup writes settings there when ctx.home is unset)."""
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))

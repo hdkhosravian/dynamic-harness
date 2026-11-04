@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_core import hookmain, sandbox_exec, session
+from harness_core import setup, hookmain, sandbox_exec, session
 
 ROOT = Path(__file__).resolve().parents[1]
 SID = "e2e-1"
@@ -36,8 +36,7 @@ def h(tmp_path):
 def _setup(h):
     """What /dynamic-harness:setup leaves behind: the release hashes and the loop-contract root."""
     ctx = hookmain.build_ctx({}, {**h["env"], "LOOP_CONTRACT_ROOT": str(h["lc"])})
-    row = {"ts": "2026-11-04T00:00:00Z", "hashes": session.current_hashes(ctx), "loop_contract_root": str(h["lc"])}
-    (h["data"] / "config_log.jsonl").write_text(json.dumps(row) + "\n")
+    setup._apply(ctx, setup.plan(ctx))
 
 
 def start(h, env=None):

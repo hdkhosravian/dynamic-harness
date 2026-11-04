@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import canon, config_guard, safety, sandbox_exec, written
+from . import canon, config_guard, safety, sandbox_exec, setup, written
 from .errors import HarnessError
 from .safeio import atomic_write, safe_open
 
@@ -168,6 +168,11 @@ def _checks(evt, ctx) -> dict:
     if mismatch:
         return _block("STOPPED_TAMPER", f"hash mismatch against config_log.jsonl: {', '.join(mismatch)}", ctx,
                       mismatch=mismatch)
+    missing = setup.verify(ctx)
+    if missing:  # the Claude Code sandbox and deny rules are the boundary; without them, reads only
+        return _block("REFUSED", "this folder is not set up (" + "; ".join(missing[:4])
+                      + (f"; and {len(missing) - 4} more" if len(missing) > 4 else "")
+                      + "): type /dynamic-harness:setup; tasks above T0 are refused", ctx)
     problem = sandbox_exec.probe()
     if problem:  # gate children and harness-sandbox-exec need it; a session without it cannot finish a task
         return _block("REFUSED", f"{problem}: tasks above T0 are refused", ctx)

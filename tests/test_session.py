@@ -7,7 +7,7 @@ import types
 
 import pytest
 
-from harness_core import safety, session
+from harness_core import setup, safety, session
 from harness_core.safety import Ctx
 
 
@@ -32,6 +32,7 @@ def ctx(tmp_path):
     (lc / "fold_ledger.py").write_text("# fold\n")
     c = Ctx(workspace=ws, data_root=data, plugin_root=root, loop_contract_root=lc, home=home, temp_roots=[], log=Log())
     baseline(c)
+    setup._apply(c, setup.plan(c))  # what /dynamic-harness:setup confirm leaves behind
     return c
 
 
@@ -256,9 +257,9 @@ def test_session_start_starts_written_record(ctx):
 
 
 def test_settings_baseline_snapshot(ctx):
-    (ctx.home / ".claude").mkdir()
+    (ctx.home / ".claude").mkdir(exist_ok=True)
     (ctx.home / ".claude" / "settings.json").write_text('{"permissions": {"deny": ["Read(~/.ssh/**)"]}}')
-    (ctx.workspace / ".claude").mkdir()
+    (ctx.workspace / ".claude").mkdir(exist_ok=True)
     (ctx.workspace / ".claude" / "settings.json").write_text('{"sandbox": {"enabled": true}}')
     (ctx.workspace / ".claude" / "settings.local.json").write_text("{bad")
     session.on_start({"session_id": "s1"}, ctx)
@@ -326,3 +327,11 @@ def test_session_without_a_working_os_sandbox_is_refused(ctx, monkeypatch):
     out = session.on_start({"session_id": "s1"}, ctx)
     assert out["state"] == "REFUSED" and "bwrap cannot create a sandbox here" in out["reason"]
     assert status(ctx)["ok"] is False
+
+
+def test_session_without_setup_settings_is_refused(ctx):
+    # e.g. setup undone, or a project opened before setup ran
+    (ctx.workspace / ".claude" / "settings.local.json").unlink()
+    out = session.on_start({"session_id": "s1"}, ctx)
+    assert out["state"] == "REFUSED" and "/dynamic-harness:setup" in out["reason"]
+    assert "sandbox.enabled" in out["reason"] and status(ctx)["ok"] is False
