@@ -2302,7 +2302,7 @@ profiles:
 - **Decision record (R-15).** `records/<job>.jsonl` gets interim rows at resumable stops and a final row at REFUSED, DONE and STOPPED_TAMPER. It is assembled from artefacts only, and every string is redacted.
 - **Review fixes (P4).** An independent review found 12 issues. All are fixed, and each has a regression test in `test_p4_review.py`:
   - Stop re-hashes `work/` against the latest `SUBMITTED` tree, so an edit after the gate needs a new gate.
-  - The lexicon lint exempts only lines the harness rendered (the state line and `opening.txt`). It removes format characters and folds text the way the probe does.
+  - The lexicon lint exempts only the receipt's state line. `compile` refuses a `deliverable.description` that contains state words, because the opening line quotes it. It removes format characters and folds text the way the probe does.
   - RE_UNDERSTAND drops a unit only when the correction names it. A unit replaced under the same label is superseded.
   - A `PAUSED` task runs only reads.
   - A call that a writer refused is still charged.

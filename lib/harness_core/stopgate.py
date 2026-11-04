@@ -40,7 +40,7 @@ def _fold(text) -> str:
 
 
 def lexicon_hits(ctx, text, allowed=()) -> list:
-    """State words outside lines the harness itself rendered (``allowed``: the state line, the opening line)."""
+    """State words outside lines the harness itself rendered (``allowed``: only the receipt's state line)."""
     lex = protected.load_control("state_lexicon.json", ctx)
     terms = [_fold(t) for t in gate._flat(lex.get("terms")) if t]
     pats = [re.compile(("(?<!\\w)" if re.match(r"\w", t) else "") + re.escape(t) + ("(?!\\w)" if re.search(r"\w$", t)
@@ -140,8 +140,7 @@ def _job(evt, ctx, sid, st, msg, job) -> dict:
     if v["ok"] and gate.work_changed(p, log):
         return _block(ctx, sid, st, "work", "work/ changed after the gate: run harness-gate request again", job)
     if v["ok"]:
-        opening = (p.run / "opening.txt").read_text("utf-8") if (p.run / "opening.txt").is_file() else ""
-        hits = lexicon_hits(ctx, msg, allowed=[v["state"], *opening.splitlines()])
+        hits = lexicon_hits(ctx, msg, allowed=[v["state"]])  # never model-influenced text such as opening.txt
         if hits:
             return _block(ctx, sid, st, "lexicon", f"the final message uses state words {hits} outside the state line", job)
         rec = json.loads(safe_open(p.run / "receipt.json", [p.run]))

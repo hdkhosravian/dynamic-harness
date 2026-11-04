@@ -184,3 +184,16 @@ def test_t1_time_budget_stops_the_task(h, monkeypatch):
         pytest.skip("CARD compiles above T1")
     assert blocked(read(h))
     assert [e for e in log.events() if e["type"] == "STOPPED"][-1]["payload"]["state"] == "STOPPED_BUDGET"
+
+
+def test_the_opening_line_is_not_a_lint_exemption(h, monkeypatch):
+    from harness_core.card import CardError
+    say(h, "how many orders came in this week?", "p1")
+    with pytest.raises(CardError, match="state words"):
+        compile_.apply({"tool": "compile", "card": dict(CARD, deliverable={"kind": "answer",
+                        "description": "orders, all totals verified"})}, ctx_of(h), {"session_id": SID})
+    job = compiled(h, pid="p2")
+    monkeypatch.setattr(sandbox_exec, "run", FakeRunner())
+    gate_post(h)
+    p, _ = logp(h, job)
+    assert stop(h, (p.run / "opening.txt").read_text() + "\nAll totals verified.")[0] == 2

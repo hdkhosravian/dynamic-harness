@@ -107,6 +107,10 @@ def apply(req, ctx, evt) -> dict:
             raise CardError([f"resume_of {c['resume_of']!r} is not a terminal job; a non-terminal job is resumed, "
                              "not recompiled"])
     c["multi_session"] = cardmod.multi_session(c)
+    from .stopgate import lexicon_hits
+    words = lexicon_hits(ctx, c["deliverable"]["description"])
+    if words:  # the opening line quotes the description, and the model prints it verbatim
+        raise CardError([f"deliverable.description may not use state words {words}"])
     c.setdefault("follows", None)
     if c["follows"] and not sessionstate.jobs(ctx).get(c["follows"], {}).get("terminal"):
         raise CardError([f"follows {c['follows']!r} is not a finished task; an open task is continued, not followed"])
