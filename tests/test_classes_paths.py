@@ -391,13 +391,10 @@ def test_r3_recursive_readers_over_protected_trees_are_denied(ctx, cmd):
     assert B(ctx, cmd).cls == "protected_path"
 
 
-@pytest.mark.parametrize("cmd", [
-    "grep -r --exclude-dir=keys --exclude-dir=experience secret",
-])
-def test_r3_grep_narrowed_to_exclude_the_trees_stays_allowed(ctx, cmd):
+def test_r3_grep_exclusions_never_narrow_a_recursive_read(ctx):
+    # architecture decision: no option can turn a recursive read over keys/ into an allow (parser differentials)
     _cwd(ctx, ctx.data_root.parent)
-    c = B(ctx, cmd)
-    assert not c.irreversible, c
+    assert B(ctx, "grep -r --exclude-dir=keys --exclude-dir=experience secret").cls == "protected_path"
 
 
 @pytest.mark.parametrize("cmd", [
@@ -533,3 +530,13 @@ def test_find_f_primary_words_also_get_their_bsd_start_path_checked(ctx, word):
     # BSD find (macOS /usr/bin/find) reads -fls as start path "ls"
     os.symlink(str(ctx.data_root), str(ctx.workspace / word[2:]))
     assert B(ctx, f"find {word} -- -name k").cls == "protected_path"
+
+
+@pytest.mark.parametrize("p", ["/dev/fd/63", "/proc/self/fd/63", "/proc/4242/fd/63", "/proc/thread-self/fd/3"])
+def test_fd_paths_on_linux_and_macos_are_process_substitutions(p):
+    # Linux realpath turns /dev/fd/63 into /proc/<pid>/fd/63
+    assert classes._is_fd(p)
+
+
+def test_regular_proc_paths_are_not_fd_paths():
+    assert not classes._is_fd("/proc/cpuinfo") and not classes._is_fd("/home/u/fd/1")

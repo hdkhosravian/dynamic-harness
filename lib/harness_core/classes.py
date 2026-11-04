@@ -6,7 +6,6 @@ line; the Claude Code sandbox set up by /harness:setup is the hard backstop.
 """
 from __future__ import annotations
 
-import fnmatch
 import glob
 import os
 import re
@@ -353,7 +352,9 @@ def _split_opts(args, opt_args=()):
     return opts, pos
 
 
-_GREP_SAFE = re.compile(r"-[rinlHhcosqvwxEFGIL]+|--recursive")  # flags that take no value
+def _is_fd(p) -> bool:
+    """A process-substitution / fd path: ``/dev/fd/N`` on macOS, ``/proc/<pid>/fd/N`` once Linux realpaths it."""
+    return p.startswith("/dev/fd/") or re.match(r"/proc/(self|thread-self|\d+)/fd/", p) is not None
 
 
 def _grep_recursive(args):
@@ -817,7 +818,7 @@ class _Bash:
         if cands is None:
             return self.add("unknown", f"{verb} target {w!r} cannot be resolved")
         for p in cands:
-            if p in DEV_OK or p.startswith("/dev/fd/"):
+            if p in DEV_OK or _is_fd(p):
                 continue
             if protected.is_protected(p, self.ctx):
                 return self.add("protected_path", f"{verb} to protected path {p}")
@@ -844,7 +845,7 @@ class _Bash:
         cands = self.candidates(w)
         if cands is None:
             return self.add("unknown", f"{what} a file whose path cannot be resolved")
-        if any(p.startswith("/dev/fd/") for p in cands):
+        if any(_is_fd(p) for p in cands):
             return self.add("self_written_exec", f"{what} code from a process substitution")
         if any(self.is_written(p) for p in cands):
             return self.add("self_written_exec", f"{what} a file written this task; use harness-sandbox-exec")
@@ -910,28 +911,11 @@ class _Bash:
                     return self.add("protected_path", "recursive read over keys/ or experience/")
 
     def grep_tree(self, name, rest):
-        """Maintainer R3: a recursive grep reads its whole tree (the cwd when no path is given),
-        unless --exclude-dir globs exclude every protected tree's directory name. The exception is
-        grep-only and void when symlinks are followed (-R, -S): a link may reach a tree under another name."""
-        opts, pos = _split_opts(rest, GREP_OPT_ARGS)
-        narrowing = name in ("grep", "egrep", "fgrep") and not _short_or_long(opts, "RS", ("--dereference-recursive",))
-        if not _has_opt(rest, ("-e", "--regexp", "-f", "--file")):
-            pos = pos[1:]  # the first positional is the pattern
-        # honoured only when every option word is a plain flag cluster or --exclude-dir=V: anything else
-        # (a value-taking option, --, an abbreviation) can hide which word is an exclusion
-        narrowing = narrowing and all(_GREP_SAFE.fullmatch(a) or a.startswith("--exclude-dir=") for a in rest if a.startswith("-"))
-        # words arrive after shell brace expansion, so a brace left here was quoted and is literal to grep;
-        # only plain names are trusted (Python and C fnmatch differ on \\, classes and dotfiles)
-        excl = [v for v in _opt_value(rest, ("--exclude-dir",)) if re.fullmatch(r"[A-Za-z0-9._-]+", v)] if narrowing else []
-        names = set()
-        for pat in protected.load_patterns(self.ctx)["read_protected"]:
-            e = protected._expand(pat, self.ctx)
-            if e:  # same literal base as protected.contains_read_protected
-                names.add(os.path.basename(re.split(r"/[^/]*[*?\[]", e, maxsplit=1)[0]))
-        for w in pos or ["."]:
-            for p in self.candidates(w) or ():
-                if protected.is_read_protected(p, self.ctx) or not narrowing or not all(any(fnmatch.fnmatch(n, x) for x in excl) for n in names):
-                    self.recursive_read([p])
+        """R3: a recursive grep reads its whole tree. No option narrows it (``--exclude-dir`` parsing
+        kept losing to getopt differentials). A lone positional may be the pattern (cwd searched) or a
+        path (with ``-e``), so both are checked."""
+        pos = _split_opts(rest, GREP_OPT_ARGS)[1]
+        self.recursive_read(pos if len(pos) > 1 else pos + ["."])
 
     def dispatch(self, name, args, stdin_code, stdin_file, dynamic):
         """Classify a known command; return False when ``name`` is unknown."""

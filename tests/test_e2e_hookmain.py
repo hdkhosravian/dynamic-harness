@@ -33,7 +33,7 @@ def h(tmp_path):
     return {"ws": ws, "data": data, "home": home, "lc": lc, "env": env}
 
 
-def setup(h):
+def _setup(h):
     """What /harness:setup leaves behind: the release hashes and the loop-contract root."""
     ctx = hookmain.build_ctx({}, {**h["env"], "LOOP_CONTRACT_ROOT": str(h["lc"])})
     row = {"ts": "2026-11-04T00:00:00Z", "hashes": session.current_hashes(ctx), "loop_contract_root": str(h["lc"])}
@@ -63,7 +63,7 @@ def events(h):
 
 
 def test_running_a_file_written_this_session_is_denied(h, capsys):
-    setup(h)
+    _setup(h)
     assert start(h)[0] == 0
     assert pre(h, "Bash", command="python3 old.py") == 0  # pre-existing file
     (h["ws"] / "x.py").write_text("print(1)\n")
@@ -76,14 +76,14 @@ def test_running_a_file_written_this_session_is_denied(h, capsys):
 
 
 def test_lost_record_falls_back_to_strict(h):
-    setup(h)
+    _setup(h)
     start(h)
     (h["data"] / "sessions" / SID / "written.json").unlink()
     assert pre(h, "Bash", command="python3 old.py") == 2  # untracked, so unknown => treated as self-written
 
 
 def test_job_work_files_are_self_written(h):
-    setup(h)
+    _setup(h)
     start(h)
     work = h["ws"] / ".claude" / "loops" / "j1" / "work"
     work.mkdir(parents=True)
@@ -103,13 +103,13 @@ def test_failed_session_start_allows_only_reads(h):
 
 
 def test_no_session_start_at_all_denies_non_reads(h):
-    setup(h)
+    _setup(h)
     assert pre(h, "Bash", command="touch a") == 2
     assert pre(h, "Bash", command="ls") == 0
 
 
 def test_passing_session_allows_reversible_work(h):
-    setup(h)
+    _setup(h)
     assert start(h)[0] == 0
     assert pre(h, "Bash", command="touch a") == 0
     assert events(h) == []
@@ -117,7 +117,7 @@ def test_passing_session_allows_reversible_work(h):
 
 @pytest.mark.parametrize("drop", ["CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT"])
 def test_missing_plugin_env_denies(h, drop):
-    setup(h)
+    _setup(h)
     start(h)
     env = {k: v for k, v in h["env"].items() if k != drop}
     assert pre(h, "Bash", command="ls", env=env) == 2
@@ -127,7 +127,7 @@ def test_config_change_removing_a_deny_rule_is_blocked(h):
     f = h["ws"] / ".claude" / "settings.json"
     f.parent.mkdir()
     f.write_text(json.dumps({"permissions": {"deny": ["Read(./secrets/**)"]}}))
-    setup(h)
+    _setup(h)
     start(h)
 
     def change(settings):
@@ -140,7 +140,7 @@ def test_config_change_removing_a_deny_rule_is_blocked(h):
 
 
 def test_cd_does_not_move_the_workspace(h):
-    setup(h)
+    _setup(h)
     start(h)
     ws = h["ws"]
     assert pre(h, "Write", cwd="/", file_path=str(ws / "a.txt"), content="x") == 0
@@ -227,7 +227,7 @@ def test_launcher_denies_writes_through_a_symlinked_claude_md(h):
 
 def test_bash_write_is_recorded_before_the_command_runs(h):
     # PostToolUse may never fire (the command fails, is interrupted, or the hook is skipped): PreToolUse records it
-    setup(h)
+    _setup(h)
     assert start(h)[0] == 0
     sub = h["ws"] / "sub"
     sub.mkdir()
@@ -237,7 +237,7 @@ def test_bash_write_is_recorded_before_the_command_runs(h):
 
 
 def test_compact_keeps_the_written_record(h):
-    setup(h)
+    _setup(h)
     start(h)
     (h["ws"] / "x.py").write_text("print(1)\n")
     assert post(h, "Write", file_path=str(h["ws"] / "x.py")) == 0
