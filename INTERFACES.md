@@ -373,7 +373,8 @@ its last `file_sha`, appends the row, then appends an event carrying
        `control`, `business`, `gate` (`control/gate.json`), `plugin` or
        `loop_contract` (`STOPPED_TAMPER`; a layer present now but never
        recorded is a mismatch too);
-    7. a failed PreToolUse canary (`CANARY_FAILED`).
+    7. no working OS sandbox, `sandbox_exec.probe()` not None (`REFUSED`);
+    8. a failed PreToolUse canary (`CANARY_FAILED`).
 - `config_guard.on_change(evt, ctx) -> dict` (ConfigChange). Judges the
   changed file against `ctx.settings_baseline` (`{realpath: settings}` over
   `~/.claude/settings.json`, `<ws>/.claude/settings.json` and
@@ -490,7 +491,24 @@ its last `file_sha`, appends the row, then appends an event carrying
     process group is killed with SIGKILL on timeout and again after it exits,
     so background children cannot outlive the call.
   - A timeout returns code `124` (`TIMEOUT_CODE`).
-  - When `sandbox-exec` is missing, it raises `HarnessError` (fails closed).
+  - On Linux it uses `/usr/bin/bwrap` with `bwrap_args(cwd, tmp, deny_read,
+    deny_write, allow_write)`; later mounts cover earlier ones:
+    1. `--die-with-parent --new-session --unshare-all`, `/` read-only, fresh
+       `/dev` and `/proc`, and `/tmp`, `/var/tmp`, `/run` as empty tmpfs;
+    2. bind the temp dir and the cwd read-write;
+    3. `deny_write` read-only (symlinks skipped: callers list their targets),
+       then `allow_write` read-write;
+    4. every existing `CLAUDE*.md`/`.mcp.json` under the cwd and `allow_write`
+       read-only (`.git` not walked);
+    5. each `deny_read` directory as an empty mode-000 read-only tmpfs, a file
+       as `/dev/null`; entries under another entry are skipped;
+    6. the hidden tmpfs remounted read-only; `--chdir cwd`.
+    The child env uses `LANG=C.UTF-8`. Any `CLAUDE*.md`/`.mcp.json` the child
+    created is removed after it exits, and the call returns `126`
+    (`INSTRUCTION_CODE`) with the paths on stderr.
+  - `backend() -> "sandbox-exec" | "bwrap" | None` by platform;
+    `probe() -> None | reason` (bwrap: runs `/bin/true` in a sandbox).
+  - When the backend is missing, it raises `HarnessError` (fails closed).
 - `bin/harness-sandbox-exec [--cwd DIR] [--deny-read DIR]... [--timeout S] -- ARGV`
   (default timeout 600 s). It refuses (exit 2) in these cases:
   - `CLAUDE_PLUGIN_DATA` or `CLAUDE_PROJECT_DIR` is unset;
