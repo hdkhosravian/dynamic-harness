@@ -6,7 +6,10 @@ boundaries writers: contacts, plan.json, egress grant; §Turns and contacts; bui
 - ``--handoff`` (at the cap, once per task, before-spend types only) also appends ``PAUSED{handoff}`` and
   marks the job PAUSED in the jobs index.
 - ``plan`` writes the protected ``plan.json`` (``plan_sha`` over the plan) from the request.
-- ``plan --accept <turn_id>``: the cited owner turn must come after the latest plan contact; then the
+- ``plan`` text shown to the owner is rendered from ``plan.json`` (hypotheses, domains, page budget, stop
+  rule), never the model's wording, so the approval covers exactly what is granted.
+- ``plan --accept <turn_id>``: the cited turn must be the owner's reply to that plan contact (its
+  ``pending_contact_id``), come after it, and contain an approval word; the contact is then consumed. The
   egress grant ``{plan_sha, domains, page_budget, active, expires_at}`` is written with a ``GRANT`` event,
   which is the only form ``hookmain`` honours. Domains come from the plan's URLs.
 - ``cost`` contacts come with the budget hook (P4) and are refused here.
@@ -33,6 +36,16 @@ PLAN_SCHEMA = {"type": "object", "additionalProperties": False,
                               "stop_rule": {"type": "string"},
                               "load_bearing": {"type": "array", "items": {"type": "string"}}}}
 GRANT_TTL = 24 * 3600
+APPROVE = ("yes", "ok", "okay", "approve", "approved", "accept", "accepted", "go ahead", "agreed",
+           "بله", "آره", "باشه", "تایید", "تأیید", "قبول", "موافقم")
+
+
+def _plan_text(plan) -> str:
+    """What the owner sees for a plan: rendered from plan.json itself, so the approval covers the grant."""
+    return (f"Research plan {plan['plan_sha'][:12]}: {len(plan['hypotheses'])} hypotheses "
+            f"({'; '.join(plan['hypotheses'])}). Sources: {', '.join(plan['domains'])}. "
+            f"Up to {plan['page_budget']} pages. Stop when: {plan['stop_rule']}. "
+            "Reply yes to approve this plan, or say what to change.")
 
 
 def _domains(urls) -> list:
@@ -57,7 +70,7 @@ def apply(req, ctx, evt) -> dict:
     if req.get("accept"):
         return _accept(req, ctx, p, log)
     handoff = req.get("handoff") is True
-    why = contacts.check(kind, ctx, handoff=handoff)
+    why = contacts.check(kind, ctx, handoff=handoff)  # early, clear refusal; record() re-checks under the lock
     if why:
         raise Denied(why)
     text = req.get("text") if isinstance(req.get("text"), str) else ""
@@ -67,9 +80,10 @@ def apply(req, ctx, evt) -> dict:
         schema.validate(plan, PLAN_SCHEMA, "plan")
         plan = dict(plan, domains=_domains(plan["urls"]))
         plan_sha = canon.sha256_json(plan)
-        store.write_json(p.run, log, "plan.json", dict(plan, schema="harness/research_plan@1", plan_sha=plan_sha),
-                         "PLAN", {"plan_sha": plan_sha})
+        stored = dict(plan, schema="harness/research_plan@1", plan_sha=plan_sha)
+        store.write_json(p.run, log, "plan.json", stored, "PLAN", {"plan_sha": plan_sha})
         extra["plan_sha"] = plan_sha
+        text = _plan_text(stored)  # the model's own wording is not what the owner approves
     row = contacts.record(ctx, kind, canon.sha256_bytes(text.encode("utf-8")), handoff=handoff, extra=extra)
     sessionstate.update(ctx, evt.get("session_id"), pending_contact_id=row["contact_id"])
     if handoff:
@@ -87,7 +101,11 @@ def _accept(req, ctx, p, log) -> dict:
     if not plans:
         raise Denied("there is no plan contact to accept")
     last = plans[-1]
-    Turns(ctx.data_root).cite(req["accept"], after_seq=last.get("turn_seq", 0))
+    if last.get("accepted"):
+        raise Denied(f"plan contact {last['contact_id']} is already accepted")
+    turn = Turns(ctx.data_root).cite(req["accept"], after_seq=last.get("turn_seq", 0), must_match=APPROVE)
+    if turn.get("pending_contact_id") != last["contact_id"]:
+        raise Denied(f"turn {req['accept']} is not the owner's reply to plan contact {last['contact_id']}")
     plan = store.read_json(p.run, log, "plan.json", None)
     if not isinstance(plan, dict) or plan.get("plan_sha") != last.get("plan_sha"):
         raise Denied("plan.json does not match the latest plan contact")
@@ -95,4 +113,5 @@ def _accept(req, ctx, p, log) -> dict:
              "page_budget": plan["page_budget"], "active": True, "turn_id": req["accept"],
              "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + GRANT_TTL))}
     store.write_json(p.run, log, "egress_grant.json", grant, "GRANT", {"plan_sha": plan["plan_sha"]})
+    contacts.mark(ctx, last["contact_id"], accepted=True, accepted_turn=req["accept"])
     return {"granted": True, "plan_sha": plan["plan_sha"], "domains": plan["domains"]}

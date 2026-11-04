@@ -88,6 +88,13 @@ def apply(req, ctx, evt) -> dict:
     p, turn_id = st.get("probe"), st.get("request_turn")
     if not isinstance(p, dict) or not turn_id:
         raise Denied("compile refuses: no owner prompt is recorded for this session")
+    if turn_id in (st.get("compiled_turns") or []):
+        raise Denied("this prompt was already compiled into a job; one owner prompt makes one job")
+    open_job = st.get("active_task")
+    open_row = sessionstate.jobs(ctx).get(open_job, {}) if open_job else {}
+    if open_job and not open_row.get("terminal") and st.get("prompt_scope") == "active_task":
+        raise Denied(f"this prompt belongs to the open task {open_job}; changing that task's card is "
+                     "re-understanding (state machine, P4)")
     turn = Turns(ctx.data_root).cite(turn_id)
     draft = req.get("card")
     c = cardmod.normalize(draft, p, ctx, request=turn["text_norm"])
@@ -120,7 +127,8 @@ def apply(req, ctx, evt) -> dict:
     if tier == tier_select.REFUSE:
         log.append("STOPPED", {"state": "REFUSED", "reason": f"decision class {c['decision_class']} is refused"})
         sessionstate.set_job(ctx, job, state="REFUSED", tier=None, task_type=c["task_type"], session_id=sid)
-        sessionstate.update(ctx, sid, pending_card=None, active_task=None, prompt_scope="new")
+        sessionstate.update(ctx, sid, pending_card=None, active_task=open_job if not open_row.get("terminal") else None,
+                            prompt_scope="new", compiled_turns=(list(st.get("compiled_turns") or []) + [turn_id])[-50:])
         return dict(out, state="REFUSED", tier=None, message=_template("refused", ctx))
     store.write_json(paths.run, log, "tier.json",
                      {"schema": "harness/tier@1", "job_id": job, "session_id": sid, "tier": tier,
@@ -141,8 +149,13 @@ def apply(req, ctx, evt) -> dict:
                file_sha=__import__("hashlib").sha256(opening.encode("utf-8")).hexdigest())
     paths.work.mkdir(parents=True, exist_ok=True)
     paths.requests.mkdir(parents=True, exist_ok=True)
+    if open_job and not open_row.get("terminal") and tier != "T0":  # a new task at T1+ pauses the open one
+        op = job_paths(ctx.data_root, ctx.workspace, open_job)
+        EventLog(op.run, op.heads).append("PAUSED", {"reason": "handoff", "by": job})
+        sessionstate.set_job(ctx, open_job, state="PAUSED")
     sessionstate.set_job(ctx, job, state="EXECUTING", tier=tier, task_type=c["task_type"], session_id=sid)
-    sessionstate.update(ctx, sid, active_task=job, prompt_scope="active_task", pending_card=None)
+    sessionstate.update(ctx, sid, active_task=job, prompt_scope="active_task", pending_card=None,
+                        compiled_turns=(list(st.get("compiled_turns") or []) + [turn_id])[-50:])
     if isinstance(req.get("second_draft"), dict):
         out["shadow"] = shadow.log_second_draft(ctx, job, draft, req["second_draft"], p)
     return dict(out, state="EXECUTING", tier=tier, opening=opening)

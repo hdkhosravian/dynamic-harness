@@ -85,7 +85,7 @@ def test_a_contact_points_the_session_at_itself(ctx):
 def test_single_unit_progress_follows_milestones(ctx):
     turns = Turns(ctx.data_root)
     turns.append({"turn_id": "t1", "text_norm": "write the summary"})
-    sessionstate.update(ctx, SID, probe=probe.run("write the summary", ctx), request_turn="t1")
+    sessionstate.update(ctx, SID, probe=probe.run("write the summary", ctx), request_turn="t1", prompt_scope="new")
     one = dict(DRAFT, units=1, unit_list=[{"label": "summary", "claim": "the summary"}])
     ctx.job = compile_.apply({"tool": "compile", "card": one}, ctx, {"session_id": SID})["job_id"]
     p, log = paths(ctx)
@@ -133,11 +133,12 @@ PLAN = {"hypotheses": ["h1"], "queries": ["q"], "urls": ["https://news.example.i
 
 
 def test_plan_writes_plan_json_and_accept_writes_a_grant_hookmain_honours(ctx, tmp_path):
-    C(ctx, "plan", text="here is the plan", plan=PLAN)
+    row = C(ctx, "plan", text="here is the plan", plan=PLAN)
     p, log = paths(ctx)
     plan = store.read_json(p.run, log, "plan.json")
     assert plan["domains"] == ["news.example.ir"]
-    Turns(ctx.data_root).append({"turn_id": "t9", "text_norm": "yes, go ahead with the plan"})
+    Turns(ctx.data_root).append({"turn_id": "t9", "text_norm": "yes, go ahead with the plan",
+                                 "pending_contact_id": row["contact_id"]})
     out = C(ctx, "plan", accept="t9")
     assert out["granted"] is True
     from harness_core.hookmain import _grant
@@ -205,3 +206,37 @@ def test_ask_user_question_feeds_memory_and_the_counter(ctx):
            "tool_response": {"answers": {"F?": "short"}}}
     assert writers.on_post(evt, ctx) == {}
     assert memory.effective(ctx) == {"format": "short"} and contacts.state(ctx)["count"] == 1
+
+
+# --- review of c1ef887 ---
+
+
+def reply(ctx, turn_id, text, contact_id):
+    Turns(ctx.data_root).append({"turn_id": turn_id, "text_norm": text, "pending_contact_id": contact_id})
+
+
+def test_accept_needs_the_owner_reply_to_that_plan_contact(ctx):
+    row = C(ctx, "plan", text="plan", plan=PLAN)
+    Turns(ctx.data_root).append({"turn_id": "other", "text_norm": "yes"})  # not a reply to the plan
+    with pytest.raises(Denied):
+        C(ctx, "plan", accept="other")
+    reply(ctx, "r1", "hmm, tell me more", row["contact_id"])  # a reply, but not an approval
+    with pytest.raises(Denied):
+        C(ctx, "plan", accept="r1")
+    reply(ctx, "r2", "yes, approved", row["contact_id"])
+    assert C(ctx, "plan", accept="r2")["granted"] is True
+    with pytest.raises(Denied):
+        C(ctx, "plan", accept="r2")  # consumed
+
+
+def test_the_plan_text_shown_is_rendered_from_plan_json(ctx):
+    row = C(ctx, "plan", text="Trust me, harmless", plan=PLAN)
+    assert "news.example.ir" in row["text"] and "5 pages" in row["text"] and "Trust me" not in row["text"]
+
+
+def test_the_cap_is_rechecked_under_the_lock(ctx):
+    for i in range(5):
+        C(ctx, "question", text=f"q{i}")
+    with pytest.raises(Denied, match="cap"):  # record() itself refuses, whatever a caller checked before
+        contacts.record(ctx, "question", "sha")
+    assert contacts.state(ctx)["count"] == 5

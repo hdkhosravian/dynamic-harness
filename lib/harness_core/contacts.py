@@ -19,6 +19,7 @@ contacts hook (for ``AskUserQuestion`` and ``harness-contact <type>``) and again
 from __future__ import annotations
 
 from . import protected, store
+from .errors import Denied
 from .events import EventLog, now
 from .ledger import Ledger
 from .paths import job_paths
@@ -92,9 +93,13 @@ def check(kind, ctx, questions=0, handoff=False):
     return None
 
 
-def record(ctx, kind, text_sha, handoff=False, extra=None) -> dict:
+def record(ctx, kind, text_sha, handoff=False, extra=None, recheck=True) -> dict:
     job, p, log = _job(ctx)
     with log.lock():
+        if recheck:  # under the lock: a pre-check outside it may be stale
+            why = check(kind, ctx, handoff=handoff)
+            if why:
+                raise Denied(why)
         st = state(ctx)
         counted = kind not in EXEMPT_CAP and not (handoff and st.get("count", 0) >= int(
             protected.load_control("tiers.json", ctx)["contact_cap"]))
@@ -115,5 +120,15 @@ def record_ask(evt, ctx):
         return None
     from . import canon
     qs = (evt.get("tool_input") or {}).get("questions")
+    # the PreToolUse gate checked before the question was asked; the answer is in: always count it
     return record(ctx, "question", canon.sha256_json(qs if isinstance(qs, list) else []),
-                  extra={"ask": True, "questions": len(qs) if isinstance(qs, list) else 0})
+                  extra={"ask": True, "questions": len(qs) if isinstance(qs, list) else 0}, recheck=False)
+
+
+def mark(ctx, contact_id, **fields) -> None:
+    job, p, log = _job(ctx)
+    with log.lock():
+        st = state(ctx)
+        rows = [dict(r, **fields) if r.get("contact_id") == contact_id else r for r in st.get("rows", [])]
+        store.write_json(p.run, log, "contacts.json", dict(st, rows=rows), "CONTACT_UPDATE",
+                         {"contact_id": contact_id, "keys": sorted(fields)})
