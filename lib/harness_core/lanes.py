@@ -47,9 +47,9 @@ def _task_type(ctx):
     return c.get("task_type") if isinstance(c, dict) else None
 
 
-def _rendered(ctx, sha) -> bool:
+def _rendered(ctx, sha, kind) -> bool:
     p, log = _paths(ctx)
-    return any(r.get("prompt_sha") == sha for r in store.read_jsonl(p.run, log, "renders.jsonl"))
+    return any(r.get("prompt_sha") == sha and r.get("kind") == kind for r in store.read_jsonl(p.run, log, "renders.jsonl"))
 
 
 def _spawns(ctx) -> list:
@@ -92,7 +92,7 @@ def on_pre(evt, ctx) -> dict:
             return _deny(f"only dynamic-harness agents may be spawned in a T1/T2 task, not {kind!r}")
         prompt = ti.get("prompt") if isinstance(ti.get("prompt"), str) else ""
         sha = canon.sha256_bytes(prompt.encode("utf-8"))
-        if kind in (RESEARCHER, VERIFIER) and not _rendered(ctx, sha):
+        if kind in (RESEARCHER, VERIFIER) and not _rendered(ctx, sha, "researcher" if kind == RESEARCHER else "verifier"):
             src = "harness-research render" if kind == RESEARCHER else "harness-critic render"
             return _deny(f"a {kind} spawn needs the exact prompt printed by {src}")
         p, log = _paths(ctx)

@@ -624,7 +624,10 @@ its last `file_sha`, appends the row, then appends an event carrying
   for `jobs/index.json`. `store.append_jsonl/write_json/read_json/read_jsonl` chain every write and
   check every read.
 - `corrections.log(ctx, job, turn_id)` and `shadow.log_second_draft(ctx, job, first, second, probe)`.
-- `session.unapproved_procedures(ctx)` (R-5).
+- `session.unapproved_procedures(ctx)` and `session.approved_skill(ctx, name)` (R-5).
+- `renders.ledger_apply`, `renders.research_apply` and `renders.critic_apply`, for `harness-ledger append`,
+  `harness-research render` and `harness-critic render <unit>`; renders go to `renders.jsonl`
+  `{kind, prompt_sha, plan_sha | unit}`. `lanes.on_subagent_start` links spawns at SubagentStart.
 - `bin/`: `harness-compile --card F [--second-draft F]`, `harness-contact TYPE [--text|--text-file|
   --plan|--handoff|--accept]`, `harness-card validate F | merge F1 F2`, and `harness-probe TEXT`. They
   only print.

@@ -33,6 +33,10 @@ Required fields:
 Do not set `job_id`, `version`, `reversibility` or `versions`: code sets them. You may raise
 `irreversible`, `computed_numbers` and `data_classes`, never lower them.
 
+When your draft is risk medium or higher, or would clearly need checking (T1 or T2), also spawn
+`dynamic-harness:card-drafter-2` with the request, and save the card it returns. Pass it to compile as
+`--second-draft <file>`. It is logged for comparison only; it does not change your card.
+
 ## 2. Validate, then compile
 
 Run `harness-card validate <file>` and fix every error. Then run `harness-compile --card <file>`, as a
@@ -56,7 +60,17 @@ If the harness says the task is refused, tell the owner exactly the line it give
 - A research plan (investigations only): `harness-contact plan --plan <file>` shows the owner the plan.
   After the owner replies yes, run `harness-contact plan --accept latest`.
 
-## 4. Corrections
+## 4. Progress and subagents
+
+- Record milestones once a `work/` file exists: `harness-ledger append --kind milestone --row
+  '{"milestone": "draft", "file": "draft.md"}'` (outline, draft, final). Record each unit's result with
+  `--kind unit`. BLOCKED needs a reason, and PASS needs a cited output of the unit's registered check.
+- To have a unit checked, run `harness-critic render <unit_id>` and spawn `dynamic-harness:verifier` with
+  exactly the prompt it prints.
+- In an investigation, after the owner accepts the plan, run `harness-research render` and spawn
+  `dynamic-harness:web-researcher` with exactly the prompt it prints.
+
+## 5. Corrections
 
 Corrections the owner sends during a task are logged as evidence. Announce the rework ("This changes 9 of
 14 items; applying now."); do not ask about it.

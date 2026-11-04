@@ -17,10 +17,11 @@ import re
 import shlex
 
 from . import compile as compile_
-from . import contact, contacts, memory
+from . import contact, contacts, memory, renders
 from .errors import HarnessError
 
-WRITERS = {"compile": compile_.apply, "contact": contact.apply}
+WRITERS = {"compile": compile_.apply, "contact": contact.apply, "ledger": renders.ledger_apply,
+           "research": renders.research_apply, "critic": renders.critic_apply}
 _OPERATORS = re.compile(r"[;&|<>`$()\n\\]")
 
 
@@ -70,6 +71,12 @@ def _say(tool, res):
             return f"harness: research plan {res['plan_sha'][:12]} accepted; grant for {', '.join(res['domains'])}."
         return (f"harness: contact {res['contact_id']} ({res['type']}) recorded. Show it to the owner and wait for "
                 f"the reply: {res['text']}")
+    if tool in ("research", "critic"):
+        agent = "web-researcher" if tool == "research" else "verifier"
+        return (f"harness: {tool} render recorded. Spawn dynamic-harness:{agent} with exactly this prompt (no "
+                f"changes) as the Agent prompt. PROMPT:\n{res['prompt']}")
+    if tool == "ledger":
+        return f"harness: {res['kind']} row recorded: {json.dumps(res['row'], ensure_ascii=False)[:200]}"
     return f"harness: {tool} recorded"
 
 

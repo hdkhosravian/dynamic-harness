@@ -1,0 +1,12 @@
+#!/usr/bin/python3 -I
+"""harness-critic render UNIT_ID: print a request for the verifier prompt of one unit.
+
+The PostToolUse writer renders it from the card's frozen criteria and records its sha; spawn
+dynamic-harness:verifier with exactly that prompt."""
+import json
+import sys
+
+if len(sys.argv) != 3 or sys.argv[1] != "render":
+    print(__doc__, file=sys.stderr)
+    sys.exit(2)
+print(json.dumps({"tool": "critic", "sub": "render", "unit": sys.argv[2]}))

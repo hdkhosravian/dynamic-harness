@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from . import lanes, sessionstate, tripwire, writers, written
 
-PRINT_ONLY = ("card", "compile", "contact", "probe")
+PRINT_ONLY = ("card", "compile", "contact", "probe", "ledger", "research", "critic")
 
 
 def on_post(evt, ctx) -> dict:

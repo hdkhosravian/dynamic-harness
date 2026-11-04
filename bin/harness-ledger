@@ -1,0 +1,28 @@
+#!/usr/bin/python3 -I
+"""harness-ledger append --kind unit|verdict|decision|contradiction|milestone (--row JSON | --row-file FILE)
+
+Only prints a request; the PostToolUse writer appends the row through the ledger's rules (PASS needs a
+cited clean output of the unit's registered check; a milestone needs a work/ file)."""
+import json
+import sys
+
+
+def main(argv):
+    if len(argv) < 5 or argv[0] != "append" or argv[1] != "--kind" or argv[3] not in ("--row", "--row-file"):
+        print(__doc__, file=sys.stderr)
+        return 2
+    if argv[3] == "--row":
+        row = json.loads(argv[4])
+    else:
+        with open(argv[4], encoding="utf-8") as fh:
+            row = json.load(fh)
+    print(json.dumps({"tool": "ledger", "kind": argv[2], "row": row}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-ledger: {e}", file=sys.stderr)
+        sys.exit(2)

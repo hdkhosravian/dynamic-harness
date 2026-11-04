@@ -2244,10 +2244,15 @@ profiles:
 - **Neutral tools.** `classes.NEUTRAL_TOOLS` lists Skill, TodoWrite, TodoRead, ToolSearch, ListMcpResourcesTool and AskUserQuestion. They pass the session gate and the pending-card gate, and they never trip the tripwire. Spawning an agent is not neutral.
 - **Lanes** (`lanes.py`).
   - Web tools are allowed only for the researcher, in an investigation.
-  - Researcher and verifier spawns need a recorded `harness-research render` or `harness-critic render`. Neither renderer is built yet, so such spawns are denied until P4/P5.
+  - A researcher or verifier spawn needs a matching render, recorded in `renders.jsonl` with its kind:
+    - `harness-research render` works only after an accepted plan, and renders from `plan.json`;
+    - `harness-critic render <unit>` works only for a unit in scope, and renders from the frozen criteria.
+
+    The spawn's prompt sha and agent type must both match.
   - A subagent's calls keep the task it was spawned in: its agent id must be linked in the task's `spawns.jsonl`. A SubagentStart hook links it before the subagent's first call, matching the oldest unlinked spawn of the same type; the Agent PostToolUse also links it. A subagent that is not linked keeps the open task's gates, with no grant, and may only read. A call with `agent_type` but no `agent_id` is the main thread.
 - **Tripwire.** It is active at T0 while no card is pending. It trips on a side effect, or on the 9th call. When the probe saw money or personal data, it trips on any call other than the named neutral tools; there is no tool or file-name list to get around.
 - **R-5.** SessionStart stops as `STOPPED_TAMPER` when a shipped `skills/**/SKILL.md` has no matching `approved_procedures.json` entry, and when there is any symlink under `skills/`. In a task, or while a card is pending, the Skill tool loads only approved `dynamic-harness:<dir>` skills.
+- **Ledger writer.** `harness-ledger append --kind <kind> --row …` goes through the existing ledger rules (unit, verdict, decision, contradiction, milestone). This is what moves progress, and with it R-8.
 - **Robustness.**
   - The prompt hook replaces lone surrogates and accepts a repeated or non-string `prompt_id` (a retried hook is one turn).
   - A session file that fails its check is moved aside (`.tamper-<id>`) and reset closed, with a T2 pending card, by a `SESSION_RESET` event. Setup and reads keep working.
@@ -2256,7 +2261,7 @@ profiles:
 - **Corrections and shadow.** Corrections are logged verbatim, as evidence only, and cite a real owner turn. The second draft is logged in shadow and never changes the card.
 - **Known gaps carried to P4.**
   - The Stop hook does not exist yet. A model can still answer in plain text while a card is pending, and a live `-p` run did exactly that (2 orders, 30 toman, from a read). The spec's enforcement for this is Stop refusing a T0 completion while `pending_card` is set.
-  - Not built yet: lease, budget, stall, RE_UNDERSTAND, thread matching to terminal jobs, `cost` contacts, `harness-ledger`, `harness-claims fetch`, `harness-research render` and `harness-critic render`.
+  - Not built yet: lease, budget, stall, RE_UNDERSTAND, thread matching to terminal jobs, `cost` contacts, `harness-claims fetch` (P5 business tools) and `harness-run` (P5 packs).
   - `templates/fa.json` is a P5 item; P3 ships English only.
 
 ### Build decisions (P5 setup, as built in `dynamic-harness` @ `feat/p1-p2`)

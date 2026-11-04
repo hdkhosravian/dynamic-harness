@@ -1,0 +1,12 @@
+#!/usr/bin/python3 -I
+"""harness-research render: print a request for the researcher prompt of the accepted plan.
+
+The PostToolUse writer renders the prompt from plan.json and records its sha; spawn
+dynamic-harness:web-researcher with exactly that prompt."""
+import json
+import sys
+
+if sys.argv[1:] != ["render"]:
+    print(__doc__, file=sys.stderr)
+    sys.exit(2)
+print(json.dumps({"tool": "research", "sub": "render"}))
