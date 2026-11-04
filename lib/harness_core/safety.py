@@ -18,6 +18,7 @@ class Ctx:
     """Everything a safety decision may depend on. Built by hookmain from hook input + env."""
 
     workspace: Path
+    cwd: Optional[Path] = None  # the event's current directory; relative paths resolve here
     data_root: Optional[Path] = None
     plugin_root: Optional[Path] = None
     home: Optional[Path] = None

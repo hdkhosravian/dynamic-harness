@@ -2142,14 +2142,41 @@ profiles:
   - `run_gate` returns `{ok, code, receipt|stderr}`.
   - `verify_receipt` returns `{ok, state, caps, reason}`.
 - **2nd FAIL.** On a unit's 2nd FAIL, both the FAIL row and the resulting PASS_FLAGGED or BLOCKED row are written.
-- **Gate child.** It runs under `sandbox-exec` with `keys/` and `experience/` unreadable and a 1793 s outer timeout (`--oracle-timeout` ≤ 1790).
-- **Lexicon.** `state_lexicon.json` is converted to `gate/lexicon.json`, which is covered by `gate_sha`. Until `templates/*.json` exist, `template_lines` is empty, so any state word in a report adds the `lexicon` cap.
+- **Gate child.** It runs under `sandbox-exec` on a temp copy of `run/` (its cwd, the only tree it may write), with `run/` itself denied for writes, `keys/` and `experience/` unreadable, and a 1793 s outer timeout (`--oracle-timeout` ≤ 1790). After it exits, the harness re-hashes `run/` and the copy. `run/` must still match its pre-run hashes, the `SUBMITTED` tree_sha and the `PROJECTED` gate-file hashes. Only receipt-safe events may follow the head the child was given. The fold receipt must echo the `mode`, `scope_sha` and `events_head` it was given. Any mismatch is a `TAMPER` event and no receipt. `REPORT.md` and `fold_receipt.json` are copied back only after these checks pass. `project()` also writes `gate/decisions.jsonl`, which `--decisions` reads.
+- **Investigations require claims.** `run_gate` refuses `task_type: investigation` when `run/claims.jsonl` is missing.
+- **`allow_blocked`.** It is an int or an expression over `units` (`+ - * /`, `ceil()`, `floor()`, for example `ceil(0.2*units)`). The harness evaluates it by walking the AST, never with `eval()`.
+- **Receipt states.** `verify_receipt` derives the state from event-backed ledger rows, never from `gate/` files. The states are `"Checked"`, `"Done, not fully checked: <reasons>"` and `"Partly done: N of M"`. A stale `receipt.json` is revoked (`RECEIPT_REVOKED`) at the start of every gate attempt. After a receipt, only RECEIPT, MODEL_REGISTERED, RECORD, BUDGET_CHARGE, TURN, LEASE_HEARTBEAT and SAFETY_DENY may follow (a denied call does not undo the work). CONTACT may follow only with `payload.question_free: true`.
+- **Event log.** `EventLog(run_dir, head_file, name="events.jsonl")` has `.lock()`, a re-entrant `flock` on `<name>.lock`. Writers hold it from `check_file` to the event, so the row file and its event cannot interleave with another writer. The chain hashes the raw lines: every line must be exactly the canonical JSON of its event. A `<head>.started` marker (`heads/<job>.started`) is written on the first append, so deleting both the log and the head is detected. Crash windows fail closed; operator repair is the recovery path.
+- **Turns.** Turn rows carry a `system` field, true for `<task-notification>` (background-subagent) prompts. A system turn is never owner consent: `cite()` and `nonce_ok()` refuse it. Every turn append writes a chained `TURN` event, and every consumed nonce a `NONCE` event, to `data_root/session_events.jsonl`. Reads check `turns.jsonl` and `nonces_consumed.jsonl` against those events. Nonce check-and-consume runs under that log's lock.
+- **Literal roots in `safe_open`.** `safeio._under` compares the realpath against each allowed root literally (`abspath`, never resolved), so a symlink planted at a root cannot redirect a read.
+- **Written files.** `written.py` keeps `sessions/<sid>/written.json`. A PostToolUse hook (`Write|Edit|MultiEdit|NotebookEdit`) appends to it. SessionStart creates it and snapshots git-tracked files with their ctime (`tracked.json`). Files under a job's `work/` and `requests/` always count as written. If the record is missing or unreadable, the strict fallback treats every workspace file as written, except a tracked file whose ctime is unchanged. mtime is never used.
+- **Path tracking.** `pathtrack.py` makes the Bash classifier fail closed on any path, redirect or cwd it cannot resolve statically. It tracks `cd`/`pushd` through nesting, and treats links into job folders and recreated job folders as `protected_path`. `bash_write_targets(command, ctx)` lists every write target the classifier resolved, plus `None` for an unresolvable one.
+- **Classifier policy.**
+  - harness-\* trust rule: a `harness-<x>` command is trusted only when `<x>` is on the spec's agent-callable list and it resolves to `<plugin_root>/bin/harness-<x>`. Otherwise it is `unknown`.
+  - make policy: `make`/`gmake` is `unknown` even with `-n`, or `self_written_exec` once code has been written this task.
+  - `source`/`.` makes the cwd untrackable, so it is `unknown`.
+  - Assigning `CLAUDE_PLUGIN_*`, `CLAUDE_PROJECT_DIR`, `TMPDIR`, `PATH`, `DYLD_*`, `LD_*` and similar variables is `unknown`.
+- **Sandbox exec.** The profile starts from `(deny default)`. It allows exec, fork, same-sandbox signals, sysctl reads, file reads, and writes under the cwd and a temp dir. It denies network, Apple Events and all mach-lookup, and denies writes to `CLAUDE*.md` and `.mcp.json` at any depth. The child runs in its own session, and its process group is killed on timeout and after exit.
+- **Sessions.** SessionStart writes `sessions/<sid>/status.json` `{ok, reasons, canary, ts, cwd}`. It writes a failed status before the checks, so a crash never leaves an old `ok`. It also writes the settings baseline (`settings_baseline.json`) that ConfigChange judges changes against; with no baseline, ConfigChange blocks. PreToolUse allows only reads unless a passing status under 24 h old exists. So a SessionStart refusal now restricts the session to reads.
+- **Workspace and roots.** The workspace is `CLAUDE_PROJECT_DIR`, else the cwd SessionStart recorded, never the event's current cwd. Missing `CLAUDE_PLUGIN_DATA`/`CLAUDE_PLUGIN_ROOT` fails closed. The loop-contract root comes from `config_log.jsonl` (`loop_contract_root`), else `LOOP_CONTRACT_ROOT`. SessionStart needs loop-contract ≥ 1.1.0, read from its `.claude-plugin/plugin.json`.
+- **Interpreter.** Hooks and shipped CLIs run as `/usr/bin/python3 -I`: an absolute path, with no user site-packages or `PYTHON*` variables.
+- **Measured (`feat/p1-p2` @ `b341066`).**
+  - Test suite: 897 passed, 3 xfailed.
+  - Red team round 1: 133 of 135 held.
+  - Red team round 2: 181 of 188 held-out cases held before fixes, and 188 of 188 after.
+  - The round-2 cases are now regression tests, so they no longer measure unseen attacks. Every release needs a fresh held-out red-team round.
 - **Known gaps carried to P3.**
-  - The gate child can still write under `run/`. Tampering there is detected, not prevented.
-  - A SessionStart refusal does not yet stop a session, because tier enforcement arrives in P3.
+  - Setup (P5) does not yet install the Claude Code sandbox and the deny rules that the spec calls the hard backstop. Until it does, the Bash classifier is the only line of defence.
+  - If the PostToolUse hook times out, the write is not recorded. A file written that way still counts as written only through the job-folder rule or the `task_started` ctime test.
+  - The strict fallback in `written.self_written` walks the whole workspace on every PreToolUse call. That is slow for large workspaces.
+  - A gate or sandbox child that calls `setsid()` leaves the process group and escapes the group kill.
+  - `source venv/bin/activate` (and any `source`/`.`) is now denied, because the cwd cannot be tracked through it.
+  - `safeio._under` refuses roots reached through a symlinked parent (for example `/var` → `/private/var`). Callers must pass realpath'd roots.
+  - Only `harness-hook` and `harness-sandbox-exec` exist under `bin/`. Every other `harness-*` CLI fails the trust rule, so it is denied live.
+  - It is unverified whether `CLAUDE_PROJECT_DIR` is set in the Bash tool's environment. `harness-sandbox-exec` refuses to run without it.
   - Nothing writes the claims, fetch-log or search-log files yet.
   - `protected._norm` homoglyph folding is reserved for the maintainer.
-  - The opt-in `HARNESS_DEBUG_LOG` records full hook input. It is for development only.
+  - The opt-in `HARNESS_DEBUG_LOG` records hook metadata, with tool inputs and responses redacted to type and length. It is for development only.
 
 ### Verification Plan
 

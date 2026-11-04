@@ -97,7 +97,7 @@ def main(argv):
         print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected workspace path; refusing to run", file=sys.stderr)
         return 2
     # CLAUDE.md is protected at any depth: the cwd and its ancestors up to the project, plus existing nested ones
-    # shortcut: a new nested CLAUDE.md below the cwd is not denied; needs a regex rule in sandbox_exec.profile
+    # new nested CLAUDE*.md / .mcp.json at any depth are denied by a regex rule in sandbox_exec.profile
     d, nested = real_cwd, []
     while _under(d, real_project):
         nested += [os.path.join(d, "CLAUDE.md"), os.path.join(d, "CLAUDE.local.md")]

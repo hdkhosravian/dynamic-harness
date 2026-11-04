@@ -81,7 +81,7 @@ def test_done_mode_argv(h):
     _all_pass(h)
     res, r = _run(h)
     argv = r.calls[0]
-    assert argv[:2] == ["python3", "/lc/fold_ledger.py"]
+    assert argv[:3] == ["/usr/bin/python3", "-I", "/lc/fold_ledger.py"]
     assert _flag(argv, "--mode") == "done"
     assert _flag(argv, "--oracle-cmd") == "python3 oracle.py"
     assert _flag(argv, "--oracle-timeout") == "1790"  # capped
@@ -516,3 +516,10 @@ def test_symlinked_requests_dir_is_refused(h, tmp_path):
     with pytest.raises(TamperError):
         _run(h, runner=r)
     assert r.calls == [] and h["log"].events()[-1]["type"] == "TAMPER"
+
+
+def test_argv_runs_fold_ledger_with_isolated_absolute_python(h):
+    # a planted python3 on PATH or user site-packages must not run inside the gate
+    _all_pass(h)
+    _, r = _run(h)
+    assert r.calls[0][:2] == ["/usr/bin/python3", "-I"]

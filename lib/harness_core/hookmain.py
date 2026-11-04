@@ -125,6 +125,7 @@ def build_ctx(evt: dict, env, event=None):
         loop_contract_root=Path(lcr) if lcr else None,
         agent_type=evt.get("agent_type"),
         permission_mode=evt.get("permission_mode"),
+        cwd=Path(evt["cwd"]) if isinstance(evt.get("cwd"), str) and evt.get("cwd") else None,
     )
     ctx.session_ok, ctx.session_reason = _session_ok(status, lcr)
     ctx.connector_registry = load(data / "business" / "connector_registry.json") or {}

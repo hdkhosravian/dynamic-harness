@@ -142,7 +142,7 @@ def _lexicon(paths) -> Path:
 def _argv(run: Path, proj: dict, profile: dict, fold_ledger_path, events_head: str) -> list:
     """argv for fold_ledger over ``run`` (the child's temp copy of run/)."""
     g = run / "gate"
-    argv = ["python3", str(fold_ledger_path), "--mode", proj["mode"],
+    argv = ["/usr/bin/python3", "-I", str(fold_ledger_path), "--mode", proj["mode"],
             "--ledger", str(g / "ledger.jsonl"), "--verdicts", str(g / "verdicts.jsonl"),
             "--decisions", str(g / "decisions.jsonl"), "--out", str(g / "REPORT.md"),
             "--scope", str(g / "scope.jsonl"), "--expect-scope-sha", proj["scope_sha"],

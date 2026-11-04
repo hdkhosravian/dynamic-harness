@@ -368,3 +368,10 @@ def test_post_tool_use_hook_matches_bash(env):
     cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
     import re as _re
     assert any(_re.fullmatch(g.get("matcher", ".*"), "Bash") for g in cfg["hooks"]["PostToolUse"])
+
+
+def test_ctx_cwd_is_the_event_cwd_but_workspace_stays_project_dir(henv, tmp_path):
+    sub = Path(henv["CLAUDE_PROJECT_DIR"]) / "sub"
+    sub.mkdir()
+    ctx = hookmain.build_ctx({"session_id": "a", "cwd": str(sub)}, henv)
+    assert str(ctx.cwd) == str(sub) and str(ctx.workspace) == henv["CLAUDE_PROJECT_DIR"]
