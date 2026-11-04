@@ -918,7 +918,9 @@ class _Bash:
         # honoured only when every option word is a plain flag cluster or --exclude-dir=V: anything else
         # (a value-taking option, --, an abbreviation) can hide which word is an exclusion
         narrowing = narrowing and all(_GREP_SAFE.fullmatch(a) or a.startswith("--exclude-dir=") for a in rest if a.startswith("-"))
-        excl = [x for v in _opt_value(rest, ("--exclude-dir",)) for x in _brace_expand(v)] if narrowing else []
+        # words arrive after shell brace expansion, so a brace left here was quoted and is literal to grep;
+        # only plain names are trusted (Python and C fnmatch differ on \\, classes and dotfiles)
+        excl = [v for v in _opt_value(rest, ("--exclude-dir",)) if re.fullmatch(r"[A-Za-z0-9._-]+", v)] if narrowing else []
         names = set()
         for pat in protected.load_patterns(self.ctx)["read_protected"]:
             e = protected._expand(pat, self.ctx)

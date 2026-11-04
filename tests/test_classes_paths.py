@@ -383,6 +383,8 @@ def test_r2_cd_elsewhere_stays_allowed(ctx, cmd):
     "grep -r --exclude-dir keys --exclude-dir experience secret",  # only the = form narrows
     "grep -r -A1 --exclude-dir=keys --exclude-dir=experience secret",
     "grep -r --exclude-d=keys --exclude-d=experience secret",
+    "grep -r '--exclude-dir={{keys,experience}}' secret",  # quoted: grep gets literal braces, matches nothing
+    "grep -r --exclude-dir='[k]eys' --exclude-dir='\\experience' secret",  # Python and C fnmatch differ on \
 ])
 def test_r3_recursive_readers_over_protected_trees_are_denied(ctx, cmd):
     _cwd(ctx, ctx.data_root.parent) if "{data}" not in cmd and "{ws}" not in cmd else None
@@ -391,7 +393,6 @@ def test_r3_recursive_readers_over_protected_trees_are_denied(ctx, cmd):
 
 @pytest.mark.parametrize("cmd", [
     "grep -r --exclude-dir=keys --exclude-dir=experience secret",
-    "grep -r '--exclude-dir={{keys,experience}}' secret",
 ])
 def test_r3_grep_narrowed_to_exclude_the_trees_stays_allowed(ctx, cmd):
     _cwd(ctx, ctx.data_root.parent)
