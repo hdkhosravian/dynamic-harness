@@ -104,8 +104,9 @@ def aggregate(path, args, profile, period=None) -> dict:
         raise ValueError(f"a period needs a date column; none found in {headers} (pass date_col)")
     desc_i = _find(headers, args.get("desc_col"), DESC_WORDS)
     acct_i = _find(headers, args.get("account_col"), ACCOUNT_WORDS)
-    target = args.get("currency") or profile.get("currency")
-    unit = args.get("unit") or L.currency_of(headers[amt_i]) or target
+    detected = L.currency_of(headers[amt_i])
+    target = args.get("currency") or profile.get("currency") or args.get("unit") or detected
+    unit = args.get("unit") or detected or target
     own = {L.fold_name(str(a)) for a in (args.get("own_accounts") or profile.get("own_accounts") or [])}
     exclude_transfers = args.get("exclude_transfers", True)
     per = period

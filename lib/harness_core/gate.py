@@ -150,11 +150,16 @@ def _flat(v) -> list:
     """state_lexicon.json keeps terms per language ({"en": [...], "fa": [...]}); the gate wants one list."""
     return [str(x) for x in (sum((list(x) for x in v.values()), []) if isinstance(v, dict) else list(v or []))]
 
-def _lexicon(paths) -> Path:
+def _lexicon(paths, log=None) -> Path:
     lex = protected.load_control("state_lexicon.json", paths)  # live control under data_root, else default
+    lines = _flat(lex.get("template_lines"))
+    if log is not None:  # the answer header's status line is rendered by a hook from a recorded check result
+        from .answer import status_line
+        st = status_line(paths, log)
+        if st:
+            lines.append(st)
     out = paths.run / "gate" / "lexicon.json"
-    atomic_write(out, canon.canonical_json({"terms": _flat(lex.get("terms")),
-                                            "template_lines": _flat(lex.get("template_lines"))}))
+    atomic_write(out, canon.canonical_json({"terms": _flat(lex.get("terms")), "template_lines": lines}))
     return out
 
 def _argv(run: Path, proj: dict, profile: dict, fold_ledger_path, events_head: str) -> list:
@@ -230,7 +235,7 @@ def run_gate(paths, log, key: bytes, profile: dict, fold_ledger_path, runner=Non
     for name in CHILD_OUT:
         if (paths.run / name).exists():
             (paths.run / name).unlink()
-    _lexicon(paths)
+    _lexicon(paths, log)
     head = log.verify()
     before = _hashes(paths.run, NOT_COPIED)
     box = Path(os.path.realpath(tempfile.mkdtemp(prefix="harness-gate-")))

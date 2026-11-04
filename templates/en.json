@@ -10,5 +10,14 @@
   "stopped_budget": "Stopped, not done: {done} of {total} done. Continuing costs about {more}. Continue?",
   "stopped_stall": "Stuck on {what} because {why}.",
   "definition": "I'll count {metric} as {inclusions}, excluding {exclusions}, in {unit}. Is that right?",
-  "opening.estimate": "Similar tasks took about {lo} to {hi} minutes{money}."
+  "opening.estimate": "Similar tasks took about {lo} to {hi} minutes{money}.",
+  "header.figure": "{figure} {unit}: {metric} (definition version {version}), {period} ({other}).",
+  "header.basis": "Based on {source}, with data up to {as_of}. Excludes: {exclusions}. Rows used: {rows}.",
+  "header.checked_control": "Checked: matches {control}.",
+  "header.checked": "Checked: the total was recomputed a second way from the rows.",
+  "header.not_checked": "Done, not fully checked: {reason}.",
+  "header.not_for_tax": "Don't use this for tax or payments yet.",
+  "header.transfers": "{n} transfers between your own accounts",
+  "header.rows_left_out_undated": "{n} rows with no date",
+  "header.rows_left_out_unparsable": "{n} rows whose amount could not be read"
 }

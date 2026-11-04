@@ -1,0 +1,44 @@
+#!/usr/bin/python3 -I
+"""harness-normalize (--text TEXT | --file FILE | --date VALUE | --amount VALUE | --period JSON)
+
+Prints how the harness reads a value: money/quantity tokens of a text (the tokens the gate traces), a date in
+both calendars, an amount, or a period's bounds. Reads only; it records nothing."""
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from harness_core import localize as L  # noqa: E402
+from harness_core.normalize import quantity_tokens  # noqa: E402
+
+
+def main(argv):
+    if len(argv) != 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    flag, v = argv
+    if flag in ("--text", "--file"):
+        text = Path(v).read_text("utf-8") if flag == "--file" else v
+        out = {"tokens": [t for t, _ in quantity_tokens(text)]}
+    elif flag == "--date":
+        d = L.parse_date(v)
+        out = {"gregorian": d.isoformat(), "jalali": L.jalali_str(d)} if d else {"error": "not a date"}
+    elif flag == "--amount":
+        a = L.parse_amount(v)
+        out = {"amount": str(a), "currency": L.currency_of(v)} if a is not None else {"error": "not an amount"}
+    elif flag == "--period":
+        p = L.period(json.loads(v))
+        out = {k: (x.isoformat() if hasattr(x, "isoformat") else x) for k, x in p.items()}
+    else:
+        print(__doc__, file=sys.stderr)
+        return 2
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-normalize: {e}", file=sys.stderr)
+        sys.exit(2)

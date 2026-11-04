@@ -140,7 +140,9 @@ def _job(evt, ctx, sid, st, msg, job) -> dict:
     if v["ok"] and gate.work_changed(p, log):
         return _block(ctx, sid, st, "work", "work/ changed after the gate: run harness-gate request again", job)
     if v["ok"]:
-        hits = lexicon_hits(ctx, msg, allowed=[v["state"]])  # never model-influenced text such as opening.txt
+        from .answer import status_line
+        # only harness-rendered status lines; never model-influenced text such as opening.txt
+        hits = lexicon_hits(ctx, msg, allowed=[v["state"], status_line(p, log)])
         if hits:
             return _block(ctx, sid, st, "lexicon", f"the final message uses state words {hits} outside the state line", job)
         rec = json.loads(safe_open(p.run / "receipt.json", [p.run]))

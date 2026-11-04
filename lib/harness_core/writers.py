@@ -16,13 +16,14 @@ import os
 import re
 import shlex
 
+from . import answer
 from . import compile as compile_
 from . import contact, contacts, memory, renders
 from .errors import HarnessError
 
 WRITERS = {"compile": compile_.apply, "contact": contact.apply, "ledger": renders.ledger_apply,
-           "research": renders.research_apply, "critic": renders.critic_apply}
-JOB_SCOPED = ("contact", "ledger", "research", "critic")
+           "research": renders.research_apply, "critic": renders.critic_apply, "answer": answer.apply}
+JOB_SCOPED = ("contact", "ledger", "research", "critic", "answer")
 _OPERATORS = re.compile(r"[;&|<>`$()\n\\]")
 
 
@@ -85,6 +86,9 @@ def _say(tool, res):
         agent = "web-researcher" if tool == "research" else "verifier"
         return (f"harness: {tool} render recorded. Spawn dynamic-harness:{agent} with exactly this prompt (no "
                 f"changes) as the Agent prompt. PROMPT:\n{res['prompt']}")
+    if tool == "answer":
+        return ("harness: answer header recorded for the gate. Put these three lines at the top of the answer, "
+                f"exactly:\n{res['header']}")
     if tool == "ledger":
         return f"harness: {res['kind']} row recorded: {json.dumps(res['row'], ensure_ascii=False)[:200]}"
     return f"harness: {tool} recorded"
