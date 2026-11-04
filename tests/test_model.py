@@ -190,7 +190,7 @@ def _gate(h, job):
 
 
 @pytest.mark.skipif(fold_ledger_problem() is not None, reason=str(fold_ledger_problem()))
-def test_r14_every_number_in_the_report_traces_to_a_model_cell(h, sim):
+def test_r14_cell_trace(h, sim):
     _good_report(h, sim)
     out = _gate(h, sim)
     assert out["mode"] == "done" and out["state"] == "Checked", out

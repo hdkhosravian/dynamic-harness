@@ -14,7 +14,6 @@ deliverable can at best be "Done, not fully checked: <gap>".
 """
 from __future__ import annotations
 
-import datetime as dt
 from decimal import ROUND_HALF_UP, Decimal
 
 from . import localize as L
@@ -115,7 +114,7 @@ def aggregate(path, args, profile, period=None) -> dict:
     total, transfers_amount, file_total = Decimal(0), Decimal(0), None
     by_month, dates, prior, kept, seen = {}, [], Decimal(0), [], {}
     prior_rows = 0
-    span = (per["end"] - per["start"]) if per else None
+    prior_per = L.prior_period(args["period"], profile) if per and isinstance(args.get("period"), dict) else None
     for row in rows:
         if _is_total_row(row):
             v = L.parse_amount(row[amt_i])
@@ -143,7 +142,7 @@ def aggregate(path, args, profile, period=None) -> dict:
             transfers_amount += amount
             continue
         if per and d is not None and not per["start"] <= d <= per["end"]:
-            if per["start"] - span - dt.timedelta(days=1) <= d < per["start"]:
+            if prior_per and prior_per["start"] <= d <= prior_per["end"]:
                 prior += amount
                 prior_rows += 1
             s["outside_period"] += 1

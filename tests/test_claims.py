@@ -187,7 +187,7 @@ def test_an_unverified_unit_fails(h, inv):
 
 
 @pytest.mark.skipif(fold_ledger_problem() is not None, reason=str(fold_ledger_problem()))
-def test_r13_an_investigation_reaches_checked_through_the_real_gate(h, inv):
+def test_r13_claim_trace(h, inv):
     _research(h, inv)
     _cite_and_verify(h)
     res = run_req(h, check="research.check", inputs=(), period=None)

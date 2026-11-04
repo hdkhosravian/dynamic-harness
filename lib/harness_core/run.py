@@ -25,7 +25,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import business, canon, packs, protected, sandbox_exec, store
+from . import business, canon, packs, protected, sandbox_exec
 from .errors import Denied, HarnessError, TamperError
 from .events import EventLog
 from .ledger import Ledger, Outputs

@@ -11,8 +11,6 @@ so only reads are allowed until a card compiles. For an inline T0 with an open t
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
 from . import classes, contacts, protected, sessionstate
 from .events import EventLog

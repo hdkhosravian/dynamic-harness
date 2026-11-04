@@ -14,14 +14,16 @@ def rows(h, job):
     return store.read_jsonl(c.data_root, store.session_log(c.data_root), f"records/{job}.jsonl")
 
 
-def test_a_record_holds_the_task_facts_without_personal_data(h):
+def test_r15_decision_record(h):
+    """R-15: every terminal task writes a code-generated record outside the workspace, without personal data."""
     job = compiled(h, text="how many orders did sara@shop.example place this week?")
     r = record.write(ctx_of(h), job, "DONE")
     assert r["state"] == "DONE" and r["interim"] is False and r["job_id"] == job
     assert "sara@shop.example" not in json.dumps(r) and r["request_sha"]
     assert r["cards"][0]["task_type"] == "data_question" and r["tier"] == "T1"
     assert r["checks"] == [{"unit": "u1", "label": "the answer", "verdict": None, "check_id": "finance.reconcile"}]
-    assert r["versions"]["core"] and "cost" in r
+    assert r["versions"]["core"] and set(r["cost"]) == {"calls", "money"} and "duration_s" in r
+    assert str(h["ws"]) not in str(h["data"])  # the record lives under the plugin data root, not the workspace
 
 
 def test_inferred_fields_are_listed_as_assumptions(h):

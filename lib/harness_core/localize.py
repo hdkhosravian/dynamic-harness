@@ -252,3 +252,17 @@ def label_fa(label: str) -> str:
         out = re.sub(rf"\b{en}\b", fa, out)
     out = out.replace(" to ", " تا ").replace("fiscal year", "سال مالی")
     return out.translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+
+
+def prior_period(spec, profile=None) -> dict:
+    """The period before ``spec``: the previous month, the previous fiscal year, or an equal-length window."""
+    if "month" in spec:
+        y, m = (int(x) for x in digits(spec["month"]).split("-"))
+        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+        return period({"month": f"{y}-{m:02d}"}, profile)
+    if "fiscal_year" in spec:
+        return period({"fiscal_year": int(digits(spec["fiscal_year"])) - 1}, profile)
+    cur = period(spec, profile)
+    span = cur["end"] - cur["start"]
+    end = cur["start"] - dt.timedelta(days=1)
+    return period({"from": (end - span).isoformat(), "to": end.isoformat()}, profile)

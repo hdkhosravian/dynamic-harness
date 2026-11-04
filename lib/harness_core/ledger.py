@@ -15,7 +15,6 @@ events and raises HarnessError on any unit that vanished without DESCOPE."""
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from . import canon, schema
 from .errors import Denied, HarnessError, TamperError
