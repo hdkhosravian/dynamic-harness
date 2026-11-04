@@ -36,7 +36,7 @@ def test_r1_hooks_json_registers_only_safety_entry_points():
     # PostToolUseFailure records writes of failed calls too; neither blocks or alters a T0 call
     # UserPromptSubmit acts only on a typed /dynamic-harness:setup; every other prompt passes untouched (test_setup)
     assert set(hooks) == {"PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "ConfigChange",
-                          "UserPromptSubmit", "SubagentStop", "SubagentStart"}
+                          "UserPromptSubmit", "SubagentStop", "SubagentStart", "Stop"}
     for event, entries in hooks.items():
         for e in entries:
             for h in e["hooks"]:
