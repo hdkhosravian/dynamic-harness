@@ -83,6 +83,12 @@ def check(kind, ctx, questions=0, handoff=False):
         return f"unknown contact type {kind!r}"
     elif kind == "question" and prog >= 0.5:
         return "progress is past 50%: record an assumption instead of asking (R-8)"
+    elif kind == "question" and prog == 0 and st.get("start_used"):
+        return "start questions go in one message; record an assumption instead"
+    else:
+        why = _purpose(kind, ctx, st, prog)
+        if why:
+            return why
     if kind in EXEMPT_CAP:
         return None
     if st.get("count", 0) >= int(lim["contact_cap"]):
@@ -90,6 +96,27 @@ def check(kind, ctx, questions=0, handoff=False):
             return None
         return (f"the contact cap ({lim['contact_cap']} per task) is reached; record an assumption, or use one "
                 "--handoff for a pending before-spend contact (R-7)")
+    return None
+
+
+PURPOSE = {"plan": "investigation", "assumption_sheet": "simulation"}
+
+
+def _purpose(kind, ctx, st, prog):
+    """A typed contact only for what it is for: its exemptions are not a way around the cap or R-8."""
+    if kind in PURPOSE or kind == "decision_ack":
+        job, p, log = _job(ctx)
+        c = store.read_json(p.run, log, "card.v1.json", None) or {}
+        if kind in PURPOSE:
+            if c.get("task_type") != PURPOSE[kind]:
+                return f"a {kind} contact belongs to an {PURPOSE[kind]} task"
+            if prog > 0:
+                return f"a {kind} contact comes before any work (before-spend)"
+        else:
+            if c.get("decision_class") != "financial":
+                return "a decision_ack contact needs a financial decision card"
+            if any(r.get("type") == "decision_ack" for r in st.get("rows", [])):
+                return "a decision_ack contact is sent once per task"
     return None
 
 

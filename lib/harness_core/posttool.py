@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from . import lanes, sessionstate, tripwire, writers, written
 
+PRINT_ONLY = ("card", "compile", "contact", "probe")
+
 
 def on_post(evt, ctx) -> dict:
     tool = evt.get("tool_name")
@@ -21,7 +23,7 @@ def on_post(evt, ctx) -> dict:
         return res
     sid = evt.get("session_id")
     lone = writers._lone_harness((evt.get("tool_input") or {}).get("command")) if tool == "Bash" else None
-    if sid and lone is None:
+    if sid and not (lone and lone[0] in PRINT_ONLY):  # harness-sandbox-exec runs code: it counts
         trip = tripwire.on_post(evt, ctx, sessionstate.load(ctx, sid))
         if trip:
             return trip

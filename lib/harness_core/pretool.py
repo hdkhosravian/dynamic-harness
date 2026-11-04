@@ -43,6 +43,10 @@ def on_pre(evt, ctx) -> dict:
               or (lone is not None and lone[0] in ("card", "compile")))
         if not ok:
             return _deny(f"harness: {_template('pending_card')} ({ctx.pending_card.get('reason', 'card needed')})")
+    if tool == "Skill" and (getattr(ctx, "pending_card", None) or contacts.tier(ctx) in ("T1", "T2")):
+        from .session import approved_skill
+        if not approved_skill(ctx, ti.get("skill")):
+            return _deny(f"harness: only approved dynamic-harness skills load in a task (R-5), not {ti.get('skill')!r}")
     r = lanes.on_pre(evt, ctx)
     if r:
         return r

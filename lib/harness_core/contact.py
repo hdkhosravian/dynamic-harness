@@ -17,6 +17,7 @@ boundaries writers: contacts, plan.json, egress grant; §Turns and contacts; bui
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 from urllib.parse import urlsplit
@@ -51,10 +52,13 @@ def is_approval(text) -> bool:
 
 def _plan_text(plan) -> str:
     """What the owner sees for a plan: rendered from plan.json itself, so the approval covers the grant."""
-    return (f"Research plan {plan['plan_sha'][:12]}: {len(plan['hypotheses'])} hypotheses "
-            f"({'; '.join(plan['hypotheses'])}). Sources: {', '.join(plan['domains'])}. "
-            f"Up to {plan['page_budget']} pages. Stop when: {plan['stop_rule']}. "
-            "Reply yes to approve this plan, or say what to change.")
+    # free-text fields are quoted, so a hypothesis cannot pose as another line of the plan
+    return "\n".join([f"Research plan {plan['plan_sha'][:12]}",
+                      f"- Hypotheses: {json.dumps(plan['hypotheses'], ensure_ascii=False)}",
+                      f"- Sources (domains): {', '.join(plan['domains'])}",
+                      f"- Up to {plan['page_budget']} pages",
+                      f"- Stop when: {json.dumps(plan['stop_rule'], ensure_ascii=False)}",
+                      "Reply yes to approve this plan, or say what to change."])
 
 
 def _domains(urls) -> list:

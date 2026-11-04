@@ -151,8 +151,17 @@ def test_grant_honoured_only_with_matching_grant_event(henv):
     assert hookmain.build_ctx({"session_id": "s1"}, henv).grant is None  # recorded, but not by a GRANT event
 
 
-@pytest.mark.parametrize("rel", ["sessions/s1.json", "runs/j1/egress_grant.json", "runs/j1/tier.json",
-                                 "sessions/s1/status.json"])
+def test_a_symlinked_session_file_is_quarantined_and_reset_closed(henv, tmp_path):
+    data = Path(henv["CLAUDE_PLUGIN_DATA"])
+    (data / "sessions").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "planted.json").write_text(json.dumps({"active_task": "j1", "prompt_scope": "active_task"}))
+    (data / "sessions" / "s1.json").symlink_to(tmp_path / "planted.json")
+    ctx = hookmain.build_ctx({"session_id": "s1"}, henv)
+    assert ctx.job is None and ctx.pending_card["floor"] == "T2"
+    assert not (data / "sessions" / "s1.json").is_symlink() and list((data / "sessions").glob("s1.json.tamper-*"))
+
+
+@pytest.mark.parametrize("rel", ["runs/j1/egress_grant.json", "runs/j1/tier.json", "sessions/s1/status.json"])
 def test_symlinked_state_file_fails_closed(henv, tmp_path, rel):
     data = Path(henv["CLAUDE_PLUGIN_DATA"])
     (data / "sessions" / "s1").mkdir(parents=True)

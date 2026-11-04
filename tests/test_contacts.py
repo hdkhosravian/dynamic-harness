@@ -15,10 +15,10 @@ from harness_core.turns import Turns
 
 SID = "s1"
 DRAFT = {
-    "task_type": "analysis_report",
+    "task_type": "investigation",  # plan contacts belong to investigations
     "deliverable": {"kind": "report", "description": "monthly sales report"},
     "oracle": {"type": "finance.kpi", "executable": True, "criteria": ["each KPI recomputed"]},
-    "reliance": "operations", "decision_class": "none",
+    "reliance": "operations", "decision_class": "financial",  # decision_ack needs a financial decision card
     "cost_of_error": {"money_at_stake": {"amount": 0, "currency": "IRT"}},
     "risk": {"level": "medium"}, "units": 2, "unit_definition": "one KPI", "domain": "sales",
     "unit_list": [{"label": "revenue", "claim": "revenue for May"}, {"label": "orders", "claim": "orders for May"}],
@@ -69,12 +69,12 @@ def test_one_handoff_at_the_cap_for_a_before_spend_contact(ctx):
         C(ctx, "question", text=f"q{i}")
     with pytest.raises(Denied):
         C(ctx, "question", text="late", handoff=True)  # not before-spend
-    row = C(ctx, "assumption_sheet", text="please check", handoff=True)
+    row = C(ctx, "definition_confirm", text="please check", handoff=True)
     assert row["counted"] is False and row["handoff"] is True
     p, log = paths(ctx)
     assert log.events()[-1]["type"] == "PAUSED" and sessionstate.jobs(ctx)[ctx.job]["state"] == "PAUSED"
     with pytest.raises(Denied):
-        C(ctx, "assumption_sheet", text="again", handoff=True)  # once per task
+        C(ctx, "definition_confirm", text="again", handoff=True)  # once per task
 
 
 def test_a_contact_points_the_session_at_itself(ctx):
@@ -102,7 +102,7 @@ def test_late_questions_are_denied_after_half_the_units(ctx, monkeypatch):
     assert "R-8" in contacts.check("ask", ctx, questions=1)
     with pytest.raises(Denied, match="R-8"):
         C(ctx, "question", text="late")
-    assert contacts.check("decision_ack", ctx) is None and contacts.check("assumption_sheet", ctx) is None
+    assert contacts.check("decision_ack", ctx) is None and contacts.check("definition_confirm", ctx) is None
 
 
 def test_progress_counts_terminal_units(ctx):

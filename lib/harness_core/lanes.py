@@ -108,6 +108,28 @@ def on_pre(evt, ctx) -> dict:
     return {}
 
 
+def _linked(spawns, agent_id) -> bool:
+    return any(s.get("agent_id") == agent_id for s in spawns)
+
+
+def on_subagent_start(evt, ctx) -> dict:
+    """SubagentStart fires before the subagent's first call: link the oldest unlinked spawn of its type."""
+    agent_id, kind = evt.get("agent_id"), evt.get("agent_type")
+    if not getattr(ctx, "job", None) or not isinstance(agent_id, str) or not isinstance(kind, str):
+        return {}
+    p, log = _paths(ctx)
+    spawns = store.read_jsonl(p.run, log, "spawns.jsonl")
+    if _linked(spawns, agent_id):
+        return {}
+    done = {s.get("tool_use_id") for s in spawns if s.get("agent_id")}
+    free = [s for s in spawns if s.get("prompt_sha") and s.get("subagent_type") == kind and s.get("tool_use_id") not in done]
+    if free:
+        store.append_jsonl(p.run, log, "spawns.jsonl", {"ts": now(), "tool_use_id": free[0].get("tool_use_id"),
+                                                        "agent_id": agent_id, "subagent_type": kind},
+                           "SPAWN_LINK", {"agent_id": agent_id, "at": "SubagentStart"})
+    return {}
+
+
 def link_spawn(evt, ctx) -> None:
     """PostToolUse on Agent: record which agent id the recorded spawn got."""
     if not getattr(ctx, "job", None) or evt.get("tool_name") not in SPAWN:
@@ -117,6 +139,8 @@ def link_spawn(evt, ctx) -> None:
     if not isinstance(agent_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", agent_id) or not evt.get("tool_use_id"):
         return
     p, log = _paths(ctx)
+    if _linked(store.read_jsonl(p.run, log, "spawns.jsonl"), agent_id):
+        return  # SubagentStart already linked it
     store.append_jsonl(p.run, log, "spawns.jsonl", {"ts": now(), "tool_use_id": evt["tool_use_id"],
                                                     "agent_id": agent_id,
                                                     "subagent_type": (evt.get("tool_input") or {}).get("subagent_type")},

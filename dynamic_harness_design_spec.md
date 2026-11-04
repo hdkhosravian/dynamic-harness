@@ -2229,7 +2229,13 @@ profiles:
   - Start questions go in one message, at most 3.
   - No question once progress reaches 50%. Progress counts terminal units, or milestones for a single-unit task.
   - The cap is re-checked under the lock that records the contact.
-  - A plan's text is rendered from `plan.json`. `--accept` needs the owner's reply to that plan contact, and the whole reply must be an approval. The contact is then consumed, and the grant is written with a `GRANT` event.
+  - Each typed contact serves only its purpose, so its exemptions are no way around the cap or R-8:
+    - `plan` belongs to an investigation, before any work;
+    - `assumption_sheet` belongs to a simulation, before any work;
+    - `decision_ack` needs a `financial` card and is sent once per task.
+
+    Start questions go in one message, through `harness-contact question` too.
+  - A plan's text is rendered from `plan.json`, with free-text fields quoted. The hook shows it to the owner directly (`systemMessage`), not through the model. `--accept` needs the owner's reply to that plan contact, and the whole reply must be an approval. The contact is then consumed, and the grant is written with a `GRANT` event.
 - **Memory** (`memory.py`; R-9).
   - Only `[pref:<key>]` questions are stored, and only one of the offered options from the closed enums.
   - Answers are read from `tool_response` only, because the model writes `tool_input`.
@@ -2239,9 +2245,14 @@ profiles:
 - **Lanes** (`lanes.py`).
   - Web tools are allowed only for the researcher, in an investigation.
   - Researcher and verifier spawns need a recorded `harness-research render` or `harness-critic render`. Neither renderer is built yet, so such spawns are denied until P4/P5.
-  - A subagent's calls keep the task it was spawned in: its agent id must be linked in the task's `spawns.jsonl`. A subagent that is not linked keeps the open task's gates, with no grant, and may only read. A call with `agent_type` but no `agent_id` is the main thread.
+  - A subagent's calls keep the task it was spawned in: its agent id must be linked in the task's `spawns.jsonl`. A SubagentStart hook links it before the subagent's first call, matching the oldest unlinked spawn of the same type; the Agent PostToolUse also links it. A subagent that is not linked keeps the open task's gates, with no grant, and may only read. A call with `agent_type` but no `agent_id` is the main thread.
 - **Tripwire.** It is active at T0 while no card is pending. It trips on a side effect, or on the 9th call. When the probe saw money or personal data, it trips on any call other than the named neutral tools; there is no tool or file-name list to get around.
-- **R-5.** SessionStart stops as `STOPPED_TAMPER` when a shipped `skills/**/SKILL.md` has no matching `approved_procedures.json` entry, and when there is any symlink under `skills/`.
+- **R-5.** SessionStart stops as `STOPPED_TAMPER` when a shipped `skills/**/SKILL.md` has no matching `approved_procedures.json` entry, and when there is any symlink under `skills/`. In a task, or while a card is pending, the Skill tool loads only approved `dynamic-harness:<dir>` skills.
+- **Robustness.**
+  - The prompt hook replaces lone surrogates and accepts a repeated or non-string `prompt_id` (a retried hook is one turn).
+  - A session file that fails its check is moved aside (`.tamper-<id>`) and reset closed, with a T2 pending card, by a `SESSION_RESET` event. Setup and reads keep working.
+  - A refused card keeps the pending card, so a refusal cannot lift the gate.
+  - The tripwire skips only the print-only CLIs; `harness-sandbox-exec` counts.
 - **Corrections and shadow.** Corrections are logged verbatim, as evidence only, and cite a real owner turn. The second draft is logged in shadow and never changes the card.
 - **Known gaps carried to P4.**
   - The Stop hook does not exist yet. A model can still answer in plain text while a card is pending, and a live `-p` run did exactly that (2 orders, 30 toman, from a read). The spec's enforcement for this is Stop refusing a T0 completion while `pending_card` is set.

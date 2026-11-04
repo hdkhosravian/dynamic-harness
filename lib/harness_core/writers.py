@@ -89,4 +89,7 @@ def on_post(evt, ctx) -> dict:
         res = WRITERS[name](_request(evt, name), ctx, evt)
     except HarnessError as e:  # Denied, CardError, SchemaError, TamperError: nothing was recorded
         return {"decision": "block", "reason": f"harness-{name} not recorded: {e}"}
-    return _context(_say(name, res))
+    out = _context(_say(name, res))
+    if name == "contact" and res.get("type") == "plan" and not res.get("granted"):
+        out["systemMessage"] = res["text"]  # the owner sees the rendered plan itself, not the model's retelling
+    return out

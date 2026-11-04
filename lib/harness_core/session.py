@@ -115,6 +115,22 @@ def unapproved_procedures(ctx) -> list:
     return sorted(bad)
 
 
+def approved_skill(ctx, name) -> bool:
+    """``dynamic-harness:<dir>`` whose ``skills/<dir>/SKILL.md`` is shipped, not a symlink, and approved (R-5)."""
+    import hashlib
+
+    from . import protected
+    if not isinstance(name, str) or not re.fullmatch(r"dynamic-harness:[a-z0-9-]+", name):
+        return False
+    rel = f"skills/{name.split(':', 1)[1]}/SKILL.md"
+    f = Path(ctx.plugin_root) / rel
+    if os.path.islink(f) or os.path.islink(f.parent) or not f.is_file():
+        return False
+    approved = {p.get("path"): p.get("sha256") for p in protected.load_control("approved_procedures.json", ctx)
+                .get("procedures", []) if isinstance(p, dict)}
+    return approved.get(rel) == hashlib.sha256(f.read_bytes()).hexdigest()
+
+
 def canary(ctx) -> bool:
     """A known-irreversible call must be denied and a plain read allowed."""
     ctx = dataclasses.replace(ctx, log=None)  # the canary's own deny is not a SAFETY_DENY

@@ -127,7 +127,9 @@ def apply(req, ctx, evt) -> dict:
     if tier == tier_select.REFUSE:
         log.append("STOPPED", {"state": "REFUSED", "reason": f"decision class {c['decision_class']} is refused"})
         sessionstate.set_job(ctx, job, state="REFUSED", tier=None, task_type=c["task_type"], session_id=sid)
-        sessionstate.update(ctx, sid, pending_card=None, active_task=open_job if not open_row.get("terminal") else None,
+        # a refusal never lifts the gate: the model may raise decision_class, so it could refuse on purpose
+        keep = pending or {"floor": "T2", "reason": "the request was refused", "turn_id": turn_id}
+        sessionstate.update(ctx, sid, pending_card=keep, active_task=open_job if not open_row.get("terminal") else None,
                             prompt_scope="new", compiled_turns=(list(st.get("compiled_turns") or []) + [turn_id])[-50:])
         return dict(out, state="REFUSED", tier=None, message=_template("refused", ctx))
     store.write_json(paths.run, log, "tier.json",

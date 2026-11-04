@@ -33,7 +33,8 @@ def watchdog(event: str) -> float:
 HANDLERS = {"PreToolUse": ("pretool", "on_pre"), "SessionStart": ("session", "on_start"),
             "ConfigChange": ("config_guard", "on_change"), "PostToolUse": ("posttool", "on_post"),
             "PostToolUseFailure": ("written", "on_post"),  # a failed Write/Edit may still have written
-            "UserPromptSubmit": ("prompt", "on_prompt"), "SubagentStop": ("subagent", "on_subagent_stop")}
+            "UserPromptSubmit": ("prompt", "on_prompt"), "SubagentStop": ("subagent", "on_subagent_stop"),
+            "SubagentStart": ("lanes", "on_subagent_start")}
 
 
 def _handler(event):
@@ -108,6 +109,7 @@ def _spawned_in(data, ws, job, agent_id) -> bool:
 
 
 def build_ctx(evt: dict, env, event=None):
+    from .errors import TamperError
     from . import written
     from .events import EventLog
     from .safety import Ctx
@@ -151,7 +153,10 @@ def build_ctx(evt: dict, env, event=None):
     if event in (None, "PreToolUse"):  # only the classifier reads them; one workspace walk per call
         ctx.written_this_task, ctx.untrusted_files = written.session_sets(data, sid, ctx.workspace)
     from . import sessionstate
-    sess = sessionstate.load(ctx, sid)  # checked against its SESSION event: an out-of-band edit is tamper
+    try:
+        sess = sessionstate.load(ctx, sid)  # checked against its SESSION event: an out-of-band edit is tamper
+    except TamperError as e:  # never brick the session (setup and reads must still work): reset it closed
+        sess = sessionstate.reset(ctx, sid, str(e))
     ctx.pending_card = sess.get("pending_card") if isinstance(sess.get("pending_card"), dict) else None
     ctx.prompt_scope = sess.get("prompt_scope")
     # scope rule: hooks resolve to active_task only when this prompt belongs to it; a subagent's calls belong

@@ -13,8 +13,13 @@ checks the bytes against the latest event first.
 """
 from __future__ import annotations
 
-from . import store
+import os
+import secrets
+from pathlib import Path
+
+from . import canon, store
 from .events import now
+from .safeio import atomic_write
 from .written import safe_id
 
 DEFAULT = {"active_task": None, "prompt_scope": "new", "pending_card": None, "pending_contact_id": None,
@@ -32,6 +37,24 @@ def load(ctx, sid) -> dict:
     if isinstance(v, dict):
         out.update(v)
     return out
+
+
+def reset(ctx, sid, reason) -> dict:
+    """The session file fails its check: move it aside and start again closed (a T2 card is needed)."""
+    log = store.session_log(ctx.data_root)
+    name = _name(sid)
+    path = Path(ctx.data_root) / name
+    with log.lock():
+        if os.path.lexists(path):
+            os.replace(path, path.with_name(f"{path.name}.tamper-{secrets.token_hex(4)}"))
+        state = dict(DEFAULT, session_id=sid,
+                     pending_card={"floor": "T2", "reason": f"session state was reset: {reason}", "turn_id": None})
+        data = canon.canonical_json(state)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, data)
+        log.append("SESSION_RESET", {"session_id": sid, "reason": reason[:200]}, file=name,
+                   file_sha=canon.sha256_bytes(data))
+    return state
 
 
 def update(ctx, sid, **changes) -> dict:

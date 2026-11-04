@@ -88,6 +88,19 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^dynamic-harness:[a-z0-9-]+$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" SubagentStart",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
     ]
   }
 }

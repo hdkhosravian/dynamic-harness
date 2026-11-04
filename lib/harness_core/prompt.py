@@ -63,14 +63,18 @@ def on_prompt(evt, ctx) -> dict:
     sid, text = evt.get("session_id"), evt.get("prompt")
     if not sid or not isinstance(text, str):
         return {}
-    turn_id = evt.get("prompt_id") or f"{sid}:{secrets.token_hex(8)}"  # prompt_id is always set (spike)
+    text = text.encode("utf-8", "replace").decode("utf-8")  # a lone surrogate would not survive canonical JSON
+    pid = evt.get("prompt_id")
+    turn_id = pid if isinstance(pid, str) and pid else str(pid) if isinstance(pid, int) else f"{sid}:{secrets.token_hex(8)}"
     st = sessionstate.load(ctx, sid)
     row = {"turn_id": turn_id, "text_norm": pii.redact(text)}
     if text.lstrip().startswith("/"):
         row["typed_command"] = text.strip().splitlines()[0]
     if st.get("pending_contact_id") and not text.lstrip().startswith(SYSTEM_PREFIX):
         row["pending_contact_id"] = st["pending_contact_id"]
-    turn = Turns(ctx.data_root).append(row)
+    turns = Turns(ctx.data_root)
+    known = next((r for r in turns._rows() if r.get("turn_id") == turn_id), None)
+    turn = known or turns.append(row)  # the same prompt_id twice (a retried hook) is one turn
     if turn["system"]:
         return {}
     job = st.get("active_task")
