@@ -109,6 +109,8 @@ def on_prompt(evt, ctx) -> dict:
         return {}
     job = st.get("active_task")
     open_job = job and not sessionstate.jobs(ctx).get(job, {}).get("terminal")
+    # only a DONE task is followed up; a refused or abandoned one is not
+    done_job = job if job and not open_job and sessionstate.jobs(ctx).get(job, {}).get("state") == "DONE" else None
     held = None
     if not open_job:
         job, note = _resume_elsewhere(ctx, sid, text, turn_id)
@@ -144,6 +146,10 @@ def on_prompt(evt, ctx) -> dict:
                             f"--reunderstand {turn_id}; otherwise carry on.")
         return {}
     scope = "inline_t0" if open_job else "new"
+    if done_job and not open_job and reason == "probe" and _matches_open_task(ctx, done_job, text, pr):
+        held = ((held + "\n") if held else "") + (f"harness: this looks like a follow-up to finished task "
+                                                   f"{done_job}; if it is, copy its card with the change and set "
+                                                   f"follows: {done_job}.")
     if verdict == "T0-fast":
         sessionstate.update(ctx, sid, prompt_scope=scope, probe=pr, request_turn=turn_id, pending_card=None)
         return _context(held) if held else {}

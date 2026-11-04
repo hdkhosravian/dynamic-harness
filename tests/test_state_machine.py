@@ -133,3 +133,23 @@ def test_the_tier_never_goes_down(h):
     turn = correct(h)
     out = again(h, dict(TWO, risk={"level": "low"}), turn)
     assert out["tier"] == before
+
+
+def test_a_follow_up_to_a_done_task_is_a_new_job_that_names_it(h, monkeypatch):
+    job = compiled(h)
+    monkeypatch.setattr(sandbox_exec, "run", FakeRunner())
+    gate_post(h)
+    stop(h, "The report is ready.")
+    code, out = say(h, "now the same orders this week but only paid ones", "p2")
+    assert "follows: " + job in out["hookSpecificOutput"]["additionalContext"]
+    new = compile_.apply({"tool": "compile", "card": dict(CARD, follows=job)}, ctx_of(h), {"session_id": SID})
+    assert new["job_id"] != job and new["state"] == "EXECUTING"
+
+
+def test_follows_must_name_a_finished_task(h):
+    from harness_core.card import CardError
+    job = compiled(h)
+    say(h, "What is the capital of France? also how many orders came in", "p2")
+    sessionstate.update(ctx_of(h), SID, prompt_scope="new")
+    with pytest.raises(CardError, match="not a finished task"):
+        compile_.apply({"tool": "compile", "card": dict(CARD, follows=job)}, ctx_of(h), {"session_id": SID})

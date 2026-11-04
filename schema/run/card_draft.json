@@ -244,6 +244,13 @@
     "units": {
       "minimum": 1,
       "type": "integer"
+    },
+    "follows": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
     }
   },
   "required": [

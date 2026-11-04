@@ -108,6 +108,8 @@ def apply(req, ctx, evt) -> dict:
                              "not recompiled"])
     c["multi_session"] = cardmod.multi_session(c)
     c.setdefault("follows", None)
+    if c["follows"] and not sessionstate.jobs(ctx).get(c["follows"], {}).get("terminal"):
+        raise CardError([f"follows {c['follows']!r} is not a finished task; an open task is continued, not followed"])
     c["scenario_of"] = None  # set only by harness-model scenario (P5)
     pending = st.get("pending_card") or {}
     floor = tier_select.tier_max(p.get("floor_tier", "T2"), pending.get("floor", "T0"))
