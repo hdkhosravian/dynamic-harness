@@ -138,6 +138,8 @@ def apply(req, ctx, evt) -> dict:
                      {"schema": "harness/tier@1", "job_id": job, "session_id": sid, "tier": tier,
                       "v_default": "V0" if tier == "T0" else "V2", "set_by": "compiler", "ts": now(), "prev_tier": None},
                      "TIER", {"tier": tier})
+    from . import lease
+    lease.acquire(ctx, job, sid)
     rows = [dict(u, id=f"u{i}") for i, u in enumerate(c["unit_list"], 1)]
     Ledger(paths, log).freeze_scope(rows, Turns(ctx.data_root))
     opening = _opening(ctx, c, tier, job)

@@ -22,6 +22,7 @@ from .errors import HarnessError
 
 WRITERS = {"compile": compile_.apply, "contact": contact.apply, "ledger": renders.ledger_apply,
            "research": renders.research_apply, "critic": renders.critic_apply}
+JOB_SCOPED = ("contact", "ledger", "research", "critic")
 _OPERATORS = re.compile(r"[;&|<>`$()\n\\]")
 
 
@@ -93,6 +94,9 @@ def on_post(evt, ctx) -> dict:
         return {}
     name = parsed[0]
     try:
+        if name in JOB_SCOPED and getattr(ctx, "job", None):  # a stale epoch or another session's task
+            from . import lease
+            lease.require(ctx, ctx.job, evt.get("session_id"))
         res = WRITERS[name](_request(evt, name), ctx, evt)
     except HarnessError as e:  # Denied, CardError, SchemaError, TamperError: nothing was recorded
         return {"decision": "block", "reason": f"harness-{name} not recorded: {e}"}

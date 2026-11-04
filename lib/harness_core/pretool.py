@@ -47,6 +47,12 @@ def on_pre(evt, ctx) -> dict:
         from .session import approved_skill
         if not approved_skill(ctx, ti.get("skill")):
             return _deny(f"harness: only approved dynamic-harness skills load in a task (R-5), not {ti.get('skill')!r}")
+    if getattr(ctx, "job", None):
+        from . import lease
+        if lease.status(ctx, ctx.job, evt.get("session_id")) in ("other", "stale"):
+            c = classes.classify(tool, ti, ctx.connector_registry, ctx)
+            if not neutral(tool, c):
+                return _deny(f"harness: task {ctx.job} is held by another session; this session may only read it")
     r = lanes.on_pre(evt, ctx)
     if r:
         return r

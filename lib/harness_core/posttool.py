@@ -18,6 +18,9 @@ def on_post(evt, ctx) -> dict:
     if tool in written.WRITE_TOOLS:
         written.on_post(evt, ctx)
     lanes.link_spawn(evt, ctx)
+    if getattr(ctx, "job", None) and evt.get("session_id"):
+        from . import lease
+        lease.heartbeat(ctx, ctx.job, evt["session_id"])
     res = writers.on_post(evt, ctx) or {}
     if res.get("decision") == "block":
         return res

@@ -53,6 +53,32 @@ def _matches_open_task(ctx, job, text, p) -> bool:
     return any(lbl and re.search(r"(?<!\w)" + re.escape(lbl.casefold()) + r"(?!\w)", text.casefold()) for lbl in labels)
 
 
+def _resume_elsewhere(ctx, sid, text, turn_id):
+    """"continue" in a session with no task: the single open task in the jobs index. A stale lease is taken
+    over (epoch fencing); a live lease elsewhere leaves this prompt outside the task."""
+    from . import lease
+    try:
+        p = probe.run(text, ctx)
+    except Exception:  # the main path below fails towards a T2 card
+        return None, None
+    if not p.get("continuation"):
+        return None, None
+    rows = {j: r for j, r in sessionstate.jobs(ctx).items() if not r.get("terminal") and r.get("tier")}
+    if len(rows) != 1:
+        return None, None
+    (job,) = rows
+    st = lease.status(ctx, job, sid)
+    if st == "other":
+        return None, f"harness: task {job} is open in another session; it continues there."
+    note = None
+    if st == "stale":
+        taken = lease.takeover(ctx, job, sid)
+        note = (f"harness: took over task {job} from a stale session (epoch {taken['epoch']}); "
+                f"remaining units: {', '.join(taken['remaining']) or 'none'}.")
+    sessionstate.update(ctx, sid, active_task=job, prompt_scope="active_task", request_turn=turn_id)
+    return job, note
+
+
 def _context(text):
     return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}
 
@@ -82,6 +108,18 @@ def on_prompt(evt, ctx) -> dict:
         return {}
     job = st.get("active_task")
     open_job = job and not sessionstate.jobs(ctx).get(job, {}).get("terminal")
+    note = None
+    if not open_job:
+        job, note = _resume_elsewhere(ctx, sid, text, turn_id)
+        open_job = bool(job)
+        if open_job:
+            return _context(note) if note else {}
+        if note:  # held elsewhere: this "continue" is not routed to it
+            sessionstate.update(ctx, sid, prompt_scope="new", request_turn=turn_id, pending_card=None)
+            return _context(note)
+    elif open_job:
+        from . import lease
+        lease.heartbeat(ctx, job, sid)
     if row.get("pending_contact_id") and open_job:
         if sessionstate.jobs(ctx).get(job, {}).get("state") == "PAUSED":
             p = job_paths(ctx.data_root, ctx.workspace, job)
