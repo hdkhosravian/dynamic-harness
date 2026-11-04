@@ -531,8 +531,9 @@ def workbook_sheets(model, A, lang="en") -> list:
 def workbook(req):
     """The ``model.workbook`` check: the delivered workbook must be the one the model builds. Its structure
     (workbook, relationships, content types), its Calc sheet and its Checks sheet must equal, byte for byte, what
-    ``workbook_sheets`` produces from model.json and the recorded assumptions; only the Assumptions and Summary
-    sheets are compared by value. A regex over the XML would let a crafted file pass."""
+    ``workbook_sheets`` produces from model.json and the recorded assumptions, every sheet included. The owner's
+    edits come back through ``harness-model import``, never through this check. A regex over the XML would let a
+    crafted file pass."""
     import io
     import zipfile
     from .checklib import safe_path
@@ -552,38 +553,13 @@ def workbook(req):
     if sorted(names) != sorted(want):
         notes.append(f"the workbook's parts differ from the model's: {sorted(set(names) ^ set(want))[:6]}")
     fixed = ("[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml",
-             "xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml")
+             "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml",
+             "xl/worksheets/sheet4.xml")
     for part in fixed:
         if got.get(part) not in (want.get(part), want_fa.get(part)):
-            label = {"xl/worksheets/sheet2.xml": "the Calc sheet (formulas)",
-                     "xl/worksheets/sheet3.xml": "the Checks sheet"}.get(part, part)
+            label = {"xl/worksheets/sheet1.xml": "the Assumptions sheet (recorded values)",
+                     "xl/worksheets/sheet2.xml": "the Calc sheet (formulas)",
+                     "xl/worksheets/sheet3.xml": "the Checks sheet",
+                     "xl/worksheets/sheet4.xml": "the Summary sheet"}.get(part, part)
             notes.append(f"{label} differs from the one the model builds: rebuild it with harness-model workbook")
-    if not notes:
-        headers, rows = _first_sheet(data)
-        if headers != ["id", "label", "value", "unit", "period", "source"] or \
-                [r[0] for r in rows] != [r[0] for r in _first_sheet(_zip(want))[1]]:
-            notes.append("the Assumptions sheet does not list the model's assumptions")
     return ("fail" if notes else "pass"), {"parts_compared": len(fixed)}, notes
-
-
-def _zip(parts) -> bytes:
-    import io
-    import zipfile
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as z:
-        for n, d in parts.items():
-            z.writestr(n, d)
-    return buf.getvalue()
-
-
-def _first_sheet(data: bytes):
-    import os
-    import tempfile
-    from . import tables
-    fd, tmp = tempfile.mkstemp(suffix=".xlsx")
-    try:
-        os.write(fd, data)
-        os.close(fd)
-        return tables.read(tmp)
-    finally:
-        os.unlink(tmp)
