@@ -8,7 +8,10 @@ description: Use when the dynamic-harness says a request needs a task card (a "p
 The harness decides the tier (how much checking a task gets) from a **task card** that you draft and code
 checks. Until a card compiles, only reads are allowed.
 
-## 1. Draft the card (JSON) in a workspace file
+## 1. Draft the card (JSON) in `.claude/loops/drafts/`
+
+Until a card compiles, the only file you may write is the draft itself: a `.json` file directly in
+`.claude/loops/drafts/` of the workspace, for example `.claude/loops/drafts/card.json`.
 
 Required fields:
 

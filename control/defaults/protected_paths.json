@@ -14,7 +14,8 @@
   ],
   "write_exceptions": [
     "${WORKSPACE}/.claude/loops/*/requests/**",
-    "${WORKSPACE}/.claude/loops/*/work/**"
+    "${WORKSPACE}/.claude/loops/*/work/**",
+    "${WORKSPACE}/.claude/loops/drafts/*.json"
   ],
   "read_protected": [
     "${CLAUDE_PLUGIN_DATA}/keys/**",

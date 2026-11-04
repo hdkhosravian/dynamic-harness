@@ -1,7 +1,8 @@
 """PreToolUse, in order (spec §Hooks: safety, lanes, contacts; build phase P3). The first deny wins.
 
 1. Pending card: while ``pending_card`` is set, only reads, harness-internal tools (TodoWrite, Skill,
-   AskUserQuestion…), a spawn of the shadow drafter, and a lone ``harness-card`` / ``harness-compile`` run.
+   AskUserQuestion…), a spawn of the shadow drafter, a lone ``harness-card`` / ``harness-compile`` run, and
+   a ``Write`` of the card draft itself (a ``.json`` file directly in ``.claude/loops/drafts/``).
 2. Lanes (``lanes.on_pre``), for T1/T2 tasks.
 3. Contacts: ``AskUserQuestion`` and ``harness-contact <type>`` against the cap and the 50% rule.
 4. Safety (``safety.on_pre``): the class table, egress, protected paths, the session gate. It runs last,
@@ -10,11 +11,23 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from . import classes, contacts, lanes, safety, writers
 
 CARD_DRAFTER = "dynamic-harness:card-drafter-2"
+DRAFTS = (".claude", "loops", "drafts")
+
+
+def _card_draft(tool, ti, ctx) -> bool:
+    """The card file the skill tells the model to write; no symlink anywhere on the way."""
+    f = ti.get("file_path")
+    if tool != "Write" or not isinstance(f, str) or not f.endswith(".json") or not getattr(ctx, "workspace", None):
+        return False
+    want = os.path.join(os.path.realpath(ctx.workspace), *DRAFTS)  # drafts components themselves unresolved
+    f = f if os.path.isabs(f) else os.path.join(os.fspath(ctx.workspace), f)
+    return os.path.realpath(os.path.dirname(f)) == want and not os.path.islink(f)
 SPAWN = ("Agent", "Task")  # Task is the older name of the same tool
 
 
@@ -40,7 +53,8 @@ def on_pre(evt, ctx) -> dict:
         c = classes.classify(tool, ti, ctx.connector_registry, ctx)
         ok = (neutral(tool, c)
               or (tool in SPAWN and ti.get("subagent_type") == CARD_DRAFTER)
-              or (lone is not None and lone[0] in ("card", "compile")))
+              or (lone is not None and lone[0] in ("card", "compile"))
+              or _card_draft(tool, ti, ctx))
         if not ok:
             return _deny(f"harness: {_template('pending_card')} ({ctx.pending_card.get('reason', 'card needed')})")
     if tool == "Skill" and (getattr(ctx, "pending_card", None) or contacts.tier(ctx) in ("T1", "T2")):

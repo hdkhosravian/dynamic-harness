@@ -351,3 +351,23 @@ def test_every_non_neutral_call_on_a_money_request_trips(h, tool, inp):
     say(h, "what is the total amount in toman?", "p1")
     sessionstate.update(ctx_of(h), SID, pending_card=None)
     assert post(h, tool, **inp)[0] == 2
+
+
+def test_the_card_draft_is_the_only_write_while_a_card_is_pending(h):
+    say(h, "how many orders came in this week?", "p1")
+    d = h["ws"] / ".claude" / "loops" / "drafts"
+    assert pre(h, "Write", file_path=str(d / "card.json"), content="{}") == 0
+    assert pre(h, "Write", file_path=".claude/loops/drafts/card.json", content="{}") == 0
+    assert pre(h, "Write", file_path=str(d / "card.sh"), content="x") == 2
+    assert pre(h, "Write", file_path=str(d / "sub" / "card.json"), content="{}") == 2
+    assert pre(h, "Write", file_path=str(d / ".." / "x.json"), content="{}") == 2
+    assert pre(h, "Edit", file_path=str(d / "card.json"), old_string="a", new_string="b") == 2
+    assert pre(h, "Write", file_path=str(h["ws"] / "orders.csv"), content="x") == 2
+
+
+def test_a_symlinked_drafts_dir_is_not_a_draft(h, tmp_path):
+    say(h, "how many orders came in this week?", "p1")
+    loops = h["ws"] / ".claude" / "loops"
+    loops.mkdir(parents=True)
+    (loops / "drafts").symlink_to(tmp_path)
+    assert pre(h, "Write", file_path=str(loops / "drafts" / "card.json"), content="{}") == 2
