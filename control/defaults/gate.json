@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "profiles": {
+    "T1.default": {"mode": "auto", "allow_blocked": "units", "numbers_trace": true, "lint_lexicon": true, "timeout": 1790},
+    "T2.default": {"mode": "auto", "allow_blocked": "units", "numbers_trace": true, "lint_lexicon": true, "timeout": 1790},
+    "T1.data_question": {"mode": "auto", "allow_blocked": "units", "verdict_vocab": "ANSWERED,ANSWERED-WITH-GAPS,UNANSWERED",
+                         "numbers_trace": true, "timeout": 1790},
+    "T2.investigation": {"mode": "auto", "allow_blocked": "ceil(0.2*units)", "require_logs": true,
+                         "freshness": {"price": "30d", "law": "in_force_date", "default": "365d"}, "timeout": 1790}
+  }
+}

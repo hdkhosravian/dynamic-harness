@@ -1,0 +1,29 @@
+{
+  "note": "7: class needs sign-off",
+  "card": {
+    "task_type": "decision_support",
+    "decision_class": "legal",
+    "risk": {
+      "level": "medium"
+    },
+    "irreversible": false,
+    "units": 1,
+    "multi_session": false,
+    "oracle": {
+      "type": "",
+      "executable": true,
+      "criteria": []
+    },
+    "reliance": "info",
+    "computed_numbers": false,
+    "resume_of": null,
+    "scenario_of": null
+  },
+  "probe": {
+    "question_only": false,
+    "write_targets": [],
+    "floor_tier": "T0"
+  },
+  "expected_tier": "T2",
+  "v1_expected_tier": "T2"
+}

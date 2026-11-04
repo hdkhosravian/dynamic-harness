@@ -1,0 +1,29 @@
+{
+  "note": "1: general knowledge",
+  "card": {
+    "task_type": "quick_question",
+    "decision_class": "none",
+    "risk": {
+      "level": "low"
+    },
+    "irreversible": false,
+    "units": 1,
+    "multi_session": false,
+    "oracle": {
+      "type": "",
+      "executable": false,
+      "criteria": []
+    },
+    "reliance": "info",
+    "computed_numbers": false,
+    "resume_of": null,
+    "scenario_of": null
+  },
+  "probe": {
+    "question_only": true,
+    "write_targets": [],
+    "floor_tier": "T0"
+  },
+  "expected_tier": "T0",
+  "v1_expected_tier": "T0"
+}

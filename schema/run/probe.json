@@ -1,0 +1,111 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_verbs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "connectors": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "continuation": {
+      "type": "boolean"
+    },
+    "data_classes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "decision_hits": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "type": "object"
+    },
+    "files_named": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "floor_tier": {
+      "enum": [
+        "T0",
+        "T1",
+        "T2"
+      ]
+    },
+    "irreversible_classes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "money_tokens": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "number_tokens": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "quantitative": {
+      "type": "boolean"
+    },
+    "question_only": {
+      "type": "boolean"
+    },
+    "request_sha": {
+      "type": "string"
+    },
+    "schema": {
+      "enum": [
+        "harness/probe@1"
+      ]
+    },
+    "write_connectors": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "write_targets": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "request_sha",
+    "question_only",
+    "action_verbs",
+    "irreversible_classes",
+    "write_targets",
+    "files_named",
+    "connectors",
+    "write_connectors",
+    "money_tokens",
+    "number_tokens",
+    "quantitative",
+    "data_classes",
+    "decision_hits",
+    "continuation",
+    "floor_tier"
+  ],
+  "type": "object"
+}

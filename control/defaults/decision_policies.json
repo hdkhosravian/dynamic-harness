@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "policies": {
+    "none": "none",
+    "financial": "inform",
+    "tax": "signoff",
+    "legal": "signoff",
+    "employment": "signoff",
+    "medical": "refuse",
+    "safety": "refuse"
+  }
+}

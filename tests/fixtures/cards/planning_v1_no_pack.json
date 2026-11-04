@@ -1,0 +1,29 @@
+{
+  "note": "12: v1 has no planning pack",
+  "card": {
+    "task_type": "planning",
+    "decision_class": "none",
+    "risk": {
+      "level": "medium"
+    },
+    "irreversible": false,
+    "units": 3,
+    "multi_session": false,
+    "oracle": {
+      "type": "",
+      "executable": false,
+      "criteria": []
+    },
+    "reliance": "info",
+    "computed_numbers": false,
+    "resume_of": null,
+    "scenario_of": null
+  },
+  "probe": {
+    "question_only": false,
+    "write_targets": [],
+    "floor_tier": "T0"
+  },
+  "expected_tier": "T2",
+  "v1_expected_tier": "T2"
+}

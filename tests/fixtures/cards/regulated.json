@@ -1,0 +1,29 @@
+{
+  "note": "13: T2 + professional",
+  "card": {
+    "task_type": "regulated",
+    "decision_class": "tax",
+    "risk": {
+      "level": "medium"
+    },
+    "irreversible": false,
+    "units": 1,
+    "multi_session": false,
+    "oracle": {
+      "type": "",
+      "executable": true,
+      "criteria": []
+    },
+    "reliance": "external",
+    "computed_numbers": true,
+    "resume_of": null,
+    "scenario_of": null
+  },
+  "probe": {
+    "question_only": false,
+    "write_targets": [],
+    "floor_tier": "T0"
+  },
+  "expected_tier": "T2",
+  "v1_expected_tier": "T2"
+}

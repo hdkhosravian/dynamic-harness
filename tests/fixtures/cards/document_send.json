@@ -1,0 +1,29 @@
+{
+  "note": "3: if sent",
+  "card": {
+    "task_type": "document",
+    "decision_class": "none",
+    "risk": {
+      "level": "medium"
+    },
+    "irreversible": true,
+    "units": 1,
+    "multi_session": false,
+    "oracle": {
+      "type": "",
+      "executable": true,
+      "criteria": []
+    },
+    "reliance": "external",
+    "computed_numbers": false,
+    "resume_of": null,
+    "scenario_of": null
+  },
+  "probe": {
+    "question_only": false,
+    "write_targets": [],
+    "floor_tier": "T0"
+  },
+  "expected_tier": "T2",
+  "v1_expected_tier": "T2"
+}

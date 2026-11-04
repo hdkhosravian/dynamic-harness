@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "t1_max_units": 5,
+  "t1_budget_calls": 150,
+  "t0_tripwire_calls": 8,
+  "contact_cap": 5,
+  "start_questions": 3
+}

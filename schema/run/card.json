@@ -1,0 +1,322 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "assumption_ids": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "business_hash": {
+      "type": "string"
+    },
+    "computed_numbers": {
+      "type": "boolean"
+    },
+    "cost_of_error": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_facing": {
+          "type": "boolean"
+        },
+        "employees_affected": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "legal_exposure": {
+          "type": "boolean"
+        },
+        "money_at_stake": {
+          "additionalProperties": false,
+          "properties": {
+            "amount": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "type": "object"
+        },
+        "public": {
+          "type": "boolean"
+        },
+        "recipient_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "money_at_stake"
+      ],
+      "type": "object"
+    },
+    "data_classes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "decision_class": {
+      "enum": [
+        "none",
+        "financial",
+        "tax",
+        "legal",
+        "employment",
+        "medical",
+        "safety"
+      ]
+    },
+    "deliverable": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "answer",
+            "document",
+            "report",
+            "research_report",
+            "model",
+            "decision_memo",
+            "prepared_actions"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "description"
+      ],
+      "type": "object"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "follows": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "irreversible": {
+      "type": "boolean"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "multi_session": {
+      "type": "boolean"
+    },
+    "oracle": {
+      "additionalProperties": false,
+      "properties": {
+        "criteria": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "executable",
+        "criteria"
+      ],
+      "type": "object"
+    },
+    "personal_data": {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subjects_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "categories",
+        "subjects_count"
+      ],
+      "type": "object"
+    },
+    "provenance": {
+      "additionalProperties": {
+        "enum": [
+          "user",
+          "inferred",
+          "probe",
+          "sources"
+        ]
+      },
+      "type": "object"
+    },
+    "reliance": {
+      "enum": [
+        "info",
+        "operations",
+        "money",
+        "external"
+      ]
+    },
+    "request": {
+      "type": "string"
+    },
+    "requester": {
+      "type": "string"
+    },
+    "resume_of": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reversibility": {
+      "enum": [
+        "R0",
+        "R1",
+        "R2",
+        "R3"
+      ]
+    },
+    "risk": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "required": [
+        "level"
+      ],
+      "type": "object"
+    },
+    "scenario_of": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema": {
+      "enum": [
+        "harness/card@1"
+      ]
+    },
+    "task_type": {
+      "enum": [
+        "quick_question",
+        "data_question",
+        "document",
+        "analysis_report",
+        "investigation",
+        "simulation",
+        "decision_support",
+        "one_off_operation",
+        "bulk_operation",
+        "automation_build",
+        "monitoring",
+        "planning",
+        "regulated"
+      ]
+    },
+    "thread_id": {
+      "type": "string"
+    },
+    "trifecta_leg_removed": {
+      "type": "string"
+    },
+    "unit_definition": {
+      "type": "string"
+    },
+    "unit_list": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "check_id": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          },
+          "deliverable": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "unit_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "claim"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "units": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "version": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "versions": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "task_type",
+    "deliverable",
+    "oracle",
+    "reliance",
+    "decision_class",
+    "cost_of_error",
+    "risk",
+    "units",
+    "unit_definition",
+    "domain",
+    "schema",
+    "job_id",
+    "version",
+    "request",
+    "irreversible",
+    "reversibility",
+    "data_classes",
+    "personal_data",
+    "computed_numbers",
+    "multi_session",
+    "follows",
+    "resume_of",
+    "scenario_of",
+    "unit_list",
+    "versions",
+    "provenance"
+  ],
+  "type": "object"
+}
