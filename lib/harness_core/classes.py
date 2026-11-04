@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlsplit
 
-from . import egress, protected, query_guard
+from . import egress, pathtrack, protected, query_guard
 from .errors import Denied
 
 # Most severe first; a compound Bash command takes its worst segment.
@@ -91,14 +91,11 @@ def _classify(tool, inp, registry, ctx):
             return _mk("protected_path", f"{tool} of a read-protected path", ctx)
         return _mk("read", f"{tool}", ctx)
     if tool in SEARCH_TOOLS:
-        roots = [inp.get("path") or str(ctx.workspace)]
-        pat = inp.get("pattern")
-        if tool == "Glob" and isinstance(pat, str) and (pat.startswith("/") or pat.startswith("~")):
-            roots.append(re.split(r"[*?\[{]", pat, maxsplit=1)[0] or "/")
+        roots = pathtrack.search_roots(tool, inp, ctx)  # pathtrack rule 5: relative Glob patterns resolve too
         for r in roots:
             if not isinstance(r, str):
                 return _mk("unknown", f"{tool} path is not a string", ctx)
-            if protected.contains_read_protected(r, ctx):
+            if protected.contains_read_protected(r, ctx, getattr(ctx, "cwd", None)):
                 return _mk("protected_path", f"{tool} would search a read-protected tree", ctx)
         return _mk("read", tool, ctx)
     if tool in WRITE_TOOLS:
@@ -137,8 +134,8 @@ def classify_url(url, ctx, method="GET") -> Classification:
     except Denied as e:
         return _mk("egress_offlist", e.reason, ctx, url=url if isinstance(url, str) else None)
     u = urlsplit(url)
-    if method != "GET" or u.query or u.fragment:
-        return _mk("egress_with_data", "request carries data (method, query string or fragment)", ctx, url=url)
+    if method != "GET" or u.fragment:  # a query string is judged by the query guard below
+        return _mk("egress_with_data", "request carries data (method or fragment)", ctx, url=url)
     try:
         query_guard.check(url, getattr(ctx, "protected_terms", ()), getattr(ctx, "owner_tokens", ()))
     except Denied as e:
@@ -216,7 +213,10 @@ DANGEROUS_ENV = {
     "NODE_OPTIONS", "NODE_PATH", "PERL5OPT", "PERL5LIB", "RUBYOPT", "RUBYLIB", "GIT_SSH_COMMAND",
     "GIT_EXEC_PATH", "GIT_DIR", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_PARAMETERS", "SHELLOPTS",
     "BASHOPTS", "ZDOTDIR", "HOME", "EDITOR", "VISUAL", "PAGER", "GIT_PAGER", "LESSOPEN",
+    "LESSCLOSE", "LESS", "LESSKEY", "MANPAGER", "MANOPT", "BROWSER", "GIT_EXTERNAL_DIFF", "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR", "GIT_ASKPASS", "SSH_ASKPASS",
 }
+DANGEROUS_ENV_PREFIXES = ("DYLD_", "LD_", "GIT_TRACE")
 SYSTEM_DIRS = ("/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/libexec", "/opt/homebrew/bin", "/System")
 DEV_OK = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "/dev/zero"}
 
@@ -228,12 +228,27 @@ READ_ONLY = {
     "shasum", "sha1sum", "sha256sum", "sha512sum", "md5", "md5sum", "cksum", "less", "more", "sleep",
     "seq", "expr", "bc", "wait", "read", "set", "unset", "shift", "local", "declare", "typeset", "exit",
     "return", ":", "ps", "pgrep", "jobs", "sw_vers", "man", "fold", "fmt", "rev", "tac", "strings",
-    "locale", "getconf", "nproc", "uptime", "groups", "tput", "clear", "say", "pbpaste", "pbcopy",
+    "locale", "getconf", "nproc", "uptime", "groups", "tput", "clear", "pbpaste",
     "mdls", "mdfind", "lsof", "ulimit", "umask", "shopt", "cal", "iconv",
     "fc-list", "sips", "afinfo", "plutil", "xmllint", "csvlook", "head", "look", "units", "env",
 }
 OUTPUT_OPT = {"sort": ("-o", "--output"), "tree": ("-o",), "base64": ("-o", "--output"), "shuf": ("-o", "--output"),
-              "plutil": ("-o",), "sips": ("--out", "-o"), "iconv": ("-o", "--output")}
+              "plutil": ("-o",), "sips": ("--out", "-o"), "iconv": ("-o", "--output"), "xmllint": ("--output",),
+              "less": ("-o", "-O", "--log-file", "--LOG-FILE"), "more": ("-o", "-O", "--log-file", "--LOG-FILE")}
+LAUNCH_OPT = {  # options that make a read-only command start another program
+    "rg": ("--pre", "--pre-glob"), "ack": ("--pager",), "ag": ("--pager",), "man": ("-P", "--pager", "-H", "--html"),
+    "sort": ("--compress-program",), "xmllint": ("--shell",), "sips": ("-j", "--js"),
+    "less": ("-k", "--lesskey-file", "--lesskey-src"), "more": ("-k", "--lesskey-file", "--lesskey-src"),
+}
+PLUTIL_EDIT = {"-convert", "-replace", "-insert", "-remove", "-create"}
+SIPS_QUERY = {"-g", "--getProperty", "-1", "--oneLine", "-h", "--help", "-H", "--helpProperties", "--formats"}
+CONFIG_PKG = {"npm", "pnpm", "yarn", "pip", "pip3"}
+CONFIG_VERBS = {"set", "delete", "unset", "edit", "rm"}
+# agent-callable CLIs from the spec's bin list; harness-hook (hook entrypoint) and the [v2] outbox/approve are excluded
+HARNESS_CLIS = {
+    "probe", "card", "compile", "ledger", "gate", "contact", "business", "normalize", "answer", "claims", "model",
+    "doc", "decide", "critic", "sandbox-exec", "estimate", "run", "research", "admin", "lint-user-text",
+}
 WRITERS = {"tee", "touch", "mkdir", "rmdir", "truncate", "mktemp", "patch", "split", "csplit",
            "gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz", "zstd", "compress", "uncompress"}
 WRITER_OPT_ARGS = {
@@ -264,7 +279,7 @@ NET_TOOLS = {
     "s3cmd", "axel", "npx", "pnpx", "bunx", "uvx", "pipx", "networksetup", "scutil", "curlie", "grpcurl",
 }
 APP_AUTOMATION = {"osascript", "open", "shortcuts", "automator", "xdg-open", "osacompile", "screencapture",
-                  "qlmanage", "lpr", "lp"}
+                  "qlmanage", "lpr", "lp", "say"}
 AUTOMATION = {"crontab", "launchctl", "at", "batch", "atq", "systemctl", "systemd-run", "schtasks", "pmset"}
 MESSAGE = {"mail", "mailx", "sendmail", "mutt", "msmtp", "swaks", "ssmtp", "twilio", "slack", "telegram-send"}
 CLOUD = {"aws", "gcloud", "gsutil", "az", "kubectl", "helm", "terraform", "tofu", "pulumi", "heroku", "vercel",
@@ -281,7 +296,7 @@ PKG_NET = {"install", "i", "ci", "add", "update", "up", "upgrade", "download", "
 PKG_PUBLISH = {"publish", "unpublish", "upload", "push", "release", "deploy", "login", "adduser", "owner",
                "dist-tag", "deprecate", "yank", "token"}
 RUNNERS = {"test", "t", "run", "run-script", "start", "build", "exec", "check", "bench", "vet", "tests"}
-RUNNER_CMDS = {"make", "gmake", "just", "rake", "ninja", "pytest", "py.test", "tox", "nox", "jest", "vitest",
+RUNNER_CMDS = {"just", "rake", "ninja", "pytest", "py.test", "tox", "nox", "jest", "vitest",
                "mocha", "ctest", "meson", "cmake", "tsc", "eslint", "prettier", "ruff", "black", "mypy",
                "flake8", "pylint", "isort", "shellcheck", "bats", "phpunit", "rspec"}
 CODE_SUFFIXES = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".sh", ".bash", ".zsh", ".rb", ".pl",
@@ -299,8 +314,8 @@ WRAPPER_OPTS = {
 GIT_READ = {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame", "describe", "shortlog",
             "cat-file", "ls-tree", "help", "version", "whatchanged", "rev-list", "name-rev", "show-ref",
             "for-each-ref", "count-objects", "check-ignore", "var", "merge-base", "cherry", "range-diff",
-            "grep", "annotate", "show-branch", "verify-commit", "fsck", "--version", "--help", "request-pull"}
-GIT_NET = {"fetch", "pull", "clone", "ls-remote", "submodule", "archive-remote"}
+            "grep", "annotate", "show-branch", "verify-commit", "fsck", "--version", "--help"}
+GIT_NET = {"fetch", "pull", "clone", "ls-remote", "submodule", "archive-remote", "request-pull"}
 GIT_OPT_ARGS = {"-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix"}
 PY_OPT_ARGS = {"-W", "-X", "-Q"}
 
@@ -341,6 +356,19 @@ def _opt_value(args, names):
             elif not n.startswith("--") and a.startswith(n) and len(a) > len(n) and len(n) == 2:
                 vals.append(a[2:])
     return vals
+
+
+def _has_opt(args, names):
+    """Any of ``names`` given as ``-P x``, ``-Px``, ``--pager x`` or ``--pager=x``."""
+    return any(a == n or a.startswith(n + "=") or (len(n) == 2 and a.startswith(n)) for a in args for n in names)
+
+
+def _config_write(name, rest):
+    """``npm config set``, ``pip config unset``, ``npm set``: writes user-level config outside the workspace."""
+    pos = [a for a in rest if not a.startswith("-")]
+    if name not in CONFIG_PKG or not pos:
+        return False
+    return (pos[0] == "config" and bool(CONFIG_VERBS & set(pos[1:3]))) or (name in ("npm", "pnpm") and pos[0] == "set")
 
 
 def _brace_expand(s, limit=64):
@@ -549,7 +577,9 @@ class _Bash:
         self.ctx = ctx
         self.depth = depth
         self.results = []
-        self.cwds = cwds if cwds is not None else [os.path.realpath(os.fspath(ctx.workspace))]
+        # pathtrack: relative paths resolve against the event's cwd when known; the boundary stays the workspace
+        self.cwds = cwds if cwds is not None else [os.path.realpath(os.fspath(getattr(ctx, "cwd", None) or ctx.workspace))]
+        self.track = pathtrack.Track()  # pathtrack: per-command state, shared with children
         self.written = written if written is not None else set()
         self.simple_count = 0
         self.claims_url = None
@@ -571,6 +601,7 @@ class _Bash:
             raise ParseError("nesting too deep")
         c = _Bash(self.ctx, self.depth + 1, self.cwds, self.written)
         c.vars = self.vars
+        c.track = self.track  # pathtrack
         return c
 
     def nested(self, command):
@@ -578,6 +609,7 @@ class _Bash:
         c.run(command)
         self.results += c.results
         self.simple_count += c.simple_count + 1
+        self.cwds = pathtrack.union(self.cwds, c.cwds)  # pathtrack rule 2: a child's cd propagates (fail closed)
         return c
 
     # -- parsing --
@@ -587,6 +619,7 @@ class _Bash:
             self.nested(sub)
         segs, cur, piped, depth = [], [], False, 0
         toks = _tokens(text)
+        pathtrack.note_masks(self.track.masks, toks, _tokens(pathtrack.mask_literal_dollars(text)))  # pathtrack: quoted `$` is literal
         for t in toks:
             depth += (t == "(") - (t == ")")
             if depth < 0:
@@ -693,9 +726,11 @@ class _Bash:
         listed = {os.path.realpath(os.fspath(x)) for x in getattr(self.ctx, "written_this_task", ()) or ()}
         if p in listed or p in self.written:
             return True
+        if protected.is_scratch(p, self.ctx) and os.path.lexists(p):  # pathtrack rule 4: job folders are agent-written
+            return True
         started = getattr(self.ctx, "task_started", None)
-        try:
-            return bool(started) and os.path.getmtime(p) >= started
+        try:  # ctime, never mtime: mtime is settable with touch -t / os.utime
+            return bool(started) and os.stat(p).st_ctime >= started
         except OSError:
             return False
 
@@ -706,7 +741,10 @@ class _Bash:
     def read_target(self, w):
         if re.match(r"^/dev/(tcp|udp)/", w):
             return self.add("egress_offlist", "bash /dev/tcp network redirection")
-        for p in self.candidates(w) or ():
+        cands = self.candidates(w)
+        if cands is None:  # pathtrack rule 1: an unresolvable read redirect fails closed
+            return self.add("unknown", f"read redirect {w!r} cannot be resolved")
+        for p in cands:
             if protected.is_read_protected(p, self.ctx):
                 return self.add("protected_path", "reads keys/ or experience/")
 
@@ -714,6 +752,7 @@ class _Bash:
         if re.match(r"^/dev/(tcp|udp)/", w):
             return self.add("egress_with_data", "bash /dev/tcp network redirection")
         cands = self.candidates(w)
+        pathtrack.note_write(self.track, cands)  # pathtrack: bash_write_targets reports every target, allowed or not
         if cands is None:
             return self.add("unknown", f"{verb} target {w!r} cannot be resolved")
         for p in cands:
@@ -723,11 +762,22 @@ class _Bash:
                 return self.add("protected_path", f"{verb} to protected path {p}")
             if protected.is_hardlinked(p):
                 return self.add("protected_path", f"{verb} to hard-linked file {p}")
-            if protected.outside_workspace(p, self.ctx) and not self.in_temp(p):
+            if protected.outside_workspace(p, self.ctx):
+                if self.in_temp(p):  # same class as a copy to temp: the data leaves the workspace
+                    return self.add("external_write", f"{verb} to temp outside the workspace: {p}")
                 return self.add("destructive", f"{verb} outside the workspace: {p}")
         self.written.update(cands)
         if any(p not in DEV_OK and not p.startswith("/dev/") for p in cands):
             self.add("local_reversible", f"{verb} in the workspace or temp")
+
+    def export_target(self, w, verb):
+        """A destination that receives workspace data (copy, archive): outside the workspace is external_write."""
+        for p in self.candidates(w) or ():
+            if protected.outside_workspace(p, self.ctx) and not protected.is_protected(p, self.ctx) and p not in DEV_OK:
+                self.add("external_write", f"{verb} destination outside the workspace (data leaves it): {p}")
+                return True
+        self.write_target(w, verb)
+        return False
 
     def exec_file(self, w, what="runs"):
         cands = self.candidates(w)
@@ -747,9 +797,10 @@ class _Bash:
     # -- simple command --
     def simple(self, args, stdin_code=False, stdin_file=None, dynamic=False):
         self.simple_count += 1
+        pathtrack.on_simple(self, args, dynamic)  # pathtrack rules 1-4: vars, cwd drift, job folders
         while args and _ASSIGN.match(args[0]):
             name = args[0].split("=", 1)[0]
-            if name in DANGEROUS_ENV or name.startswith(("DYLD_", "LD_")):
+            if name in DANGEROUS_ENV or name.startswith(DANGEROUS_ENV_PREFIXES):
                 return self.add("unknown", f"assignment to {name} changes what runs")
             args = args[1:]
         while args and args[0] in KEYWORDS:
@@ -816,11 +867,15 @@ class _Bash:
         if name == "export":
             for a in rest:
                 n = a.split("=", 1)[0]
-                if "=" in a and (n in DANGEROUS_ENV or n.startswith(("DYLD_", "LD_"))):
+                if "=" in a and (n in DANGEROUS_ENV or n.startswith(DANGEROUS_ENV_PREFIXES)):
                     return self.add("unknown", f"export of {n} changes what runs") or True
             return self.add("local_reversible", "export") or True
         if name.startswith("harness-"):
+            if not self.harness_trusted(name, args[0]):
+                return self.add("unknown", f"{name} is not a harness CLI under the plugin's bin/; runs an unknown program") or True
             return self.harness(name, rest, dynamic) or True
+        if name == "pbcopy":
+            return self.add("egress_with_data", "pbcopy hands data to every app through the clipboard") or True
         if name in WRAPPERS:
             return self.wrapper(name, rest, stdin_code, stdin_file, dynamic) or True
         if name in SHELLS:
@@ -856,8 +911,23 @@ class _Bash:
                 self.write_target(p, name)
             return self.add("local_reversible", f"{name} in the workspace") or True
         if name in OUTPUT_OPT or name in READ_ONLY:
+            if _has_opt(rest, LAUNCH_OPT.get(name, ())) or (
+                    name in ("less", "more") and any(a.startswith("+") and ("!" in a or "|" in a) for a in rest)):
+                return self.add("unknown", f"{name} option starts another program") or True
             for v in _opt_value(rest, OUTPUT_OPT.get(name, ())):
                 self.write_target(v, name)
+            if name == "plutil" and PLUTIL_EDIT & set(rest) and not _opt_value(rest, ("-o",)):
+                if "-convert" in rest:  # -convert <fmt> <files...> rewrites each file in place
+                    files = _split_opts(rest[rest.index("-convert") + 2:], {"-e"})[1]
+                else:  # -replace/-insert/-remove <keypath> ... <file>
+                    files = rest[-1:]
+                for f in files:
+                    self.write_target(f, "plutil (in place)")
+            if name == "sips" and not set(a for a in rest if a.startswith("-")) <= SIPS_QUERY and not _opt_value(rest, ("--out", "-o")):
+                # shortcut: every positional (option values included) is a write target; a value outside
+                # the workspace (a -m profile path) over-denies. Upgrade to a per-option arity table if that bites.
+                for f in _split_opts(rest)[1]:
+                    self.write_target(f, "sips (in place)")
             if name in ("grep", "egrep", "fgrep") and any(o.startswith("-") and not o.startswith("--") and ("r" in o or "R" in o) or o in ("--recursive", "--dereference-recursive") for o in rest):
                 self.recursive_read(_split_opts(rest)[1][1:])
             if name in ("rg", "ag", "ack"):
@@ -892,7 +962,7 @@ class _Bash:
             opts, pos = _split_opts(rest, {"-d", "-x", "-i", "-P"})
             if name == "zip":
                 if pos:
-                    self.write_target(pos[0], "zip")
+                    self.export_target(pos[0], "zip")
                 self.recursive_read(pos[1:])
             else:
                 for d in _opt_value(rest, ("-d",)) or ["."]:
@@ -920,6 +990,8 @@ class _Bash:
         if name in PRIV:
             return self.add("unknown", f"{name} is not allowed (privilege, persistence or deferred execution)") or True
         if name in PKG:
+            if _config_write(name, rest):
+                return self.add("external_write", f"{name} config write changes user-level config outside the workspace") or True
             sub = next((a for a in rest if not a.startswith("-")), "")
             if sub in PKG_PUBLISH:
                 return self.add("external_write", f"{name} {sub} publishes") or True
@@ -928,11 +1000,27 @@ class _Bash:
             if sub in RUNNERS or not sub:
                 return self.runner(f"{name} {sub}".strip()) or True
             return self.add("local_reversible", f"{name} {sub}") or True
+        if name in ("make", "gmake"):
+            # `-n` is not safe: make still expands $(shell ...) and runs `+`-prefixed recipe lines
+            if self.any_written_code():  # written code: the more specific self_written_exec
+                return self.runner(name) or True
+            return self.add("unknown", f"{name} runs Makefile recipes and $(shell ...), even with -n") or True
         if name in RUNNER_CMDS:
             return self.runner(name) or True
         return False
 
     # -- per-command handlers --
+    def harness_trusted(self, name, cmd0):
+        """Known CLI name, and it is the plugin's own: ``<plugin_root>/bin/<name>`` (bare) or realpath under it."""
+        root = getattr(self.ctx, "plugin_root", None)
+        if not root or name[len("harness-"):] not in HARNESS_CLIS:
+            return False
+        bindir = os.path.realpath(os.path.join(os.fspath(root), "bin"))
+        if "/" not in cmd0:
+            return os.path.isfile(os.path.join(bindir, name))
+        cands = self.candidates(cmd0)
+        return bool(cands) and all(os.path.dirname(p) == bindir and os.path.isfile(p) for p in cands)
+
     def harness(self, name, rest, dynamic):
         sub = rest[0] if rest else ""
         if name == "harness-sandbox-exec":
@@ -997,7 +1085,7 @@ class _Bash:
                 return self.nested(rest[i + 1] + " " + " ".join(shlex.quote(x) for x in rest[i + 2:]))
             if name == "env" and _ASSIGN.match(a):
                 n = a.split("=", 1)[0]
-                if n in DANGEROUS_ENV or n.startswith(("DYLD_", "LD_")):
+                if n in DANGEROUS_ENV or n.startswith(DANGEROUS_ENV_PREFIXES):
                     return self.add("unknown", f"env assignment to {n} changes what runs")
                 i += 1
                 continue
@@ -1112,6 +1200,8 @@ class _Bash:
         if mod_l == "webbrowser":
             return self.add("local_app_automation", "python -m webbrowser opens a browser")
         if mod_l == "pip":
+            if _config_write("pip", after):
+                return self.add("external_write", "pip config write changes user-level config outside the workspace")
             sub = next((a for a in after if not a.startswith("-")), "")
             if sub in PKG_NET or sub in PKG_PUBLISH:
                 return self.add("egress_offlist", f"pip {sub} uses the network")
@@ -1166,9 +1256,19 @@ class _Bash:
             break
         sub = rest[i] if i < len(rest) else ""
         args = rest[i + 1:]
-        if sub in GIT_READ:
+        if sub == "format-patch":
+            if "--stdout" in args:
+                return self.add("read", "git format-patch --stdout")
+            for d in (_opt_value(args, ("-o", "--output-directory")) or ["."]) + _opt_value(args, ("--output",)):
+                self.write_target(d, "git format-patch")
+            return self.add("local_reversible", "git format-patch writes patch files")
+        if sub in GIT_READ and not (sub == "fsck" and "--lost-found" in args):  # --lost-found writes .git/**
             if sub == "grep" and any(a.startswith(("-O", "--open-files-in-pager")) for a in args):
                 return self.add("unknown", "git grep -O runs a pager command")
+            if sub == "help" and any(a in ("-w", "--web") for a in args):
+                return self.add("unknown", "git help --web starts a browser")
+            for v in _opt_value(args, ("--output",)):
+                self.write_target(v, f"git {sub} --output")
             return self.add("read", f"git {sub}")
         if sub == "push":
             return self.add("destructive", "git push (any) is irreversible")
@@ -1177,11 +1277,14 @@ class _Bash:
         if sub == "send-email":
             return self.add("external_message", "git send-email")
         if sub in ("config",):
-            if any(a in ("--global", "--system", "--file", "-f") or a.startswith("--file=") for a in args):
-                return self.add("unknown", "git config outside the repository")
+            if any(a in ("--file", "-f") or a.startswith("--file=") for a in args):
+                return self.add("unknown", "git config of an arbitrary file")
             reads = {"--get", "--get-all", "--get-regexp", "-l", "--list", "--get-urlmatch", "--show-origin", "--show-scope"}
             pos = [a for a in args if not a.startswith("-")]
-            if any(a in reads for a in args) or (len(pos) == 1 and not any(a.startswith(("--unset", "--add", "--replace", "--edit", "-e", "--rename", "--remove")) for a in args)):
+            is_read = any(a in reads for a in args) or (len(pos) == 1 and not any(a.startswith(("--unset", "--add", "--replace", "--edit", "-e", "--rename", "--remove")) for a in args))
+            if any(a in ("--global", "--system") for a in args) and not is_read:
+                return self.add("external_write", "git config --global/--system writes config outside the workspace")
+            if is_read:
                 return self.add("read", "git config read")
         # maintainer policy: index-only / recoverable ops are local_reversible despite writing .git/**
         worktree = any(a in ("-W", "--worktree") or re.fullmatch(r"-[A-Za-z]*W[A-Za-z]*", a) for a in args)
@@ -1281,10 +1384,8 @@ class _Bash:
                 for p in self.candidates(s) or ():
                     if protected.is_protected(p, self.ctx):
                         return self.add("protected_path", f"{name} of protected path {p}")
-        for p in self.candidates(dest) or ():
-            if protected.outside_workspace(p, self.ctx) and not protected.is_protected(p, self.ctx) and p not in DEV_OK:
-                return self.add("external_write", f"{name} destination outside the workspace (data leaves it): {p}")
-        self.write_target(dest, name)
+        if self.export_target(dest, name):
+            return
         for d in self.candidates(dest) or ():
             if os.path.isdir(d):
                 for s in srcs:
@@ -1361,12 +1462,12 @@ class _Bash:
             a in ("--create", "--append", "--update") for a in rest)
         extracting = ("x" in mode and not mode.startswith("--")) or "--extract" in rest or "--get" in rest
         f = _opt_value(rest, ("-f", "--file"))
-        if not f and not mode.startswith("-") and "f" in mode:
+        if not f and re.fullmatch(r"-?[A-Za-z]*f[A-Za-z]*", mode):  # `cf x`, `-czf x`: f takes the next word
             pos = [a for a in rest[1:] if not a.startswith("-")]
             f = pos[:1]
         if creating:
             for x in f:
-                self.write_target(x, "tar")
+                self.export_target(x, "tar")
             self.recursive_read([a for a in rest[1:] if not a.startswith("-") and a not in f])
         if extracting:
             for d in _opt_value(rest, ("-C", "--directory")) or ["."]:

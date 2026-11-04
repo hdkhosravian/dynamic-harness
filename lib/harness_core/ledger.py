@@ -3,7 +3,10 @@ run/{ledger,verdicts,decisions,contradictions,milestones}.jsonl,
 run/outputs/outputs.jsonl and run/scope.v<n>.jsonl.
 
 Every write appends the file, then an event carrying row_sha and the file's
-new file_sha. Each write first checks the file against its last file_sha.
+new file_sha. Each write first checks the file against its last file_sha, and
+holds the event log's lock from that check to the event. A crash between the
+row file and its event fails closed (TamperError on the next check); operator
+repair is the recovery path.
 
 Scope versions (R-3) live here: freeze_scope() writes v1; descope() writes
 v(n+1) and needs a cited turn after the latest freeze that names every unit it
@@ -32,10 +35,11 @@ OUTPUTS = "outputs/outputs.jsonl"
 
 def _append_row(paths, log, name: str, row: dict, type: str, payload: dict) -> dict:
     path = paths.run / name
-    log.check_file(path, name)
-    append_bytes(path, canon.canonical_json(row) + b"\n")
-    file_sha = canon.sha256_bytes(safe_open(path, [paths.run]))
-    return log.append(type, payload, row_sha=canon.sha256_json(row), file=name, file_sha=file_sha)
+    with log.lock():
+        log.check_file(path, name)
+        append_bytes(path, canon.canonical_json(row) + b"\n")
+        file_sha = canon.sha256_bytes(safe_open(path, [paths.run]))
+        return log.append(type, payload, row_sha=canon.sha256_json(row), file=name, file_sha=file_sha)
 
 
 class Outputs:
@@ -79,9 +83,10 @@ class Ledger:
         return payload
 
     def freeze_scope(self, rows: list, turns=None) -> dict:
-        if self._scope_events():
-            raise HarnessError("scope already frozen; change it only through descope")
-        return self._write_scope(list(rows), turns)
+        with self.log.lock():
+            if self._scope_events():
+                raise HarnessError("scope already frozen; change it only through descope")
+            return self._write_scope(list(rows), turns)
 
     def _read_scope(self, event) -> list:
         name = event["file"]
@@ -96,6 +101,10 @@ class Ledger:
         return self._read_scope(evs[-1]) if evs else []
 
     def descope(self, unit_ids, turn_id: str, turns) -> dict:
+        with self.log.lock():
+            return self._descope(unit_ids, turn_id, turns)
+
+    def _descope(self, unit_ids, turn_id: str, turns) -> dict:
         evs = self._scope_events()
         if not evs:
             raise HarnessError("no frozen scope")
@@ -161,6 +170,10 @@ class Ledger:
             return False
 
     def append_row(self, kind: str, row: dict) -> dict:
+        with self.log.lock():  # the rule reads earlier rows; nothing may land in between
+            return self._append(kind, row)
+
+    def _append(self, kind: str, row: dict) -> dict:
         if kind not in FILES:
             raise HarnessError(f"unknown row kind {kind!r}")
         row = dict(row)
@@ -187,10 +200,13 @@ class Ledger:
         v = row["verdict"]
         if v == "PASS_FLAGGED":
             raise Denied("PASS_FLAGGED is written only by the 2nd-FAIL rule")
-        if v == "BLOCKED" and not row.get("reason"):
-            raise Denied("BLOCKED needs a reason")
+        if v in ("BLOCKED", "NOT_INVESTIGATED") and not row.get("reason"):
+            raise Denied(f"{v} needs a reason")
         if v == "PASS":
             for o in self._cited(row):
+                if o["attempt"] != row["attempt"]:
+                    raise Denied(f"{row['id']}: cited output {o['sha256'][:12]} is from attempt {o['attempt']}, "
+                                 f"not attempt {row['attempt']}")
                 if o["exit_code"] != 0 or o["result"] != "pass" or o["check_id"] != unit.get("check_id"):
                     raise Denied(f"{row['id']}: cited output {o['sha256'][:12]} is not a clean pass "
                                  f"of registered check {unit.get('check_id')!r}")

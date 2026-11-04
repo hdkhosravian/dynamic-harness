@@ -27,7 +27,8 @@ def runner(argv, cwd, stdin, **kw):
     with open(a["--out"], "w") as f:
         f.write("# REPORT\n")
     with open(a["--receipt"], "w") as f:
-        json.dump({"caps": []}, f)
+        json.dump({"caps": [], "mode": a["--mode"], "scope_sha": a["--expect-scope-sha"],
+                   "events_head": a["--events-head"]}, f)
     return 0, "", ""
 
 
@@ -161,12 +162,19 @@ def test_r3_every_scoped_unit_is_a_row_or_remaining(h):
 
 @pytest.mark.parametrize("target", ["ledger.jsonl", "outputs/outputs.jsonl", "events.jsonl", "scope.v1.jsonl"])
 def test_r6_out_of_band_write_fails_gate(h, target):
+    """gate -> out-of-band write -> gate again: the earlier receipt is revoked and no new one is written."""
     _pass_all(h)
+    assert _gate(h)["ok"] and (h["p"].run / "receipt.json").exists()
     p = h["p"].run / target
     p.write_bytes(p.read_bytes() + b'{"id":"u9"}\n')
     with pytest.raises(TamperError):
         _gate(h)
     assert not (h["p"].run / "receipt.json").exists()
+    assert _verify(h)["ok"] is False
+    if target != "events.jsonl":  # a broken chain cannot take a new event; the deletion alone revokes
+        types = [e["type"] for e in h["log"].events()]
+        assert types[types.index("RECEIPT"):].count("RECEIPT_REVOKED") == 1
+        assert "RECEIPT" not in types[types.index("RECEIPT_REVOKED"):]
 
 
 def test_r6_planted_protected_file_fails_gate(h):

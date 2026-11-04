@@ -9,9 +9,10 @@ from .errors import TamperError
 
 
 def _under(path: Path, roots) -> bool:
+    # literal root, never resolved: resolving would follow an attacker symlink at the root (`ln -s keys work`)
     for r in roots:
         try:
-            path.relative_to(Path(r).resolve())
+            path.relative_to(Path(os.path.abspath(r)))
             return True
         except ValueError:
             continue
@@ -66,6 +67,8 @@ def atomic_write(path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):

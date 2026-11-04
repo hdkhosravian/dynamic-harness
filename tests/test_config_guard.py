@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -10,7 +11,7 @@ from harness_core.safety import Ctx
 
 @pytest.fixture
 def ctx(tmp_path):
-    return Ctx(workspace=tmp_path, job="j1")
+    return Ctx(workspace=tmp_path, job="j1", settings_baseline={})
 
 
 def change(tmp_path, settings, source="user_settings"):
@@ -81,10 +82,47 @@ def test_loosening_outside_task_allowed(ctx, tmp_path):
     assert config_guard.on_change(evt, ctx) == {}
 
 
-def test_previous_settings_in_event(ctx, tmp_path):
-    evt = change(tmp_path, {"permissions": {"allow": ["Bash(*)"]}})
-    evt["previous_settings"] = {"permissions": {"allow": []}}
+def test_no_baseline_blocks(ctx, tmp_path):
+    ctx.settings_baseline, ctx.job = None, None  # SessionStart never ran for this session
+    out = config_guard.on_change(change(tmp_path, {"theme": "dark"}), ctx)
+    assert blocked(out) and "baseline" in out["reason"]
+
+
+def test_baseline_keyed_by_realpath(ctx, tmp_path):
+    evt = change(tmp_path, {"permissions": {"deny": []}})
+    ctx.settings_baseline = {os.path.realpath(evt["file_path"]): {"permissions": {"deny": ["Read(a)"]}}}
     assert blocked(config_guard.on_change(evt, ctx))
+
+
+HARNESS = {"enabledPlugins": {"harness@local": True}}
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ({"permissions": {"deny": ["Read(keys/**)"]}}, {"permissions": {"deny": []}}),
+        ({"sandbox": {"enabled": True}}, {"sandbox": {}}),
+        ({"sandbox": {"filesystem": {"denyWrite": ["/d"]}}}, {"sandbox": {"filesystem": {"denyWrite": []}}}),
+        ({"sandbox": {"filesystem": {"denyRead": ["/k"]}}}, {"sandbox": {}}),
+        ({"sandbox": {"network": {"allowedDomains": []}}}, {"sandbox": {"network": {"allowedDomains": ["evil.com"]}}}),
+        ({"sandbox": {"network": {"strictAllowlist": True}}}, {"sandbox": {"network": {"strictAllowlist": False}}}),
+        ({"sandbox": {"failIfUnavailable": True}}, {"sandbox": {}}),
+        ({}, {"sandbox": {"allowUnsandboxedCommands": True}}),
+        (HARNESS, {"enabledPlugins": {}}),
+    ],
+)
+def test_backstop_loosening_blocked_outside_a_task(ctx, tmp_path, old, new):
+    ctx.job = None
+    evt = change(tmp_path, new)
+    ctx.settings_baseline = {evt["file_path"]: old}
+    assert blocked(config_guard.on_change(evt, ctx))
+
+
+def test_harness_plugin_kept_enabled_is_fine(ctx, tmp_path):
+    ctx.job = None
+    evt = change(tmp_path, {**HARNESS, "theme": "dark"})
+    ctx.settings_baseline = {evt["file_path"]: HARNESS}
+    assert config_guard.on_change(evt, ctx) == {}
 
 
 def test_unreadable_settings_blocked(ctx, tmp_path):

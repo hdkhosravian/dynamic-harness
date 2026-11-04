@@ -1,5 +1,5 @@
 {
-  "description": "Dynamic harness safety hooks. python3 -I (no user site-packages); hookmain watchdog = timeout - 1 s; any handler failure exits 2; onFailure=block makes crashes/timeouts block (needs Claude Code >= 2.1.295, OQ-4 spike S1).",
+  "description": "Dynamic harness safety hooks. /usr/bin/python3 -I (absolute: no PATH lookup, no user site-packages); hookmain watchdog = timeout - 1 s (gate/fetch: - 5 s); any handler failure exits 2; onFailure=block makes crashes/timeouts block (needs Claude Code >= 2.1.295, OQ-4 spike S1). PostToolUse records files written this session (sessions/<sid>/written.json).",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PreToolUse",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PreToolUse",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PostToolUse",
             "timeout": 5,
             "onFailure": "block"
           }
@@ -19,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" SessionStart",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" SessionStart",
             "timeout": 5,
             "onFailure": "block"
           }
@@ -31,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" ConfigChange",
+            "command": "/usr/bin/python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" ConfigChange",
             "timeout": 5,
             "onFailure": "block"
           }

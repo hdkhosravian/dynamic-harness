@@ -361,7 +361,7 @@ human-owned table `control/classes.yaml`:
 | payee_change | new or changed supplier bank details (Sheba/IBAN) | R3 (classic fraud vector) | V3 plus verification through a second channel, not the one that supplied the details |
 | price_publish | price change in a live shop | R1: revertible, but customers saw it and may have ordered | irreversible; before-values stored so a "revert batch" exists |
 | accounting_entry | journal entry, invoice void | R2: correct only by compensation (reversing entry or credit note) | delete and void denied; reversing entries only |
-| destructive | delete files outside run state, `rm -rf`, drop table, delete a cloud resource, `git push` (any), `git push --force` | R3 | irreversible |
+| destructive | delete files outside run state, job scratch or temp, `rm -rf`, drop table, delete a cloud resource, `git push` (any), `git push --force` | R3 | irreversible |
 | local_app_automation | `osascript`, AppleScript/JXA, UI scripting that drives Mail, Messages or a browser | R3 | irreversible |
 | external_write | CRM / ERP writes, Sheets shared with others, deploy | R1 | irreversible (dependent writes use lane A) |
 | automation_create | creating a scheduled job, routine, webhook or standing rule | persistent effect | V3; only through §Automations |
@@ -549,8 +549,11 @@ invoke them. Their writes also go through the nonce-checked writers. PreToolUse 
 - compares the control, business, gate, plugin-tree and loop-contract-tree
   hashes against the last entries in `config_log.jsonl`, which hold the
   release hashes. It never re-baselines on its own.
-- runs a canary PreToolUse round-trip. If the canary fails, it refuses any
-  task above T0.
+- runs a canary PreToolUse round-trip and writes
+  `sessions/<sid>/status.json` `{ok, reasons, canary, ts}`. PreToolUse
+  denies every non-read call unless a fresh `ok` status exists for this
+  session. Compile and gate refuse to run unless it exists, so a session
+  where the hooks never loaded cannot reach a receipt.
 
 A card that exists with no `tier.json` is `STOPPED_TAMPER`, never T0.
 
@@ -561,8 +564,8 @@ restored bytes, never what is currently on disk, then resumes the task.
 
 **Hook failure is a deny.** `bin/harness-hook` wraps every handler in
 `try/except BaseException`, with one watchdog for the whole process. Each
-matcher's watchdog is its timeout minus 5 s: the gate gets 1795 s, fetch
-55 s, Stop 9 s, and every other hook 4 s. The gate and fetch hooks are
+matcher's watchdog is its timeout minus 5 s for the gate and fetch hooks
+(1795 s, 55 s) and minus 1 s otherwise (Stop 9 s, every other hook 4 s). The gate and fetch hooks are
 exempt from the 4 s limit. Any
 exception or overrun exits with code 2: a deny for PreToolUse, a block for
 Stop. Claude Code treats any other non-zero exit as allow, which is why the
@@ -693,7 +696,10 @@ takes exactly three words and renames only the verdict at report level.
 - `gate/profile.json`: the profile exported from `gate.yaml` as JSON, since
   the gate uses only the standard library.
 
-fold_ledger reads only the `gate/` files, including for `--remaining`.
+For rows and scope, fold_ledger reads only the `gate/` files, including for
+`--remaining`. It also reads the inputs its check flags name: `claims.jsonl`,
+`outputs.jsonl` and `outputs/submitted/`. The gate hook gives it read-only
+copies.
 
 | Harness state | Gate row (`verdict`, extra fields) | User-facing state |
 | --- | --- | --- |
@@ -862,7 +868,10 @@ invalidates the receipt.
   `run/receipt.json` and appends `RECEIPT_REVOKED`. A receipt from an earlier
   passing run therefore never survives a later failed run.
 - **Running subagents.** If any background subagent is still running (Stop's
-  `background_tasks`), the task is not done, and Stop blocks under rule 1.
+  `background_tasks`), the task is not done. Stop allows the turn to end as a
+  non-terminal wait (no completion record). These turns do not count toward
+  the 3-block stall rule. The `<task-notification>` system turn resumes the
+  task.
 - **Resumable stops.** `STOPPED_BUDGET`, `STOPPED_COST`, `STOPPED_STALL` and
   `PAUSED` can be resumed. The job stays in `jobs/index.json` and keeps its
   `job_id` and grants. Its decision record is marked `interim`. A `RESUMED`
@@ -1928,7 +1937,7 @@ mode it logs what it would have done without blocking anything.
 | PreToolUse safety | `safety.py: on_pre(evt)`. Uses `classes.classify(tool, input) -> Class`, `egress.check(url, query, job)` and `query_guard.check(query, protected_terms)` |
 | PreToolUse lanes | `lanes.py: on_pre(evt)` |
 | PreToolUse contacts | `contacts.py: on_pre(evt)`, `contacts.count(evt)` |
-| PostToolUse writers | `writers.py: on_post(evt)`. It dispatches per §Trust boundaries (see the Trusted writers row) |
+| PostToolUse writers | [P3/P4] a dispatcher `writers.py: on_post(evt)` routes to the trusted writers. In P1–P2, `Ledger`, `Outputs` and `Turns` are called directly, and nonce and turn citation live in `turns.py` |
 | PostToolUse budget / stall | `budget.py: charge(evt)`, `budget.check() -> StopKind\|None`, `stall.check(ledger) -> bool`. Prices come from `control/prices.yaml` (with a "rate as of" date) |
 | PostToolUse tripwire | `tripwire.py: on_post(evt)` |
 | SessionStart | `session.py: on_start(evt)`. Covers the config log, the canary, the skills hash check against `control/approved_procedures.yaml` (R-5 in v1: a mismatch gives STOPPED_TAMPER), the loop-contract version, and jobs index listing |
@@ -1942,7 +1951,7 @@ mode it logs what it would have done without blocking anything.
 | Second draft (shadow) | `shadow.py: log_second_draft(card1, card2)` |
 | Gate adapter | `fold.py: project(events, ledger, verdicts) -> gate_rows`; `gate.run(job) -> receipt\|error` |
 | Canonical hashing | `canon.py: sha256_json(obj)`, `scope_bytes(rows)`, `tree_sha(job)`, `hmac_receipt(...)` |
-| Trusted writers | `writers.py` dispatches to: `ledger.append(req)`, `compile.apply(req)`, `business.apply(req, nonce)`, `memory.apply(evt)`, `claims.apply_fetch(url)` (the hook fetches), `run.apply(check_id, inputs)`, `model.apply(req)`, `contact.apply(req)`, `answer.apply(req)`, `budget.apply(evt)`, `admin.apply(cmd, nonce)`, `gate.run(job)`. Claims rows come from `subagent.on_subagent_stop` |
+| Trusted writers | [P3/P4] the `writers.py` dispatcher routes to: `ledger.append(req)`, `compile.apply(req)`, `business.apply(req, nonce)`, `memory.apply(evt)`, `claims.apply_fetch(url)` (the hook fetches), `run.apply(check_id, inputs)`, `model.apply(req)`, `contact.apply(req)`, `answer.apply(req)`, `budget.apply(evt)`, `admin.apply(cmd, nonce)`, `gate.run(job)`. Claims rows come from `subagent.on_subagent_stop` |
 | Turns | `turns.py: append(evt)`, `cite(turn_id, contact_id) -> bool` |
 | Decision record | `record.write(job, interim: bool)` |
 | CLI back-ends | `answer.py`, `model.py` (assume, check, scenario, import, trace, backtest, register), `doc.py`, `decide.py`, `normalize.py`, `estimate.py`, `critic.py` (render, verify), `contact.py`, `research.py` (render), `sandbox_exec.py`, `card.py` (validate, merge), `claims.py` (fetch, confidence, cite), `admin.py` (setup, config, off, memory, status, export), `export.py` (CSV), `lint_text.py` |
@@ -2041,7 +2050,7 @@ mode it logs what it would have done without blocking anything.
 
 | Command | Arguments | Writes | Confirmation |
 | --- | --- | --- | --- |
-| `/harness:setup` | — | `~/.claude/settings.json`: `permissions.deny`; `sandbox.enabled`, `sandbox.allowUnsandboxedCommands: false`, `sandbox.excludedCommands: []`, `sandbox.network.allowedDomains: []`; `denyWrite` for protected paths; `denyRead` for `keys/` and `experience/`; `disableBypassPermissionsMode`; `cleanupPeriodDays`. Where managed settings are used, it installs the harness hooks there before setting `allowManagedHooksOnly`. It checks `openpyxl` and `formulas` | A plain summary of each change |
+| `/harness:setup` | — | `~/.claude/settings.json`: `permissions.deny`; `sandbox.enabled`, `sandbox.allowUnsandboxedCommands: false`, `sandbox.excludedCommands: []`, `sandbox.network.allowedDomains: []`, `sandbox.network.strictAllowlist: true`, `sandbox.failIfUnavailable: true`; `sandbox.filesystem.denyWrite` for protected paths; `sandbox.filesystem.denyRead` for `keys/` and `experience/` (plus `permissions.deny` Read/Grep/Glob rules for both); `disableBypassPermissionsMode`; `cleanupPeriodDays`. Records `loop_contract_root` and the release hashes in `config_log.jsonl`. Where managed settings are used, it installs the harness hooks there before setting `allowManagedHooksOnly`. It checks `openpyxl` and `formulas` | A plain summary of each change |
 | `/harness:business` | `set <object> <field>` / `show` | Through `harness-business set` | A rendered sentence |
 | `/harness:config` | `<file> <key> <value>` | Control layer and config log | Operator only |
 | `/harness:memory` | `show` / `edit` / `forget` | Through the memory writer | Per item |
@@ -2119,6 +2128,12 @@ profiles:
 
 ### Build decisions (P1–P2, as built in `dynamic-harness` @ `feat/p1-p2`)
 
+- **Control files are JSON.** Wherever this spec says `*.yaml` for control or run files (`classes.yaml`, `gate.yaml`, `protected_paths.yaml`, `state_lexicon.yaml`, `enforcement.yaml`, `assumptions.yaml`, …), the stdlib-only build uses the same name with `.json`.
+- **Signatures.** Where the plan lists older signatures (`run_gate(paths, log, key, profile, fold_ledger_path)`, `project(paths, ledger, scope)`), the built ones below are authoritative.
+- **The gate receipt and the harness receipt.** fold_ledger's receipt carries `{mode, events_head, scope_sha, report_sha, verdict, units, caps, traced_values, ts}`. The harness computes `tree_sha`, `gate_sha`, `control_hash`, `business_hash` and `core_hash` itself, and signs them all. Further facts:
+  - `--require-logs` checks that the two log files exist; the harness `EventLog` covers the chain.
+  - Further 1.1.0 flags: `--events-head`, `--profile`, `--outputs`, `--assumptions`.
+  - Chain verification runs in-process (`EventLog.verify`); `fold_ledger --verify-chain` is the independent second implementation, checked against it in `test_integration_gate.py`.
 - **Python ≥ 3.9 and stdlib only.** JSON Schema validation uses the subset validator `harness_core.schema`.
 - **No `writers.py`.** `Ledger` (`ledger.py`) is the only writer for rows. Scope versions live in `ledger.py` (`freeze_scope`, `descope`, `sanctioned_scope`) and are stored as `run/scope.v<n>.jsonl`.
 - **Output blobs.** These are stored at `run/outputs/blobs/<sha>`. Rows cite outputs by their sha256.
@@ -2141,7 +2156,7 @@ profiles:
 *   **Build:** `claude plugin validate harness/.claude-plugin/plugin.json`.
 *   **Unit tests:** `pytest harness/tests -q` and `pytest loop-contract-skill/tests -q`.
 *   **Static analysis:** `ruff check harness`, plus `shellcheck` on any shell shims.
-*   **Coverage:** ≥ 90% branch coverage on `safety.py`, `stopgate.py`, `tier_select.py`, `writers.py` and `fold.py`.
+*   **Coverage:** ≥ 90% branch coverage on `safety.py`, `stopgate.py`, `tier_select.py`, `ledger.py`, `gate.py` and `fold.py` (plus `writers.py` once it exists in P3/P4).
 *   **E2E:** `pytest harness/tests/e2e -m e2e`. Needs `claude` on PATH.
 *   **Dependencies (pinned, vendored):** `openpyxl` and `formulas`, used for spreadsheet writing and the independent recompute. JSON Schema validation uses the stdlib subset validator `harness_core.schema`. Everything else is stdlib.
 

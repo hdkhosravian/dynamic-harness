@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -31,11 +32,12 @@ def pre(ctx, tool, **inp):
 
 def test_r1_hooks_json_registers_only_safety_entry_points():
     hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text())["hooks"]
-    assert set(hooks) == {"PreToolUse", "SessionStart", "ConfigChange"}
+    # PostToolUse only records writes (written.py); it never blocks or alters a T0 call
+    assert set(hooks) == {"PreToolUse", "PostToolUse", "SessionStart", "ConfigChange"}
     for event, entries in hooks.items():
         for e in entries:
             for h in e["hooks"]:
-                assert h["command"].startswith("python3 -I ") and h["command"].endswith(f"harness-hook\" {event}")
+                assert h["command"].startswith("/usr/bin/python3 -I ") and h["command"].endswith(f"harness-hook\" {event}")
 
 
 @pytest.mark.parametrize(
@@ -107,7 +109,7 @@ def test_r4_v1_action(ctx):
     assert pre(ctx, "WebFetch", url=url)["decision"] == "deny"  # main agent
     ctx.agent_type = RESEARCHER
     assert pre(ctx, "WebFetch", url=url)["decision"] == "deny"  # no grant
-    ctx.grant = {"domains": ["news.example.ir"]}
+    ctx.grant = {"domains": ["news.example.ir"], "active": True, "expires_at": time.time() + 3600}
     assert pre(ctx, "WebFetch", url=url) == {}  # granted GET
     assert pre(ctx, "WebSearch", query="retail market trends") == {}
     assert pre(ctx, "WebFetch", url="https://other.example/a")["decision"] == "deny"  # off-grant
@@ -143,7 +145,11 @@ def test_r6_tool_writes_to_control_prevented(ctx, tool, inp):
     assert pre(ctx, tool, **inp)["decision"] == "deny"
 
 
-def test_r6_out_of_band_write_detected(ctx):
+def test_r6_out_of_band_write_detected(ctx, tmp_path):
+    lc = tmp_path / "loop-contract"
+    (lc / ".claude-plugin").mkdir(parents=True)
+    (lc / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "loop-contract", "version": "1.1.0"}))
+    ctx.loop_contract_root = lc
     (ctx.data_root / "control" / "classes.json").write_text(
         (ROOT / "control" / "defaults" / "classes.json").read_text())
     with open(ctx.data_root / "config_log.jsonl", "w") as fh:

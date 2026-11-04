@@ -7,13 +7,18 @@ against the red-team corpus. Placeholders in the corpus map to throwaway tmp dir
   /WS -> workspace, /DATA -> plugin data_root, /ROOT -> plugin_root, /HOME -> home.
 """
 from __future__ import annotations
-import json, os, sys, tempfile, subprocess, dataclasses
+import json, os, sys, tempfile, subprocess, dataclasses, shutil, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT / "lib"))
 from harness_core.safety import on_pre, Ctx  # import ONLY the entry point + its Ctx
+
+# agent-callable CLIs from the spec's bin list (hand-copied: this harness must not import classifier internals)
+HARNESS_CLIS = ("probe", "card", "compile", "ledger", "gate", "contact", "business", "normalize", "answer",
+                "claims", "model", "doc", "decide", "critic", "sandbox-exec", "estimate", "run", "research",
+                "admin", "lint-user-text")
 
 def build_tree():
     base = Path(tempfile.mkdtemp(prefix="redteam_"))
@@ -46,6 +51,9 @@ def build_tree():
     (data / "experience" / "lessons.jsonl").write_text("{}\n")
     (data / "runs" / "J1" / "events.jsonl").write_text("{}\n")
     (home / ".claude").mkdir(parents=True, exist_ok=True)
+    (root / "bin").mkdir(parents=True, exist_ok=True)  # bare harness-<name> is trusted only if the plugin ships it
+    for n in HARNESS_CLIS:
+        (root / "bin" / ("harness-" + n)).write_text("#!/bin/sh\n")
     return base, ws, data, root, home
 
 def expand(obj, m):
@@ -61,7 +69,8 @@ def expand(obj, m):
 
 CTX_FIELDS = {f.name for f in dataclasses.fields(Ctx)}
 
-def main():
+def measure():
+    """Run the corpus; returns counts and the missed / falsely denied rows."""
     corpus = HERE / "corpus" / "redteam.jsonl"
     rows = [json.loads(l) for l in corpus.read_text().splitlines() if l.strip()]
     base, ws, data, root, home = build_tree()
@@ -89,6 +98,9 @@ def main():
                 continue
             if k == "written_this_task":
                 v = set(expand(v, m))
+            elif k == "grant" and isinstance(v, dict):
+                # rows predate the grant schema: a listed grant is an active, unexpired one
+                v = {"active": True, "expires_at": time.time() + 3600, **expand(v, m)}
             else:
                 v = expand(v, m)
             kw[k] = v
@@ -110,6 +122,15 @@ def main():
             if decision == "deny":
                 false_denies.append(r)
 
+    shutil.rmtree(base, ignore_errors=True)
+    return {"rows": rows, "deny_total": deny_total, "deny_hit": deny_hit,
+            "false_denies": false_denies, "misses": misses, "errors": errors}
+
+
+def main():
+    res = measure()
+    rows, deny_total, deny_hit = res["rows"], res["deny_total"], res["deny_hit"]
+    false_denies, misses, errors = res["false_denies"], res["misses"], res["errors"]
     print("=" * 60)
     print("rows:            %d  (deny %d / allow %d)" % (
         len(rows), deny_total, len(rows) - deny_total))

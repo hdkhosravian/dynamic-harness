@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import time
+from pathlib import Path
+
 import pytest
 
 from harness_core import safety
@@ -17,8 +21,9 @@ class Log:
 @pytest.fixture
 def ctx(tmp_path):
     ws, data, root, home = (tmp_path / n for n in ("ws", "data", "plugin", "home"))
-    for d in (ws, data, root, home):
-        d.mkdir()
+    for d in (ws, data, root / "bin", home):
+        d.mkdir(parents=True)
+    (root / "bin" / "harness-claims").write_text("#!/usr/bin/python3 -I\n")  # harness CLIs are trusted only when shipped
     return Ctx(
         workspace=ws, data_root=data, plugin_root=root, home=home, job="j1",
         temp_roots=[tmp_path / "tmp"], allowlist=[],
@@ -32,7 +37,7 @@ def pre(ctx, tool, **inp):
 
 def researcher(ctx, **grant):
     ctx.agent_type = RESEARCHER
-    ctx.grant = {"domains": ["news.example.ir"], **grant}
+    ctx.grant = {"domains": ["news.example.ir"], "active": True, "expires_at": time.time() + 3600, **grant}
     return ctx
 
 
@@ -129,3 +134,80 @@ def test_failing_log_still_denies(ctx):
 
     ctx.log = Bad()
     assert pre(ctx, "Bash", command="git push")["decision"] == "deny"
+
+
+def test_failing_log_is_reported_on_stderr(ctx, capsys):
+    class Bad:
+        def append(self, *a):
+            raise OSError("disk full")
+
+    ctx.log = Bad()
+    pre(ctx, "Bash", command="git push")
+    assert "disk full" in capsys.readouterr().err
+
+
+# ---- v1_action decides (finding 8) ----------------------------------------
+
+DEFAULT_TABLE = Path(__file__).resolve().parents[1] / "control" / "defaults" / "classes.json"
+
+
+def live_table(ctx, edit):
+    t = json.loads(DEFAULT_TABLE.read_text())
+    edit(t["classes"])
+    (ctx.data_root / "control").mkdir(exist_ok=True)
+    (ctx.data_root / "control" / "classes.json").write_text(json.dumps(t))
+
+
+def test_v1_action_deny_on_reversible_class_denies(ctx):
+    live_table(ctx, lambda c: c["read"].update(v1_action="deny"))
+    assert pre(ctx, "Read", file_path=str(ctx.workspace / "a.txt"))["decision"] == "deny"
+
+
+def test_missing_v1_action_denies(ctx):
+    live_table(ctx, lambda c: c["local_reversible"].pop("v1_action"))
+    assert pre(ctx, "Bash", command="touch a")["decision"] == "deny"
+
+
+def test_v1_action_allow_does_not_override_irreversible(ctx):
+    live_table(ctx, lambda c: c["destructive"].update(v1_action="allow"))
+    assert pre(ctx, "Bash", command="git push")["decision"] == "deny"
+
+
+# ---- grants need active: true and an unexpired expires_at ------------------
+
+@pytest.mark.parametrize("grant", [
+    {"active": None},
+    {"active": "yes"},
+    {"expires_at": None},
+    {"expires_at": time.time() - 1},
+    {"expires_at": "garbage"},
+    {"expires_at": "2000-01-01T00:00:00Z"},
+    {"expires_at": "2999-01-01T00:00:00"},  # naive timestamp: zone unknown, not honoured
+])
+def test_grant_without_active_or_expiry_is_ignored(ctx, grant):
+    researcher(ctx)
+    ctx.grant = {k: v for k, v in {**ctx.grant, **grant}.items() if v is not None}
+    assert pre(ctx, "WebFetch", url="https://news.example.ir/a")["decision"] == "deny"
+
+
+def test_grant_iso_expiry_in_future_is_honoured(ctx):
+    researcher(ctx, expires_at="2999-01-01T00:00:00Z")
+    assert pre(ctx, "WebFetch", url="https://news.example.ir/a") == {}
+
+
+# ---- session status gate (finding 2) ------------------------------------------
+
+def test_failed_session_allows_only_reads(ctx):
+    ctx.session_ok, ctx.session_reason = False, "Claude Code too old"
+    assert pre(ctx, "Read", file_path=str(ctx.workspace / "a.txt")) == {}
+    assert pre(ctx, "Bash", command="ls") == {}
+    for tool, inp in (("Bash", {"command": "touch a"}), ("Write", {"file_path": str(ctx.workspace / "a"), "content": ""}),
+                      ("mcp__gmail__create_draft", {"to": "a@b.c"})):
+        out = safety.on_pre({"tool_name": tool, "tool_input": inp}, ctx)
+        assert out["decision"] == "deny" and "Claude Code too old" in out["reason"]
+
+
+def test_session_deny_is_logged(ctx):
+    ctx.log, ctx.session_ok = Log(), False
+    pre(ctx, "Bash", command="touch a")
+    assert ctx.log.rows[0][0] == "SAFETY_DENY" and ctx.log.rows[0][1]["cls"] == "session"

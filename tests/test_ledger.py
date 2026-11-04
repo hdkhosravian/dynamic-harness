@@ -243,3 +243,59 @@ def test_edited_scope_file_is_detected(h):
     p.write_bytes(canon.scope_bytes(SCOPE[:1]))
     with pytest.raises(TamperError):
         h["led"].scope()
+
+
+# --- review fixes: attempt binding (7), NOT_INVESTIGATED reason (E), locking + crash window (3, 4) ---
+
+def test_pass_cannot_reuse_an_earlier_attempts_output(h):
+    old = _ok(h, attempt=1, data=b"attempt1")
+    with pytest.raises(Denied):
+        h["led"].append_row("unit", {"id": "u1", "attempt": 2, "verdict": "PASS", "outputs": [old["sha256"]]})
+    new = _ok(h, attempt=2, data=b"attempt2")
+    h["led"].append_row("unit", {"id": "u1", "attempt": 2, "verdict": "PASS", "outputs": [new["sha256"]]})
+    assert h["led"].state("u1") == "PASS"
+
+
+@pytest.mark.parametrize("extra", [{}, {"reason": ""}])
+def test_not_investigated_needs_a_reason(h, extra):
+    with pytest.raises(Denied):
+        h["led"].append_row("verdict", dict({"id": "h1", "attempt": 1, "verdict": "NOT_INVESTIGATED"}, **extra))
+    h["led"].append_row("verdict", {"id": "h1", "attempt": 1, "verdict": "NOT_INVESTIGATED", "reason": "out of budget"})
+
+
+def test_crash_between_row_file_and_event_fails_closed(h):
+    """Crash window: the row reached the file but its event did not. Fail closed; operator repair recovers."""
+    h["led"].append_row("decision", {"id": "d1", "text": "a"})
+    with open(h["p"].run / "decisions.jsonl", "ab") as f:
+        f.write(canon.canonical_json({"id": "d2", "text": "b"}) + b"\n")
+    with pytest.raises(TamperError):
+        h["led"].append_row("decision", {"id": "d3", "text": "c"})
+
+
+_ROWS = r"""
+import sys
+sys.path.insert(0, sys.argv[1])
+from harness_core.events import EventLog
+from harness_core.ledger import Ledger
+from harness_core.paths import job_paths
+p = job_paths(sys.argv[2], sys.argv[3], "j1")
+led = Ledger(p, EventLog(p.run, p.heads))
+for i in range(30):
+    led.append_row("decision", {"id": sys.argv[4] + str(i), "text": "x"})
+"""
+
+
+def test_concurrent_row_appends_keep_file_and_chain_in_step(h, env):
+    import subprocess
+    import sys
+    from pathlib import Path
+    from harness_core import fold
+    lib = str(Path(__file__).resolve().parents[1] / "lib")
+    procs = [subprocess.Popen([sys.executable, "-c", _ROWS, lib, str(env["data"]), str(env["ws"]), w],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE) for w in ("a", "b")]
+    for p in procs:
+        _, err = p.communicate(timeout=120)
+        assert p.returncode == 0, err.decode()
+    fold.check_protected(h["p"], h["log"])
+    assert len([r for k, r in h["led"].rows() if k == "decision"]) == 60
+    assert len(_jsonl(h["p"].run / "decisions.jsonl")) == 60

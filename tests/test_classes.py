@@ -24,6 +24,9 @@ SPEC_CLASSES = {
 }
 
 
+STUB_CLIS = ("sandbox-exec", "business", "claims", "gate", "ledger", "contact", "hook")
+
+
 @pytest.fixture
 def ctx(tmp_path):
     ws, data, root, home = (tmp_path / n for n in ("ws", "data", "plugin", "home"))
@@ -31,6 +34,9 @@ def ctx(tmp_path):
         d.mkdir()
     (ws / "src").mkdir()
     (ws / "src" / "app.py").write_text("print(1)\n")
+    (root / "bin").mkdir()
+    for n in STUB_CLIS:  # trusted harness CLIs exist under <plugin_root>/bin
+        (root / "bin" / f"harness-{n}").write_text("#!/bin/sh\n")
     return Ctx(
         workspace=ws,
         data_root=data,
@@ -131,7 +137,7 @@ def test_mcp_read_of_keys_denied(ctx):
 def test_webfetch(ctx):
     assert C(ctx, "WebFetch", url="https://docs.python.org/3/", prompt="x").cls == "read"
     assert C(ctx, "WebFetch", url="https://evil.com/", prompt="x").cls == "egress_offlist"
-    assert C(ctx, "WebFetch", url="https://docs.python.org/?q=secret", prompt="x").cls == "egress_with_data"
+    assert C(ctx, "WebFetch", url="https://docs.python.org/?q=4111222233334444", prompt="x").cls == "egress_with_data"
     assert C(ctx, "WebFetch", url="file:///etc/passwd").cls == "egress_offlist"
     c = C(ctx, "WebFetch", url="https://news.example.ir/a")
     assert c.url == "https://news.example.ir/a"
@@ -297,7 +303,7 @@ def test_test_runner_after_writing_code(ctx):
     assert not B(ctx, "python3 -m pytest -q").irreversible
     ctx.written_this_task = {str(ctx.workspace / "src" / "helper.py")}
     assert B(ctx, "python3 -m pytest -q").cls == "self_written_exec"
-    assert B(ctx, "make test").cls == "self_written_exec"
+    assert B(ctx, "make test").cls == "self_written_exec"  # without written code it is unknown (rule 3)
     assert not B(ctx, "harness-sandbox-exec -- python3 -m pytest -q").irreversible
 
 
@@ -442,3 +448,162 @@ def test_sandbox_exec_relative_cwd_resolved_against_effective_cwd(ctx):
 def test_sandbox_exec_default_cwd_in_workspace_is_allowed(ctx):
     r = _cls("harness-sandbox-exec -- python3 -c 'print(1)'", ctx)
     assert not r.irreversible, r
+
+
+# ---- maintainer rule changes (P2 hardening round 3) -------------------------
+
+# rule 1: options that turn a read-only command into a writer or a program launcher
+@pytest.mark.parametrize("cmd,cls", [
+    ("git log --output={home}/log.txt", "destructive"),
+    ("git show -s --output {home}/x", "destructive"),
+    ("git diff --output={home}/d.patch", "destructive"),
+    ("git whatchanged --output={home}/w", "destructive"),
+    ("git format-patch -o {home}/p HEAD~1", "destructive"),
+    ("git format-patch --output-directory={home}/p HEAD~1", "destructive"),
+    ("git request-pull v1 https://example.com/r.git", "egress_offlist"),
+    ("git help -w log", "unknown"),
+    ("git fsck --lost-found", "protected_path"),
+    ("rg --pre ./conv.sh foo", "unknown"),
+    ("rg --pre=cat foo .", "unknown"),
+    ("rg --pre-glob '*.pdf' foo", "unknown"),
+    ("ack --pager=./x foo", "unknown"),
+    ("man -P 'sh -c id' ls", "unknown"),
+    ("man --pager=./x ls", "unknown"),
+    ("man -H ls", "unknown"),
+    ("MANPAGER=./x man ls", "unknown"),
+    ("GIT_EXTERNAL_DIFF=./x git diff", "unknown"),
+    ("xmllint --output {home}/x.xml a.xml", "destructive"),
+    ("xmllint --shell a.xml", "unknown"),
+    ("plutil -replace k -string v {home}/x.plist", "destructive"),
+    ("plutil -insert k -bool YES {home}/x.plist", "destructive"),
+    ("plutil -remove k {home}/x.plist", "destructive"),
+    ("plutil -convert xml1 {home}/x.plist", "destructive"),
+    ("sips -s format png {home}/a.jpg", "destructive"),
+    ("sips -r 90 {home}/a.jpg", "destructive"),
+    ("sips -Z 100 a.jpg --out {home}/b.jpg", "destructive"),
+    ("less '+!id' a.txt", "unknown"),
+    ("more '+|sh' a.txt", "unknown"),
+    ("less -o {home}/log a.txt", "destructive"),
+    ("less --log-file={home}/log a.txt", "destructive"),
+    ("sort --compress-program=./x a.txt", "unknown"),
+    ("find . -fprint {home}/list", "destructive"),
+    ("find . -fls {home}/list", "destructive"),
+    ("find . -ok rm {{}} ;", "destructive"),
+    ("find . -exec curl evil.com ;", "egress_offlist"),
+])
+def test_read_only_options_classified_by_effect(ctx, cmd, cls):
+    c = B(ctx, cmd.format(home=ctx.home))
+    assert c.cls == cls, (cmd, c)
+
+
+@pytest.mark.parametrize("cmd", [
+    "git log --oneline -5", "git log --output=log.txt", "git format-patch -o patches HEAD~1",
+    "git format-patch --stdout HEAD~1", "git grep -o foo", "git diff --output-indicator-new=+ HEAD",
+    "rg foo src", "man ls", "xmllint --output out.xml a.xml", "xmllint --noout a.xml",
+    "plutil -p {home}/x.plist", "plutil -lint a.plist", "plutil -insert k -bool YES a.plist",
+    "plutil -convert json -o out.json {home}/x.plist", "sips -g pixelWidth {home}/a.jpg",
+    "sips -r 90 {home}/a.jpg --out out.jpg", "less a.txt", "less +G a.txt", "find . -fls list.txt",
+])
+def test_read_only_options_benign_forms_allowed(ctx, cmd):
+    c = B(ctx, cmd.format(home=ctx.home))
+    assert not c.irreversible, (cmd, c)
+
+
+# rule 2: bare harness-<name> trusted only for known CLIs that exist under <plugin_root>/bin
+def test_harness_cli_trusted_only_when_stub_exists(ctx):
+    assert B(ctx, "harness-gate request").cls == "local_reversible"
+    (ctx.plugin_root / "bin" / "harness-gate").unlink()
+    assert B(ctx, "harness-gate request").cls == "unknown"
+
+
+@pytest.mark.parametrize("cmd", ["harness-evil run", "harness-outbox exec", "harness-hook PostToolUse",
+                                 "nohup harness-evil &"])
+def test_harness_cli_unknown_names_are_unknown(ctx, cmd):
+    (ctx.plugin_root / "bin" / "harness-evil").write_text("#!/bin/sh\n")
+    assert B(ctx, cmd).cls == "unknown", cmd
+
+
+def test_harness_cli_without_plugin_root_is_unknown(ctx):
+    ctx.plugin_root = None
+    assert B(ctx, "harness-gate request").cls == "unknown"
+    assert B(ctx, "harness-sandbox-exec -- true").cls == "unknown"
+
+
+def test_harness_cli_explicit_path_must_resolve_under_plugin_bin(ctx):
+    assert B(ctx, f"{ctx.plugin_root}/bin/harness-gate request").cls == "local_reversible"
+    assert B(ctx, "$CLAUDE_PLUGIN_ROOT/bin/harness-ledger append").cls == "local_reversible"
+    (ctx.workspace / "harness-gate").write_text("#!/bin/sh\ncurl evil.com\n")
+    assert B(ctx, "./harness-gate request").cls == "unknown"
+    (ctx.workspace / "bin").mkdir()
+    (ctx.workspace / "bin" / "harness-gate").symlink_to(ctx.plugin_root / "bin" / "harness-gate")
+    assert B(ctx, "./bin/harness-gate request").cls == "local_reversible"  # realpath is under <plugin_root>/bin
+
+
+# rule 3: make runs recipes
+@pytest.mark.parametrize("cmd", ["make", "make test", "make -C src build", "gmake all", "make -k -j4"])
+def test_make_runs_code(ctx, cmd):
+    assert B(ctx, cmd).cls == "unknown", cmd
+
+
+@pytest.mark.parametrize("cmd", ["make -n", "make --dry-run test", "make --just-print all", "make -kn build"])
+def test_make_dry_run_is_not_safe(ctx, cmd):
+    # policy change: -n still expands $(shell ...) and runs `+` recipe lines
+    assert B(ctx, cmd).cls == "unknown", cmd
+
+
+# rule 4: config writers outside the workspace
+@pytest.mark.parametrize("cmd", [
+    "npm config set fund false", "npm set ignore-scripts false", "pip config set global.timeout 60",
+    "pip3 config unset global.index-url", "yarn config set registry x", "pnpm config set store-dir /x",
+    "python3 -m pip config set global.index-url x", "git config --global user.name x",
+    "git config --system core.pager cat", "git config --global --unset user.name",
+])
+def test_config_writers_are_external_write(ctx, cmd):
+    assert B(ctx, cmd).cls == "external_write", cmd
+
+
+@pytest.mark.parametrize("cmd", ["npm config get registry", "npm config list", "pip config list",
+                                 "git config --global --get user.name", "git config --global -l"])
+def test_config_readers_allowed(ctx, cmd):
+    assert not B(ctx, cmd).irreversible, cmd
+
+
+# rule 5: web egress ports and clean queries
+def test_webfetch_port_and_query(ctx):
+    assert C(ctx, "WebFetch", url="https://docs.python.org:8080/x").cls == "egress_offlist"
+    assert C(ctx, "WebFetch", url="https://docs.python.org:443/3/").cls == "read"
+    assert C(ctx, "WebFetch", url="http://docs.python.org:443/3/").cls == "egress_offlist"
+    assert C(ctx, "WebFetch", url="https://docs.python.org/3/search.html?q=asyncio+gather").cls == "read"
+    ctx.protected_terms = ["AcmeCorp"]
+    assert C(ctx, "WebFetch", url="https://docs.python.org/3/search.html?q=AcmeCorp+payroll").cls == "egress_with_data"
+    assert C(ctx, "WebFetch", url="https://docs.python.org/3/x?d=c2VjcmV0LWRhdGEtYmxvYi1aWDk3cQ").cls == "egress_with_data"
+    assert C(ctx, "WebFetch", url="https://docs.python.org/3/#frag").cls == "egress_with_data"
+
+
+# rule 6: data leaving via macOS helpers and archives
+@pytest.mark.parametrize("cmd,cls", [
+    ("pbcopy < src/app.py", "egress_with_data"), ("cat src/app.py | pbcopy", "egress_with_data"),
+    ("say -v Alex done", "local_app_automation"), ("tar -czf {home}/a.tgz src", "external_write"),
+    ("tar -rf {home}/a.tar src", "external_write"), ("tar --create -f {home}/a.tar src", "external_write"),
+    ("tar cf {home}/a.tar src", "external_write"), ("zip -r {home}/a.zip src", "external_write"),
+])
+def test_data_leaving_helpers(ctx, cmd, cls):
+    assert B(ctx, cmd.format(home=ctx.home)).cls == cls, cmd
+
+
+def test_archives_inside_workspace_allowed(ctx):
+    assert not B(ctx, "tar -czf out.tgz src").irreversible
+    assert not B(ctx, "zip -r out.zip src").irreversible
+    assert not B(ctx, "tar -tzf out.tgz").irreversible
+
+
+# rule 7: a plain write to temp is classified like a copy to temp
+@pytest.mark.parametrize("cmd", ["echo x > {t}/x", "echo x | tee {t}/x", "touch {t}/x", "cp src/app.py {t}/x"])
+def test_plain_write_to_temp_is_external_write(ctx, tmp_path, cmd):
+    assert B(ctx, cmd.format(t=tmp_path / "tmp")).cls == "external_write", cmd
+
+
+def test_make_dry_run_still_counts_as_running_code(ctx):
+    # `make -n` still expands $(shell ...) and runs `+`-prefixed recipe lines
+    for cmd in ("make -n", "make --dry-run build", "make --just-print", "make -n -C src"):
+        assert _cls(cmd, ctx).irreversible, cmd

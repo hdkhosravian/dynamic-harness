@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 import types
 
 import pytest
@@ -19,15 +21,16 @@ class Log:
 
 @pytest.fixture
 def ctx(tmp_path):
-    ws, data, root, lc = (tmp_path / n for n in ("ws", "data", "plugin", "lc"))
-    for d in (ws, data / "control", data / "business", root / "lib", lc):
+    ws, data, root, lc, home = (tmp_path / n for n in ("ws", "data", "plugin", "lc", "home"))
+    for d in (ws, data / "control", data / "business", root / "lib", lc / ".claude-plugin", home):
         d.mkdir(parents=True)
+    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
     (data / "control" / "budgets.json").write_text("{}")
     (data / "control" / "gate.json").write_text('{"timeout": 1790}')
     (data / "business" / "profile.json").write_text('{"currency": "IRR"}')
     (root / "lib" / "x.py").write_text("x = 1\n")
     (lc / "fold_ledger.py").write_text("# fold\n")
-    c = Ctx(workspace=ws, data_root=data, plugin_root=root, loop_contract_root=lc, temp_roots=[], log=Log())
+    c = Ctx(workspace=ws, data_root=data, plugin_root=root, loop_contract_root=lc, home=home, temp_roots=[], log=Log())
     baseline(c)
     return c
 
@@ -155,3 +158,121 @@ def test_version_unknown_when_cli_missing(monkeypatch):
         raise FileNotFoundError("claude")
 
     assert session.claude_version(run=run) is None
+
+
+# --- loop-contract root (finding 6) -------------------------------------------------------
+
+def test_missing_loop_contract_root_refused(ctx):
+    ctx.loop_contract_root = None
+    out = session.on_start({}, ctx)
+    assert out["state"] == "REFUSED" and "loop-contract" in out["reason"]
+
+
+@pytest.mark.parametrize("manifest", ['{"version": "1.0.9"}', '{"version": "x"}', "{not json", None])
+def test_old_or_unreadable_loop_contract_refused(ctx, manifest):
+    f = ctx.loop_contract_root / ".claude-plugin" / "plugin.json"
+    if manifest is None:
+        f.unlink()
+    else:
+        f.write_text(manifest)
+    out = session.on_start({}, ctx)
+    assert out["state"] == "REFUSED" and "1.1.0" in out["reason"]
+
+
+def test_newer_loop_contract_accepted(ctx):
+    (ctx.loop_contract_root / ".claude-plugin" / "plugin.json").write_text('{"version": "1.10.0"}')
+    with open(ctx.data_root / "config_log.jsonl", "a") as fh:
+        fh.write(json.dumps({"layer": "loop_contract", "sha": session.current_hashes(ctx)["loop_contract"]}) + "\n")
+    assert session.on_start({}, ctx) == {}
+
+
+def test_layer_missing_from_config_log_is_tamper(ctx):
+    rows = [json.loads(x) for x in (ctx.data_root / "config_log.jsonl").read_text().splitlines()]
+    rows[0]["hashes"].pop("loop_contract")
+    (ctx.data_root / "config_log.jsonl").write_text(json.dumps(rows[0]) + "\n")
+    out = session.on_start({}, ctx)
+    assert out["state"] == "STOPPED_TAMPER" and "loop_contract" in out["mismatch"]
+
+
+# --- status.json + session snapshots (findings 1, 2, 7) -------------------------------------
+
+def status(ctx, sid="s1"):
+    return json.loads((ctx.data_root / "sessions" / sid / "status.json").read_text())
+
+
+def test_ok_status_written(ctx):
+    assert session.on_start({"session_id": "s1"}, ctx) == {}
+    st = status(ctx)
+    assert st["ok"] is True and st["reasons"] == [] and st["canary"] is True
+    assert abs(st["ts"] - time.time()) < 60 and st["cwd"] == str(ctx.workspace)
+
+
+@pytest.mark.parametrize("breakit, state", [
+    (lambda c: (c.data_root / "config_log.jsonl").unlink(), "REFUSED"),
+    (lambda c: (c.data_root / "control" / "budgets.json").write_text("x"), "STOPPED_TAMPER"),
+    (lambda c: setattr(c, "loop_contract_root", None), "REFUSED"),
+])
+def test_refusal_status_written(ctx, breakit, state):
+    breakit(ctx)
+    out = session.on_start({"session_id": "s1"}, ctx)
+    st = status(ctx)
+    assert out["state"] == state and st["ok"] is False and st["reasons"] == [out["reason"]]
+
+
+def test_version_refusal_status_written(ctx, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_VERSION", "2.1.0")
+    session.on_start({"session_id": "s1"}, ctx)
+    assert status(ctx)["ok"] is False
+
+
+def test_canary_failure_status(ctx, monkeypatch):
+    monkeypatch.setattr(safety, "on_pre", lambda evt, c: {})
+    session.on_start({"session_id": "s1"}, ctx)
+    assert status(ctx)["ok"] is False and status(ctx)["canary"] is False
+
+
+def test_crash_mid_checks_leaves_a_failed_status(ctx, monkeypatch):
+    assert session.on_start({"session_id": "s1"}, ctx) == {}  # an earlier ok status (e.g. before a resume)
+
+    def boom(c):
+        raise RuntimeError("crash")
+
+    monkeypatch.setattr(session, "current_hashes", boom)
+    with pytest.raises(RuntimeError):
+        session.on_start({"session_id": "s1"}, ctx)
+    assert status(ctx)["ok"] is False
+
+
+def test_canary_does_not_log_its_own_deny(ctx):
+    session.on_start({"session_id": "s1"}, ctx)
+    assert [t for t, _ in ctx.log.rows] == []
+
+
+def test_session_start_starts_written_record(ctx):
+    session.on_start({"session_id": "s1"}, ctx)
+    sdir = ctx.data_root / "sessions" / "s1"
+    assert json.loads((sdir / "written.json").read_text()) == []
+    assert isinstance(json.loads((sdir / "tracked.json").read_text()), dict)
+
+
+def test_settings_baseline_snapshot(ctx):
+    (ctx.home / ".claude").mkdir()
+    (ctx.home / ".claude" / "settings.json").write_text('{"permissions": {"deny": ["Read(~/.ssh/**)"]}}')
+    (ctx.workspace / ".claude").mkdir()
+    (ctx.workspace / ".claude" / "settings.json").write_text('{"sandbox": {"enabled": true}}')
+    (ctx.workspace / ".claude" / "settings.local.json").write_text("{bad")
+    session.on_start({"session_id": "s1"}, ctx)
+    base = json.loads((ctx.data_root / "sessions" / "s1" / "settings_baseline.json").read_text())
+    r = os.path.realpath
+    assert base[r(ctx.home / ".claude" / "settings.json")] == {"permissions": {"deny": ["Read(~/.ssh/**)"]}}
+    assert base[r(ctx.workspace / ".claude" / "settings.json")] == {"sandbox": {"enabled": True}}
+    assert base[r(ctx.workspace / ".claude" / "settings.local.json")] == {}  # unreadable: judged from nothing
+    # a refused session still snapshots, so ConfigChange keeps a baseline
+    (ctx.data_root / "config_log.jsonl").unlink()
+    session.on_start({"session_id": "s2"}, ctx)
+    assert (ctx.data_root / "sessions" / "s2" / "settings_baseline.json").is_file()
+
+
+def test_bad_session_id_raises(ctx):
+    with pytest.raises(ValueError):
+        session.on_start({"session_id": "../x"}, ctx)

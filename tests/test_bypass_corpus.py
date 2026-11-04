@@ -1,5 +1,5 @@
-"""Bypass corpus (spec §Evaluation stage 1): guard recall >= 95% on expected-deny rows,
-0 false denies on expected-allow rows. Each row runs through ``safety.on_pre``.
+"""Bypass corpus (spec §Evaluation stage 1): guard recall 100% on expected-deny rows,
+0 false denies on expected-allow rows and no class mismatches. Each row runs through ``safety.on_pre``.
 
 Row: {id, tool, input, expected: allow|deny, class, note, ctx?}. ``${WS}``, ``${DATA}``,
 ``${ROOT}`` and ``${HOME}`` in inputs expand to the fixture's paths. ``ctx`` may set
@@ -49,6 +49,8 @@ def base(tmp_path):
     (ws / "run.sh").write_text("echo hi\n")
     (ws / "gen.py").write_text("print(2)\n")
     (data / "keys" / "hmac.key").write_text("k")
+    for n in classes.HARNESS_CLIS:  # bare harness-<name> is trusted only when the plugin ships it
+        (root / "bin" / f"harness-{n}").write_text("#!/bin/sh\n")
     subs = {"${WS}": str(ws), "${DATA}": str(data), "${ROOT}": str(root), "${HOME}": str(home)}
     return tmp_path, subs
 
@@ -98,5 +100,6 @@ def test_corpus_recall_and_false_denies(base, capsys):
             print("  missed:", misses)
         if cls_mismatch:
             print("  class mismatches:", cls_mismatch)
-    assert recall >= 0.95, misses
+    assert recall == 1.0, misses
     assert not false_denies, false_denies
+    assert not cls_mismatch, cls_mismatch

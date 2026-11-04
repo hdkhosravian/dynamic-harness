@@ -57,3 +57,20 @@ def test_grant_only_for_researcher(tmp_path):
 
 def test_host_of():
     assert egress.host_of("https://Docs.Python.org:443/x") == "docs.python.org"
+
+
+@pytest.mark.parametrize("url,ok", [
+    ("https://docs.python.org/", True), ("https://docs.python.org:443/", True), ("http://docs.python.org/", True),
+    ("http://docs.python.org:80/", True), ("https://docs.python.org:8443/", False), ("http://docs.python.org:443/", False),
+    ("https://docs.python.org:80/", False), ("https://alt.example:8443/a", True), ("https://alt.example/a", False),
+    ("http://alt.example:8443/a", True), ("https://alt.example:9443/a", False),
+])
+def test_allowlist_port_must_match(tmp_path, url, ok):
+    ctx = _ctx(tmp_path, allowlist=["docs.python.org", "alt.example:8443"])
+    assert egress.on_allowlist(url, ctx) is ok
+
+
+def test_grant_port_must_match(tmp_path):
+    ctx = _ctx(tmp_path, agent_type=RESEARCHER, grant={"domains": ["news.example.ir"]})
+    assert egress.grant_covers("https://news.example.ir/a", ctx)
+    assert not egress.grant_covers("https://news.example.ir:8443/a", ctx)

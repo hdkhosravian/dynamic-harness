@@ -8,6 +8,9 @@
       "minimum": 1,
       "type": "integer"
     },
+    "system": {
+      "type": "boolean"
+    },
     "text_norm": {
       "type": "string"
     },
@@ -29,7 +32,8 @@
     "turn_id",
     "ts",
     "text_sha",
-    "text_norm"
+    "text_norm",
+    "system"
   ],
   "type": "object"
 }

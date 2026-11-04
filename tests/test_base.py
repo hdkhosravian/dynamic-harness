@@ -84,3 +84,14 @@ def test_atomic_write(tmp_path):
     p = tmp_path / "d" / "f.json"
     safeio.atomic_write(p, b"x")
     assert p.read_bytes() == b"x"
+
+
+def test_safe_open_does_not_follow_a_symlinked_root(tmp_path):
+    """A root that is itself an attacker symlink must not widen what is readable (`ln -s keys work`)."""
+    keys = tmp_path / "keys"
+    keys.mkdir()
+    (keys / "k").write_bytes(b"secret")
+    work = tmp_path / "work"
+    work.symlink_to(keys)
+    with pytest.raises(TamperError):
+        safeio.safe_open(work / "k", [work])

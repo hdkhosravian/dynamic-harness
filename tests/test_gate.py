@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -30,13 +32,14 @@ class FakeRunner:
 
     def __call__(self, argv, cwd, stdin, **kw):
         self.calls.append(argv)
-        self.kw = kw
+        self.kw, self.cwd = kw, Path(cwd)
         a = {argv[i]: argv[i + 1] for i in range(len(argv) - 1) if argv[i].startswith("--")}
         if self.code == 0:
             with open(a["--out"], "w") as f:
                 f.write("# REPORT\nverdict: ANSWERED\n")
-            with open(a["--receipt"], "w") as f:
-                json.dump({"exit": 0, "caps": self.caps, "traced_values": ["7", "42"]}, f)
+            with open(a["--receipt"], "w") as f:  # fold_ledger echoes the mode, scope sha and head it was given
+                json.dump({"exit": 0, "caps": self.caps, "traced_values": ["7", "42"], "mode": a["--mode"],
+                           "scope_sha": a["--expect-scope-sha"], "events_head": a["--events-head"]}, f)
         return self.code, "", "" if self.code == 0 else "gate failed"
 
 
@@ -83,12 +86,15 @@ def test_done_mode_argv(h):
     assert _flag(argv, "--oracle-cmd") == "python3 oracle.py"
     assert _flag(argv, "--oracle-timeout") == "1790"  # capped
     assert _flag(argv, "--allow-blocked") == "2"
-    assert _flag(argv, "--scope") == str(h["p"].run / "gate" / "scope.jsonl")
+    box = r.cwd  # fold_ledger runs on a temp copy of run/, never on run/ itself
+    assert box != h["p"].run and not str(box).startswith(str(h["p"].run))
+    assert _flag(argv, "--scope") == str(box / "gate" / "scope.jsonl")
     sb = (h["p"].run / "gate" / "scope.jsonl").read_bytes()
     assert _flag(argv, "--expect-scope-sha") == canon.sha256_bytes(sb)
     assert _flag(argv, "--expect-scope-count") == "2"
     assert _flag(argv, "--verdict-vocab") == PROFILE["verdict_vocab"]
-    assert _flag(argv, "--repo-root") == str(h["p"].run)
+    assert _flag(argv, "--repo-root") == str(box)
+    assert str(h["p"].run) in r.kw["deny_write"]
     assert "--skip-citation-check" not in argv
     assert res["ok"] is True
 
@@ -136,7 +142,8 @@ def test_receipt_written_with_hmac_and_event(h):
     fields = {k: rec[k] for k in gate.HMAC_FIELDS}
     assert rec["hmac"] == canon.hmac_receipt(KEY, fields)
     assert rec["caps"] == ["numbers_untraced"] and rec["caps_sha"] == canon.sha256_json(["numbers_untraced"])
-    assert rec["control_hash"] == "ctl" and rec["business_hash"] == "biz" and rec["traced_set_sha"] == canon.sha256_json(["7", "42"])
+    assert rec["control_hash"] == rec["business_hash"] == canon.sha256_json([])  # live dirs, absent here
+    assert rec["traced_set_sha"] == canon.sha256_json(["7", "42"])
     assert rec["report_sha"] == canon.sha256_bytes(b"# REPORT\nverdict: ANSWERED\n")
     evs = h["log"].events()
     assert evs[-1]["type"] == "RECEIPT" and evs[-2]["sha"] == rec["events_head"]
@@ -172,14 +179,14 @@ def test_verify_known_mode_is_done_not_fully_checked(h):
     _pass(h, "u1", "c.a")
     h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "UNVERIFIED", "evidence": ["c.json"]})
     _run(h)
-    assert gate.verify_receipt(h["p"], h["log"], KEY)["state"] == "Done, not fully checked"
+    assert gate.verify_receipt(h["p"], h["log"], KEY)["state"] == "Done, not fully checked: no executable check"
 
 
 def test_verify_caps_is_done_not_fully_checked(h):
     _all_pass(h)
     _run(h, runner=FakeRunner(caps=["numbers_untraced"]))
     v = gate.verify_receipt(h["p"], h["log"], KEY)
-    assert v["state"] == "Done, not fully checked" and v["caps"] == ["numbers_untraced"]
+    assert v["state"] == "Done, not fully checked: numbers_untraced" and v["caps"] == ["numbers_untraced"]
 
 
 def test_verify_blocked_is_partly_done_in_either_mode(h):
@@ -187,20 +194,21 @@ def test_verify_blocked_is_partly_done_in_either_mode(h):
     h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "no access"})
     res, _ = _run(h)
     assert res["receipt"]["mode"] == "done"
-    assert gate.verify_receipt(h["p"], h["log"], KEY)["state"] == "Partly done"
+    assert gate.verify_receipt(h["p"], h["log"], KEY)["state"] == "Partly done: 1 of 2"
 
 
 def test_verify_open_unit_is_partly_done(h):
     _pass(h, "u1", "c.a")
     _run(h)
-    assert gate.verify_receipt(h["p"], h["log"], KEY)["state"] == "Partly done"
+    assert gate.verify_receipt(h["p"], h["log"], KEY)["state"] == "Partly done: 1 of 2"
 
 
 def test_allowed_events_after_receipt_keep_it_valid(h):
     _all_pass(h)
     _run(h)
-    for t in ("TURN", "BUDGET_CHARGE", "LEASE_HEARTBEAT", "RECORD", "CONTACT", "MODEL_REGISTERED"):
+    for t in ("TURN", "BUDGET_CHARGE", "LEASE_HEARTBEAT", "RECORD", "MODEL_REGISTERED", "SAFETY_DENY"):
         h["log"].append(t, {})
+    h["log"].append("CONTACT", {"question_free": True})
     assert gate.verify_receipt(h["p"], h["log"], KEY)["ok"] is True
 
 
@@ -208,7 +216,8 @@ def test_no_receipt_is_not_ok(h):
     assert gate.verify_receipt(h["p"], h["log"], KEY)["ok"] is False
 
 
-@pytest.mark.parametrize("forge", ["key", "field", "event", "submitted", "report", "gate_file", "chain"])
+@pytest.mark.parametrize("forge", ["key", "field", "event", "submitted", "report", "gate_file", "chain",
+                                   "decisions", "control", "business", "question_contact"])
 def test_forged_receipt_is_rejected(h, forge):
     _all_pass(h)
     _run(h)
@@ -230,6 +239,13 @@ def test_forged_receipt_is_rejected(h, forge):
         (h["p"].run / "gate" / "ledger.jsonl").write_text("")
     elif forge == "chain":
         h["p"].heads.write_text("0" * 64)
+    elif forge == "decisions":
+        (h["p"].run / "gate" / "decisions.jsonl").write_text('{"id":"d9","text":"waived"}\n')
+    elif forge in ("control", "business"):
+        (h["p"].data_root / forge).mkdir(parents=True, exist_ok=True)
+        (h["p"].data_root / forge / "caps.json").write_text('{"money_cap": 1e9}')
+    elif forge == "question_contact":
+        h["log"].append("CONTACT", {"question": "Shall I also email the supplier?"})
     v = gate.verify_receipt(h["p"], h["log"], key)
     assert v["ok"] is False and v["reason"]
 
@@ -251,12 +267,14 @@ def test_argv_passes_events_head_at_gate_time(h):
     _, r = _run(h)
     projected = [e for e in h["log"].events() if e["type"] == "PROJECTED"][-1]
     assert _flag(r.calls[0], "--events-head") == projected["sha"]
+    assert _flag(r.calls[0], "--decisions") == str(r.cwd / "gate" / "decisions.jsonl")
 
 
 def test_argv_lint_lexicon_is_converted_to_gate_shape(h):
     _all_pass(h)
     _, r = _run(h)
-    lex = json.loads(open(_flag(r.calls[0], "--lint-lexicon"), encoding="utf-8").read())
+    assert _flag(r.calls[0], "--lint-lexicon") == str(r.cwd / "gate" / "lexicon.json")
+    lex = json.loads((h["p"].run / "gate" / "lexicon.json").read_text(encoding="utf-8"))
     assert set(lex) == {"terms", "template_lines"}
     assert "verified" in lex["terms"] and "تأیید شد" in lex["terms"]
     assert all(isinstance(t, str) for t in lex["terms"]) and isinstance(lex["template_lines"], list)
@@ -273,7 +291,7 @@ def test_argv_numbers_trace_covers_every_text_deliverable(h):
     (h["p"].work / "chart.png").write_bytes(b"\x89PNG")
     _all_pass(h)
     _, r = _run(h)
-    sub = h["p"].run / "outputs" / "submitted"
+    sub = r.cwd / "outputs" / "submitted"
     assert sorted(_multi(r.calls[0], "--numbers-trace")) == sorted(
         str(sub / n) for n in ("a.csv", "sub/b.csv", "report.md", "notes.txt"))
 
@@ -284,7 +302,7 @@ def test_argv_include_answer_header_only_when_present(h):
     assert "--include" not in r.calls[0]
     (h["p"].run / "answer_header.md").write_text("Answer: 42\n")
     _, r = _run(h)
-    assert _flag(r.calls[0], "--include") == str(h["p"].run / "answer_header.md")
+    assert _flag(r.calls[0], "--include") == str(r.cwd / "answer_header.md")
 
 
 def test_argv_claims_flags_only_when_job_has_claims(h):
@@ -293,7 +311,7 @@ def test_argv_claims_flags_only_when_job_has_claims(h):
     assert not {"--sources", "--fetch-log", "--snapshots", "--profile"} & set(r.calls[0])
     (h["p"].run / "claims.jsonl").write_text("{}\n")
     _, r = _run(h)
-    run, argv = h["p"].run, r.calls[0]
+    run, argv = r.cwd, r.calls[0]
     assert _flag(argv, "--sources") == str(run / "claims.jsonl")
     assert _flag(argv, "--fetch-log") == str(run / "fetch_log.jsonl")
     assert _flag(argv, "--snapshots") == str(run / "snapshots")
@@ -304,6 +322,197 @@ def test_argv_require_logs_for_investigations(h):
     _all_pass(h)
     _, r = _run(h)
     assert "--require-logs" not in r.calls[0]
+    (h["p"].run / "claims.jsonl").write_text("{}\n")
     _, r = _run(h, profile=dict(PROFILE, task_type="investigation"))
-    assert _multi(r.calls[0], "--require-logs") == [str(h["p"].run / "contradictions.jsonl"),
-                                                     str(h["p"].run / "search_log.jsonl")]
+    assert _multi(r.calls[0], "--require-logs") == [str(r.cwd / "contradictions.jsonl"),
+                                                     str(r.cwd / "search_log.jsonl")]
+
+
+# ---- review fixes: the gate child cannot launder state (1/A) -------------------------------------
+
+
+class TamperingOracle(FakeRunner):
+    """fold_ledger plus what an agent-written oracle tries: rewrite its gate inputs and the deliverable."""
+
+    def __init__(self, target="cwd", **kw):
+        super().__init__(**kw)
+        self.target, self.h = target, None
+
+    def __call__(self, argv, cwd, stdin, **kw):
+        r = super().__call__(argv, cwd, stdin, **kw)
+        root = Path(cwd) if self.target == "cwd" else self.h["p"].run  # "run" = a sandbox breach
+        g = root / "gate"
+        rows = [json.loads(x) for x in (g / "ledger.jsonl").read_text().splitlines()]
+        for x in rows:
+            if x["verdict"] == "BLOCKED":
+                x.update(verdict="PASS", evidence=["e"], proof_cmd="p", fix="none", no_change_reason="n")
+                x.pop("blocked_reason", None)
+        (g / "ledger.jsonl").write_text("".join(json.dumps(x) + "\n" for x in rows))
+        (root / "outputs" / "submitted" / "a.csv").write_text("SWAPPED after checks\n")
+        return r
+
+
+@pytest.mark.parametrize("target", ["cwd", "run"])
+def test_child_that_rewrites_inputs_gets_no_receipt(h, target):
+    _pass(h, "u1", "c.a")
+    h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "x"})
+    oracle = TamperingOracle(target)
+    oracle.h = h
+    res, _ = _run(h, runner=oracle)
+    assert res["ok"] is False
+    assert not (h["p"].run / "receipt.json").exists()
+    assert h["log"].events()[-1]["type"] == "TAMPER"
+    assert gate.verify_receipt(h["p"], h["log"], KEY)["ok"] is False
+
+
+class LyingReceipt(FakeRunner):
+    def __init__(self, **lie):
+        super().__init__()
+        self.lie = lie
+
+    def __call__(self, argv, cwd, stdin, **kw):
+        r = super().__call__(argv, cwd, stdin, **kw)
+        a = {argv[i]: argv[i + 1] for i in range(len(argv) - 1) if argv[i].startswith("--")}
+        rec = dict(json.loads(open(a["--receipt"]).read()), **self.lie)
+        with open(a["--receipt"], "w") as f:
+            json.dump(rec, f)
+        return r
+
+
+@pytest.mark.parametrize("lie", [{"mode": "known"}, {"scope_sha": "0" * 64}, {"events_head": "0" * 64}])
+def test_child_receipt_must_echo_what_the_harness_passed(h, lie):
+    _all_pass(h)
+    res, _ = _run(h, runner=LyingReceipt(**lie))
+    assert res["ok"] is False and not (h["p"].run / "receipt.json").exists()
+    assert h["log"].events()[-1]["type"] == "TAMPER"
+
+
+def test_child_receipt_matching_the_harness_is_accepted(h):
+    _all_pass(h)
+    res, _ = _run(h, runner=LyingReceipt())
+    assert res["ok"] is True
+
+
+def test_event_forged_during_the_child_run_fails_the_gate(h):
+    _pass(h, "u1", "c.a")
+    h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "x"})
+
+    class Forger(FakeRunner):
+        def __call__(self, argv, cwd, stdin, **kw):
+            h["log"].append("ROW", {"kind": "unit", "row": {"id": "u2", "attempt": 2, "verdict": "PASS"}})
+            return super().__call__(argv, cwd, stdin, **kw)
+
+    res, _ = _run(h, runner=Forger())
+    assert res["ok"] is False and not (h["p"].run / "receipt.json").exists()
+
+
+def test_verify_state_comes_from_ledger_rows_not_gate_files(h, monkeypatch):
+    """Even if gate/ledger.jsonl were rewritten unnoticed, the user-facing state is event-backed."""
+    _pass(h, "u1", "c.a")
+    h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "x"})
+    _run(h)
+    signed = gate._gate_sha(h["p"])
+    g = h["p"].run / "gate" / "ledger.jsonl"
+    g.write_text(g.read_text().replace('"BLOCKED"', '"PASS"'))
+    monkeypatch.setattr(gate, "_gate_sha", lambda paths: signed)  # isolate: pretend the gate hash still matches
+    v = gate.verify_receipt(h["p"], h["log"], KEY)
+    assert v["ok"] and v["state"] == "Partly done: 1 of 2", v
+
+
+def test_partly_done_states_n_of_m(h):
+    _pass(h, "u1", "c.a")
+    h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "no access"})
+    _run(h)
+    assert gate.verify_receipt(h["p"], h["log"], KEY) == {"ok": True, "state": "Partly done: 1 of 2", "caps": []}
+
+
+def test_done_not_fully_checked_names_the_reasons(h):
+    _pass(h, "u1", "c.a")
+    (h["p"].work / "b.csv").write_text("b\n")  # deliverable present at the 2nd FAIL -> PASS_FLAGGED
+    for n in (1, 2):
+        o = h["out"].record("c.b", "u2", n, 1, "fail", {}, f"f{n}".encode())
+        h["led"].append_row("unit", {"id": "u2", "attempt": n, "verdict": "FAIL", "outputs": [o["sha256"]],
+                                     "failure_sig": "row count off"})
+    _run(h, runner=FakeRunner(caps=["lexicon"]))
+    v = gate.verify_receipt(h["p"], h["log"], KEY)
+    assert v["state"] == "Done, not fully checked: lexicon; row count off"
+
+
+# ---- live control / business hashes (5) ----
+
+def test_control_and_business_hashes_are_live(h):
+    for d, body in (("control", '{"a": 1}'), ("business", '{"cap": 5}')):
+        (h["p"].data_root / d).mkdir()
+        (h["p"].data_root / d / "x.json").write_text(body)
+    _all_pass(h)
+    res, _ = _run(h)
+    for d in ("control", "business"):
+        root = h["p"].data_root / d
+        assert res["receipt"][f"{d}_hash"] == canon.tree_sha([root / "x.json"], root)
+    assert gate.verify_receipt(h["p"], h["log"], KEY)["ok"] is True
+
+
+# ---- submission refuses symlinked work/ paths (B) ----
+
+def _keys(h):
+    h["p"].keys.mkdir(parents=True, exist_ok=True)
+    (h["p"].keys / "hmac.key").write_bytes(KEY)
+
+
+def _leaked(h):
+    sub = h["p"].run / "outputs" / "submitted"
+    return [f for f in sub.rglob("*") if f.is_file() and KEY in f.read_bytes()] if sub.exists() else []
+
+
+def test_symlinked_work_dir_is_not_submitted(h):
+    _all_pass(h)
+    _keys(h)
+    shutil.rmtree(h["p"].work)
+    h["p"].work.symlink_to(h["p"].keys)
+    r = FakeRunner()
+    with pytest.raises(TamperError):
+        _run(h, runner=r)
+    assert r.calls == [] and not _leaked(h)
+    assert h["log"].events()[-1]["type"] == "TAMPER"
+
+
+def test_symlinked_parent_of_work_is_not_submitted(h, tmp_path):
+    _all_pass(h)
+    _keys(h)
+    job = h["p"].work.parent
+    shutil.rmtree(job)
+    (tmp_path / "evil").mkdir()
+    (tmp_path / "evil" / "work").symlink_to(h["p"].keys)
+    job.symlink_to(tmp_path / "evil")
+    with pytest.raises(TamperError):
+        _run(h)
+    assert not _leaked(h)
+
+
+# ---- text suffixes, investigation claims (9) ----
+
+def test_numbers_trace_suffixes_are_case_insensitive_and_cover_json_html_tsv(h):
+    for n in ("Notes.MD", "data.json", "page.HTML", "t.tsv", "chart.png"):
+        (h["p"].work / n).write_text("1\n")
+    _all_pass(h)
+    _, r = _run(h)
+    names = {Path(x).name for x in _multi(r.calls[0], "--numbers-trace")}
+    assert {"Notes.MD", "data.json", "page.HTML", "t.tsv"} <= names and "chart.png" not in names
+
+
+def test_investigation_without_claims_is_refused(h):
+    _all_pass(h)
+    r = FakeRunner()
+    with pytest.raises(HarnessError):
+        _run(h, runner=r, profile=dict(PROFILE, task_type="investigation"))
+    assert r.calls == []
+
+
+def test_symlinked_requests_dir_is_refused(h, tmp_path):
+    _all_pass(h)
+    (tmp_path / "elsewhere").mkdir()
+    h["p"].requests.symlink_to(tmp_path / "elsewhere")
+    r = FakeRunner()
+    with pytest.raises(TamperError):
+        _run(h, runner=r)
+    assert r.calls == [] and h["log"].events()[-1]["type"] == "TAMPER"

@@ -1,6 +1,9 @@
 """Project harness rows into the gate's input files (spec §Gate adapter)."""
 from __future__ import annotations
 
+import ast
+import math
+
 from . import canon, schema
 from .errors import HarnessError
 from .ledger import FILES, OUTPUTS, ROW_SCHEMA
@@ -42,6 +45,45 @@ def _map(row: dict, unit: dict):
     return g
 
 
+_OPS = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b,
+        ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b}
+_FUNCS = {"ceil": math.ceil, "floor": math.floor}
+
+
+def _num(node, units):
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+        return node.value
+    if isinstance(node, ast.Name) and node.id == "units":
+        return units
+    if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+        return _OPS[type(node.op)](_num(node.left, units), _num(node.right, units))
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _FUNCS
+            and len(node.args) == 1 and not node.keywords):
+        return _FUNCS[node.func.id](_num(node.args[0], units))
+    raise HarnessError(f"allow_blocked: unsupported expression {ast.dump(node)[:80]}")
+
+
+def allow_blocked(expr, units: int) -> int:
+    """Profile allow_blocked: an int, or an expression over `units` with + - * /, ceil() and floor()
+    (e.g. "units", "ceil(0.2*units)"). Evaluated by walking the AST; never eval()."""
+    if type(expr) is int:
+        n = expr
+    elif isinstance(expr, str):
+        try:
+            tree = ast.parse(expr.strip(), mode="eval")
+        except SyntaxError as e:
+            raise HarnessError(f"allow_blocked: cannot parse {expr!r}") from e
+        try:
+            n = _num(tree.body, units)
+        except ZeroDivisionError as e:
+            raise HarnessError(f"allow_blocked: {expr!r} divides by zero") from e
+    else:
+        raise HarnessError(f"allow_blocked must be an int or an expression, not {expr!r}")
+    if type(n) is not int or n < 0:
+        raise HarnessError(f"allow_blocked {expr!r} gives {n!r}, not a whole number >= 0")
+    return n
+
+
 def _lines(rows) -> bytes:
     return b"".join(canon.canonical_json(r) + b"\n" for r in rows)
 
@@ -74,8 +116,7 @@ def project(paths, ledger, scope=None, profile=None) -> dict:
     rows = [_map(latest[u["id"]], u) for u in units if u["id"] in latest]
     mapped = [g for g in (_map(r, by_id[r["id"]]) for r in history) if g is not None]
     profile = dict(profile or {})
-    allow = profile.get("allow_blocked", 0)
-    allow = len(units) if allow == "units" else int(allow)
+    allow = allow_blocked(profile.get("allow_blocked", 0), len(units))
     blocked = sum(1 for g in rows if g["verdict"] == "BLOCKED")
     states = [latest[u["id"]]["verdict"] if u["id"] in latest else "OPEN" for u in units]
     done = (all(s in DONE_STATES for s in states) and blocked <= allow
@@ -91,6 +132,7 @@ def project(paths, ledger, scope=None, profile=None) -> dict:
         "verdicts.jsonl": _lines(mapped),
         "scope.jsonl": scope_data,
         "profile.json": canon.canonical_json(profile),
+        "decisions.jsonl": _lines(r for k, r in ledger.rows() if k == "decision"),
     }
     for name, data in files.items():
         atomic_write(gate / name, data)

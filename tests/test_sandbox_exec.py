@@ -40,15 +40,25 @@ def test_stdin_is_passed(box):
     assert out.strip() == b"ABC"
 
 
+_CONNECT = ("import socket\n"
+            "try:\n socket.create_connection(('1.1.1.1', 80), timeout=3); print('CONNECTED')\n"
+            "except OSError as e: print('blocked', e.errno)")
+
+
 def test_network_blocked(box):
+    import errno
     cwd, _ = box
-    code, out, err = py(
-        "import socket\n"
-        "try:\n socket.create_connection(('1.1.1.1', 80), timeout=3); print('CONNECTED')\n"
-        "except OSError as e: print('blocked', e.errno)",
-        cwd,
-    )
-    assert b"CONNECTED" not in out and b"blocked" in out, (out, err)
+    code, out, err = py(_CONNECT, cwd)
+    assert b"CONNECTED" not in out, (out, err)
+    words = out.split()
+    assert words[0] == b"blocked" and int(words[1]) in (errno.EPERM, errno.EACCES), (out, err)  # the sandbox, not the net
+
+
+def test_network_positive_control_unsandboxed(box):
+    """Same probe outside the sandbox connects, so the denial above is the sandbox's doing."""
+    r = subprocess.run([PY, "-I", "-c", _CONNECT], capture_output=True, timeout=30)
+    if b"CONNECTED" not in r.stdout:
+        pytest.skip(f"offline: {r.stdout!r}")
 
 
 def test_keys_read_blocked(box):
@@ -170,3 +180,72 @@ def test_bin_refuses_without_project_dir(box, tmp_path):
     env["CLAUDE_PLUGIN_DATA"] = str(data)
     r = _bin(["--", PY, "-I", "-c", "print(1)"], cwd, env)
     assert r.returncode == 2 and b"CLAUDE_PROJECT_DIR" in r.stderr
+
+
+# --- review fixes: kill the whole process group (2), deny-default profile (C) ---
+
+_SLEEPER = ("import subprocess, time, sys\n"
+            "subprocess.Popen(['/bin/sh', '-c', 'sleep 2; echo late > {flag}'],\n"
+            "                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "time.sleep({main})\n")
+
+
+def test_timeout_kills_background_children(box):
+    import time
+    cwd, _ = box
+    flag = cwd / "late.txt"
+    code, _, _ = py(_SLEEPER.format(flag=flag, main=10), cwd, timeout=1)
+    assert code == 124
+    time.sleep(3)
+    assert not flag.exists(), "a background child of the timed-out process survived"
+
+
+def test_exit_kills_background_children(box):
+    import time
+    cwd, _ = box
+    flag = cwd / "late.txt"
+    code, _, err = py(_SLEEPER.format(flag=flag, main=0), cwd, timeout=10)
+    assert code == 0, err
+    time.sleep(3)
+    assert not flag.exists(), "a background child outlived the sandboxed command"
+
+
+_MACH = ("import ctypes\n"
+         "lib = ctypes.CDLL('/usr/lib/libSystem.B.dylib')\n"
+         "port = ctypes.c_uint(0)\n"
+         "kr = lib.bootstrap_look_up(ctypes.c_uint.in_dll(lib, 'bootstrap_port'),\n"
+         "                           b'com.apple.coreservices.launchservicesd', ctypes.byref(port))\n"
+         "print('kr', kr)\n")
+
+
+def test_profile_starts_from_deny_default():
+    p = sandbox_exec.profile("/tmp/c", "/tmp/t")
+    assert "(deny default)" in p and "(allow default)" not in p
+    assert "(deny network*)" in p
+
+
+def test_launchservices_lookup_is_denied(box):
+    """`open https://…` goes through LaunchServices over mach; the child must not reach it."""
+    cwd, _ = box
+    code, out, err = py(_MACH, cwd)
+    assert code == 0, err
+    assert out.strip() != b"kr 0", "mach-lookup of launchservicesd was allowed"
+
+
+def test_subprocess_and_sh_still_work(box):
+    cwd, _ = box
+    code, out, err = sandbox_exec.run(["/bin/sh", "-c", "echo hi > x.txt && /bin/cat x.txt && /usr/bin/true"], cwd)
+    assert (code, out.strip()) == (0, b"hi"), err
+    code, out, err = py("import subprocess, hashlib, json, datetime, shlex, tempfile\n"
+                        "print(subprocess.run(['/bin/echo', 'sub'], capture_output=True).stdout.decode().strip())", cwd)
+    assert (code, out.strip()) == (0, b"sub"), err
+
+
+def test_claude_md_and_mcp_json_are_never_writable(box):
+    """Nested CLAUDE*.md and .mcp.json are instructions/config for the next session: deny at any depth."""
+    cwd, _ = box
+    (cwd / "a" / "b").mkdir(parents=True)
+    for rel in ("CLAUDE.md", "a/b/CLAUDE.local.md", "a/CLAUDE-notes.md", ".mcp.json", "a/b/.mcp.json"):
+        code, _, _ = py(f"open({rel!r}, 'w').write('x')", cwd, allow_write=[cwd])
+        assert code != 0 and not (cwd / rel).exists(), rel
+    assert py("open('a/b/notes.md', 'w').write('x'); open('a/mcp.json', 'w').write('x')", cwd)[0] == 0

@@ -5,20 +5,31 @@ against the latest entries in ``config_log.jsonl`` (written by setup and the
 nonce-checked writers). It never re-baselines: it only reads the log. A
 mismatch, an unreadable tree or a corrupt log is ``STOPPED_TAMPER``. It also
 refuses ``bypassPermissions`` and Claude Code < 2.1.295 (no fail-closed hooks),
-and runs an in-process PreToolUse canary.
+and runs an in-process PreToolUse canary. It needs the loop-contract plugin
+root (``ctx.loop_contract_root``) at version >= 1.1.0.
+
+With a ``session_id`` it also writes, under ``sessions/<sid>/``: the settings
+baseline (for ConfigChange), the written-files record (``written.start``) and
+``status.json`` ``{ok, reasons, canary, ts, cwd}``. A failed status is written
+before the checks run, so a crash never leaves an earlier ``ok`` behind.
+PreToolUse allows only reads unless a fresh ``ok`` status exists.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
 import subprocess
+import sys
+import time
 from pathlib import Path
 
-from . import canon, safety
+from . import canon, config_guard, safety, written
 from .errors import HarnessError
-from .safeio import safe_open
+from .safeio import atomic_write, safe_open
 
+MIN_LOOP_CONTRACT = (1, 1, 0)  # fold_ledger flags the gate adapter passes
 MIN_CC_VERSION = (2, 1, 295)  # hooks' onFailure: "block" (fail closed) needs this (OQ-4 spike S1)
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git"}  # shortcut: caches unhashed; plugin root is write-protected
 
@@ -70,13 +81,14 @@ def _block(state, reason, ctx, **extra):
     if ctx.log is not None:
         try:
             ctx.log.append(state, {"reason": reason, **extra})
-        except Exception:
-            pass
+        except Exception as e:  # the block stands either way
+            print(f"harness: {state} not logged: {type(e).__name__}: {e}", file=sys.stderr)
     return {"decision": "block", "state": state, "reason": reason, **extra}
 
 
 def canary(ctx) -> bool:
     """A known-irreversible call must be denied and a plain read allowed."""
+    ctx = dataclasses.replace(ctx, log=None)  # the canary's own deny is not a SAFETY_DENY
     bad = safety.on_pre({"tool_name": "Bash", "tool_input": {"command": "curl https://canary.invalid/"}}, ctx)
     good = safety.on_pre({"tool_name": "Read", "tool_input": {"file_path": str(Path(ctx.workspace) / "README.md")}}, ctx)
     return bad.get("decision") == "deny" and good == {}
@@ -94,8 +106,36 @@ def claude_version(env=None, run=subprocess.run):
     return tuple(int(x) for x in m.groups()) if m else None
 
 
+def loop_contract_version(root):
+    """(major, minor, patch) from <root>/.claude-plugin/plugin.json; None when unreadable."""
+    try:
+        f = Path(root) / ".claude-plugin" / "plugin.json"
+        m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", json.loads(safe_open(f, [root])).get("version", ""))
+    except Exception:
+        return None
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
 def on_start(evt, ctx) -> dict:
-    mode = (evt or {}).get("permission_mode") or ctx.permission_mode
+    evt = evt if isinstance(evt, dict) else {}
+    sid = evt.get("session_id")
+    if sid is None or not ctx.data_root:
+        return _checks(evt, ctx)
+    sdir = written.session_dir(ctx.data_root, sid)
+    st = {"ok": False, "reasons": ["session checks did not finish"], "canary": None, "ts": time.time(),
+          "cwd": str(ctx.workspace)}
+    atomic_write(sdir / "status.json", json.dumps(st).encode())
+    atomic_write(sdir / "settings_baseline.json", json.dumps(config_guard.snapshot(ctx)).encode())
+    written.start(ctx.data_root, sid, ctx.workspace)
+    out = _checks(evt, ctx)
+    st.update(ok=out == {}, reasons=[out["reason"]] if out else [], ts=time.time(),
+              canary=True if out == {} else (False if out.get("state") == "CANARY_FAILED" else None))
+    atomic_write(sdir / "status.json", json.dumps(st).encode())
+    return out
+
+
+def _checks(evt, ctx) -> dict:
+    mode = evt.get("permission_mode") or ctx.permission_mode
     if mode == "bypassPermissions":
         return _block("REFUSED", "bypassPermissions is refused: the harness needs its permission rules", ctx)
     ver = claude_version()
@@ -103,6 +143,14 @@ def on_start(evt, ctx) -> dict:
         need = ".".join(map(str, MIN_CC_VERSION))
         have = ".".join(map(str, ver)) if ver else "unknown"
         return _block("REFUSED", f"Claude Code {have} < {need}: hooks cannot fail closed (onFailure=block); "
+                                 "tasks above T0 are refused", ctx)
+    if not ctx.loop_contract_root:
+        return _block("REFUSED", "loop-contract root unknown (config_log loop_contract_root / LOOP_CONTRACT_ROOT): "
+                                 "tasks above T0 are refused", ctx)
+    lv = loop_contract_version(ctx.loop_contract_root)
+    if lv is None or lv < MIN_LOOP_CONTRACT:
+        need = ".".join(map(str, MIN_LOOP_CONTRACT))
+        return _block("REFUSED", f"loop-contract {'.'.join(map(str, lv)) if lv else 'unknown'} < {need}: "
                                  "tasks above T0 are refused", ctx)
     log_path = Path(ctx.data_root or "/nonexistent") / "config_log.jsonl"
     if not log_path.is_file():
@@ -114,7 +162,8 @@ def on_start(evt, ctx) -> dict:
         return _block("STOPPED_TAMPER", f"config check failed: {e}", ctx, mismatch=["unreadable"])
     if not recorded:
         return _block("STOPPED_TAMPER", "config_log.jsonl holds no hashes", ctx, mismatch=["empty"])
-    mismatch = sorted(k for k, v in recorded.items() if current.get(k, "absent") != v)
+    # a layer present now but never recorded is a mismatch too: nothing is baselined implicitly
+    mismatch = sorted(k for k in set(recorded) | set(current) if recorded.get(k) != current.get(k, "absent"))
     if mismatch:
         return _block("STOPPED_TAMPER", f"hash mismatch against config_log.jsonl: {', '.join(mismatch)}", ctx,
                       mismatch=mismatch)

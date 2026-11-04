@@ -1,6 +1,7 @@
 """End to end: harness ledger -> fold.project -> REAL fold_ledger.py under the REAL sandbox_exec -> receipt.
 
 fold_ledger path: env HARNESS_FOLD_LEDGER, default the loop-contract checkout next to this repo.
+HARNESS_REQUIRE_INTEGRATION=1 turns every "fold_ledger missing / too old" skip into a failure (CI).
 """
 from __future__ import annotations
 
@@ -28,10 +29,36 @@ U1 = {"id": "u1", "claim": "How many widgets shipped?", "label": "Widgets", "che
       "deliverable": "answer.csv", "unit_type": "data_question"}
 U2 = dict(U1, id="u2", claim="Which region led?", label="Region")
 
-need_fold = pytest.mark.skipif(not os.path.isfile(FOLD), reason=f"fold_ledger.py not found at {FOLD}")
+REQUIRE = os.environ.get("HARNESS_REQUIRE_INTEGRATION") == "1"
+FLAGS_1_1_0 = ("--receipt", "--events-head", "--sources", "--fetch-log", "--snapshots", "--numbers-trace",
+               "--outputs", "--require-logs", "--include", "--lint-lexicon", "--verify-chain", "--oracle-timeout")
+
+
+def fold_ledger_problem(path=FOLD):
+    """None when fold_ledger is present and speaks every 1.1.0 flag the gate passes, else why not."""
+    if not os.path.isfile(path):
+        return f"fold_ledger.py not found at {path}"
+    r = subprocess.run(["python3", path, "--help"], capture_output=True, text=True, timeout=30)
+    missing = [f for f in FLAGS_1_1_0 if f not in r.stdout]
+    return f"fold_ledger at {path} lacks 1.1.0 flags {missing}" if r.returncode or missing else None
+
+
+PROBLEM = fold_ledger_problem()
+need_fold = pytest.mark.skipif(PROBLEM is not None and not REQUIRE, reason=str(PROBLEM))
 need_sandbox = pytest.mark.skipif(not (os.path.exists(sandbox_exec.SANDBOX_EXEC) or shutil.which("sandbox-exec")),
                                   reason="sandbox-exec absent")
 pytestmark = need_fold
+
+
+def test_fold_ledger_is_present_and_1_1_0():
+    assert PROBLEM is None, PROBLEM
+
+
+def test_missing_fold_ledger_is_reported(tmp_path):
+    assert "not found" in fold_ledger_problem(str(tmp_path / "nope.py"))
+    old = tmp_path / "old.py"
+    old.write_text("import argparse; argparse.ArgumentParser().parse_args()\n")
+    assert "lacks 1.1.0 flags" in fold_ledger_problem(str(old))
 
 
 @pytest.fixture
@@ -85,7 +112,7 @@ def test_untraced_number_caps_the_state(job):
     assert res["ok"] is True, res
     assert res["receipt"]["caps"] == ["numbers_untraced"]
     v = _verify(h)
-    assert v["state"] == "Done, not fully checked" and v["caps"] == ["numbers_untraced"]
+    assert v["state"] == "Done, not fully checked: numbers_untraced" and v["caps"] == ["numbers_untraced"]
 
 
 @need_sandbox
@@ -101,7 +128,7 @@ def test_two_fails_flag_and_gate_in_known_mode(job):
     assert res["ok"] is True, res
     assert res["receipt"]["mode"] == "known"
     assert (h["p"].run / "receipt.json").exists()
-    assert _verify(h)["state"] == "Done, not fully checked"
+    assert _verify(h)["state"].startswith("Done, not fully checked: ") and "row count mismatch" in _verify(h)["state"]
 
 
 @need_sandbox
@@ -112,7 +139,7 @@ def test_blocked_unit_is_partly_done(job):
     _report(h)
     res = _gate(h)
     assert res["ok"] is True, res
-    assert _verify(h)["state"] == "Partly done"
+    assert _verify(h)["state"] == "Partly done: 1 of 2"
 
 
 @need_sandbox
@@ -133,9 +160,11 @@ def test_disallowed_event_after_receipt_fails_verify(job):
     assert _gate(h)["ok"]
     h["log"].append("TURN", {})  # allowed
     assert _verify(h)["ok"] is True
-    h["log"].append("SAFETY_DENY", {"tool": "Bash"})
+    h["log"].append("SAFETY_DENY", {"tool": "Bash"})  # a denied call does not undo the work
+    assert _verify(h)["ok"] is True
+    h["log"].append("TAMPER", {"where": "x"})
     v = _verify(h)
-    assert v["ok"] is False and "SAFETY_DENY" in v["reason"]
+    assert v["ok"] is False and "TAMPER" in v["reason"]
 
 
 @need_sandbox
@@ -196,7 +225,7 @@ def test_lexicon_term_outside_template_line_caps_state(job):
     res = _gate(h)
     assert res["ok"] is True, res
     assert res["receipt"]["caps"] == ["lexicon"]
-    assert _verify(h) == {"ok": True, "state": "Done, not fully checked", "caps": ["lexicon"]}
+    assert _verify(h) == {"ok": True, "state": "Done, not fully checked: lexicon", "caps": ["lexicon"]}
 
 
 INVESTIGATION = dict(PROFILE, task_type="investigation")
@@ -207,6 +236,7 @@ def test_investigation_without_logs_fails_gate(job):
     h = job()
     _pass(h)
     _report(h)
+    _claims(h, "Acme shipped 1,234 widgets in March")
     res = _gate(h, profile=INVESTIGATION)
     assert res["ok"] is False and "required log" in res["stderr"], res
     h["led"].append_row("contradiction", {"id": "c1", "claim": "a", "note": "none found"})
@@ -248,3 +278,46 @@ def test_good_claims_pass_gate(job):
     res = _gate(h)
     assert res["ok"] is True, res
     assert _verify(h)["state"] == "Checked"
+
+
+# ---- the gate child cannot rewrite run/ or launder its own inputs (finding 1, real fold_ledger + sandbox) ----
+
+EVIL = r"""
+import json, pathlib, sys
+run = pathlib.Path(sys.argv[1])
+hits = []
+for rel in ("gate/ledger.jsonl", "outputs/submitted/answer.csv", "gate/fold_receipt.json"):
+    try:
+        (run / rel).write_text("forged\n")
+        hits.append(rel)
+    except OSError:
+        pass
+if sys.argv[2] == "copy":  # its own cwd is the temp copy: launder the BLOCKED row there
+    g = pathlib.Path("gate/ledger.jsonl")
+    g.write_text(g.read_text().replace('"BLOCKED"', '"PASS"'))
+print("wrote", hits)
+"""
+
+
+@need_sandbox
+@pytest.mark.parametrize("where", ["run", "copy"])
+def test_oracle_cannot_launder_the_gate(job, tmp_path, where):
+    h = job(units=(U1, U2))
+    _pass(h)
+    h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "no data access"})
+    _report(h)
+    evil = tmp_path / "evil.py"
+    evil.write_text(EVIL)
+    run = h["p"].run
+    res = _gate(h, profile=dict(PROFILE, oracle_cmd=f"/usr/bin/python3 -I {evil} {run} {where}"))
+    projected = [e for e in h["log"].events() if e["type"] == "PROJECTED"][-1]["payload"]["files"]
+    assert canon.sha256_bytes((run / "gate" / "ledger.jsonl").read_bytes()) == projected["gate/ledger.jsonl"]
+    assert (run / "outputs" / "submitted" / "answer.csv").read_bytes() == (h["p"].work / "answer.csv").read_bytes()
+    fold_receipt = run / "gate" / "fold_receipt.json"
+    assert not fold_receipt.exists() or b"forged" not in fold_receipt.read_bytes()
+    if where == "run":  # every write into run/ was denied; the honest state survives
+        assert res["ok"] is True, res
+        assert _verify(h)["state"] == "Partly done: 1 of 2"
+    else:
+        assert res["ok"] is False and not (run / "receipt.json").exists()
+        assert h["log"].events()[-1]["type"] == "TAMPER"

@@ -181,3 +181,39 @@ def test_tampered_row_file_fails_projection(h):
     p.write_bytes(p.read_bytes() + b"{}\n")
     with pytest.raises(TamperError):
         fold.project(h["p"], h["led"])
+
+
+# --- review fixes: allow_blocked expressions (8), decisions projection (9) ---
+
+@pytest.mark.parametrize("expr, units, want", [
+    ("units", 2, 2), (1, 2, 1), ("1", 2, 1), ("ceil(0.2*units)", 2, 1), ("ceil(0.2 * units)", 11, 3),
+    ("floor(0.5*units)", 3, 1),
+])
+def test_allow_blocked_expression(expr, units, want):
+    assert fold.allow_blocked(expr, units) == want
+
+
+@pytest.mark.parametrize("expr", ["__import__('os').system('x')", "units**99", "sqrt(units)", "unit", "0.5*units",
+                                  "ceil(units, 2)", True, -1, "", None, "ceil(x.y)"])
+def test_unknown_allow_blocked_expression_raises(expr):
+    with pytest.raises(HarnessError):
+        fold.allow_blocked(expr, 4)
+
+
+def test_project_evaluates_the_profile_expression(h):
+    _pass(h, "u1", "c.a")
+    h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "no access"})
+    res = fold.project(h["p"], h["led"], profile={"allow_blocked": "ceil(0.2*units)"})
+    assert res["mode"] == "done" and res["allow_blocked"] == 1
+    with pytest.raises(HarnessError):
+        fold.project(h["p"], h["led"], profile={"allow_blocked": "lots"})
+
+
+def test_project_writes_decisions_from_ledger_rows(h):
+    _pass(h, "u1", "c.a")
+    h["led"].append_row("decision", {"id": "d1", "text": "use March data"})
+    fold.project(h["p"], h["led"])
+    assert _gate(h, "decisions.jsonl") == [{"id": "d1", "text": "use March data"}]
+    projected = [e for e in h["log"].events() if e["type"] == "PROJECTED"][-1]
+    assert projected["payload"]["files"]["gate/decisions.jsonl"] == canon.sha256_bytes(
+        (h["p"].run / "gate" / "decisions.jsonl").read_bytes())

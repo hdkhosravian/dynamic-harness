@@ -12,6 +12,37 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
+PROTECTED = (".git", ".claude", "CLAUDE.md", "CLAUDE.local.md", ".mcp.json")  # under the project root
+
+
+def _under(p, root):
+    p, root = p.casefold(), root.casefold().rstrip(os.sep)  # the default macOS filesystem ignores case
+    return p == root or p.startswith(root + os.sep)
+
+
+def _job_dirs(project):
+    """<project>/.claude/loops/<job>/{work,requests}. Refuses a symlink at any level (lstat), so a write
+    exception can never point outside the workspace."""
+    claude = os.path.join(project, ".claude")
+    loops = os.path.join(claude, "loops")
+    for d in (claude, loops):
+        if os.path.islink(d):
+            raise ValueError(f"{d} is a symlink; refusing to run")
+    if not os.path.isdir(loops):
+        return []
+    out = []
+    for job in sorted(os.listdir(loops)):
+        jd = os.path.join(loops, job)
+        if os.path.islink(jd):
+            raise ValueError(f"{jd} is a symlink; refusing to run")
+        for n in ("work", "requests"):
+            d = os.path.join(jd, n)
+            if os.path.islink(d):
+                raise ValueError(f"{d} is a symlink; refusing to run")
+            if os.path.isdir(d):
+                out.append(d)
+    return out
+
 
 def main(argv):
     from harness_core import sandbox_exec
@@ -59,10 +90,22 @@ def main(argv):
         if bad and (real_cwd == os.path.realpath(bad) or real_cwd.startswith(os.path.realpath(bad) + os.sep)):
             print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected tree; refusing to run", file=sys.stderr)
             return 2
-    deny_write = [os.path.join(cwd, n) for n in (".git", ".claude", "CLAUDE.md", "CLAUDE.local.md", ".mcp.json")]
+    # every root below is fixed from the project root, never from the cwd
+    protected = [os.path.join(real_project, n) for n in PROTECTED]
+    allow_write = _job_dirs(real_project)
+    if any(_under(real_cwd, p) for p in protected) and not any(_under(real_cwd, j) for j in allow_write):
+        print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected workspace path; refusing to run", file=sys.stderr)
+        return 2
+    # CLAUDE.md is protected at any depth: the cwd and its ancestors up to the project, plus existing nested ones
+    # shortcut: a new nested CLAUDE.md below the cwd is not denied; needs a regex rule in sandbox_exec.profile
+    d, nested = real_cwd, []
+    while _under(d, real_project):
+        nested += [os.path.join(d, "CLAUDE.md"), os.path.join(d, "CLAUDE.local.md")]
+        d = os.path.dirname(d)
+    nested += glob.glob(os.path.join(real_cwd, "**", "CLAUDE*.md"), recursive=True)
+    deny_write = protected + nested
+    deny_write += [os.path.realpath(p) for p in deny_write]  # a symlinked CLAUDE.md protects its target too
     deny_write += [p for p in (data, os.environ.get("CLAUDE_PLUGIN_ROOT"), claude_home) if p]
-    allow_write = glob.glob(os.path.join(cwd, ".claude", "loops", "*", "work"))
-    allow_write += glob.glob(os.path.join(cwd, ".claude", "loops", "*", "requests"))
     stdin = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read()
     code, out, err = sandbox_exec.run(cmd, cwd, stdin, timeout, deny_read, deny_write, allow_write)
     sys.stdout.buffer.write(out)
