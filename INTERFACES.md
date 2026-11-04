@@ -304,12 +304,15 @@ its last `file_sha`, appends the row, then appends an event carrying
     `PATH`) or with a prefix `DYLD_`, `LD_` or `GIT_TRACE` is `unknown`.
   - Written-this-task test (`is_written`): the path is in
     `ctx.written_this_task`, was written earlier in the same command, is under
-    a job's `work/` or `requests/`, or has a ctime ≥ `ctx.task_started`.
+    a job's `work/` or `requests/`, is in `ctx.untrusted_files`, or has a
+    ctime ≥ `ctx.task_started`.
 - `pathtrack.py` (fail-closed path and cwd tracking, called from `classes._Bash`):
   - Rule 1: a path word, redirect or cwd that cannot be resolved statically is
     `unknown`. `NAME=literal` is tracked; a quoted or escaped `$` is literal.
   - Rule 2: `cd`/`pushd` inside eval, source, subshells and substitutions
     either propagates (a union of possible cwds) or adds an unknown cwd.
+    `env -C DIR`/`--chdir[=]DIR` changes the cwd the same way. A cwd inside a
+    protected read tree makes relative reads there protected.
   - Rule 3: creating a link inside a job's `work/` or `requests/`, or
     recreating one removed earlier in the command, is `protected_path`.
   - Rule 4: files under `work/` and `requests/` always count as agent-written,
@@ -390,9 +393,23 @@ its last `file_sha`, appends the row, then appends an event carrying
 - `start(data_root, sid, workspace, run=subprocess.run)`. Writes
   `tracked.json`, the git-tracked realpaths with their ctime (`/usr/bin/git -c
   core.fsmonitor=false ls-files -z`). Also writes `written.json = []`.
-- `on_post(evt, ctx) -> dict` (PostToolUse writer). Appends the realpath that
-  Write, Edit, MultiEdit or NotebookEdit wrote to `written.json`. Any failure
-  deletes the record and re-raises, so readers fall back to the strict rule.
+- Every writer holds an `flock` on `sessions/<sid>/written.lock`.
+- `start(...)` writes fresh state only for `source == "startup"`: `written.json
+  = []`, `started.json` `{ctime_ns}` and `tracked.json`. Compact, resume, clear
+  and fork keep the existing files.
+- `record_bash(evt, ctx) -> None` (PreToolUse writer). Called by
+  `safety.on_pre` once a Bash call is allowed, before it runs. Appends
+  `pathtrack.bash_write_targets(command, ctx)`; a `None` target deletes the
+  record.
+- `on_post(evt, ctx) -> dict` (PostToolUse and PostToolUseFailure writer).
+  Appends the realpath that Write, Edit, MultiEdit or NotebookEdit wrote to
+  `written.json`. Any failure deletes the record and re-raises, so readers
+  fall back to the strict rule.
+- `session_sets(data_root, sid, workspace) -> (written, untrusted)`. One
+  workspace walk (`.git` skipped). A recorded directory covers every file
+  under it. `untrusted` is every file with ctime at or after `started.json`,
+  plus every tracked file whose ctime changed. `build_ctx` puts them in
+  `ctx.written_this_task` and `ctx.untrusted_files` (PreToolUse only).
 - `self_written(data_root, sid, workspace) -> set`. Returns the recorded
   writes plus every file under `.claude/loops/*/{work,requests}`. When the
   record is missing or unreadable, it returns every workspace file except a
@@ -403,7 +420,8 @@ its last `file_sha`, appends the row, then appends an event carrying
 
 - `main(event, stdin_json, env, handlers=None, timeouts=None) -> (exit_code, stdout_json)`.
   Never raises.
-  - `HANDLERS`: `PreToolUse → safety.on_pre`, `PostToolUse → written.on_post`,
+  - `HANDLERS`: `PreToolUse → safety.on_pre`, `PostToolUse` and
+    `PostToolUseFailure → written.on_post`,
     `SessionStart → session.on_start`, `ConfigChange → config_guard.on_change`.
     Only the module for the event is imported. A handler is called as
     `fn(stdin_json, build_ctx(stdin_json, env, event))`. An unknown event
@@ -412,8 +430,9 @@ its last `file_sha`, appends the row, then appends an event carrying
     (`WATCHDOG`): default 4 s, Stop 9 s, fetch 55 s, gate 1795 s.
     `hooks/hooks.json` runs `/usr/bin/python3 -I
     "${CLAUDE_PLUGIN_ROOT}/bin/harness-hook" <Event>` with `timeout: 5` and
-    `onFailure: "block"` on every hook (OQ-4 S1). The PostToolUse matcher is
-    `Write|Edit|MultiEdit|NotebookEdit`.
+    `onFailure: "block"` on every hook (OQ-4 S1). The PostToolUse and
+    PostToolUseFailure matcher is `Write|Edit|MultiEdit|NotebookEdit`; Bash
+    writes are recorded in PreToolUse instead.
   - Any exception, overrun, non-dict result or non-object input exits 2: deny
     for PreToolUse, block for Stop.
   - A normal deny/block also exits 2 with `harness: <reason>` on stderr
@@ -435,7 +454,8 @@ its last `file_sha`, appends the row, then appends an event carrying
     under 24 h old, and a known loop-contract root.
   - With a `session_id`: `ctx.log = EventLog(sessions/<sid>, sessions/<sid>/head)`,
     `settings_baseline` comes from `sessions/<sid>/settings_baseline.json`, and
-    `written_this_task` comes from `written.self_written` (PreToolUse only).
+    `written_this_task` and `untrusted_files` come from
+    `written.session_sets` (PreToolUse only).
     The job is `sessions/<sid>.json` `active_task`. For it, the grant is
     `runs/<job>/egress_grant.json`, honoured only when the latest event
     recording it is a `GRANT` with its sha. `owner_tokens` comes from
@@ -477,6 +497,9 @@ its last `file_sha`, appends the row, then appends an event carrying
     `work/`/`requests/`;
   - any `.claude`, `loops`, job, `work` or `requests` directory is a symlink.
 
-  It denies reads of every installed plugin's `keys/` and `experience/`. It
-  allows writes to job folders and denies writes to the protected workspace
+  Every path is resolved once (`_resolve`: realpath, then `lstat` of each
+  component), and only resolved paths reach the profile and the child's cwd.
+  It denies reads and writes under the whole data root, and reads of every
+  installed plugin's `keys/` and `experience/` (`sandbox_exec.secret_dirs`).
+  It allows writes to job folders and denies writes to the protected workspace
   paths, `CLAUDE*.md` files, the data root, the plugin root and `~/.claude`.
