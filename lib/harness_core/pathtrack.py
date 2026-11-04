@@ -212,6 +212,8 @@ def _cd(b, name, rest, dynamic):
     if None in b.cwds and not os.path.isabs(e):
         new.append(None)
     b.cwds = union(b.cwds, new)
+    if any(p and protected.contains_read_protected(p, b.ctx) for p in new):  # maintainer R2: deny, not just track
+        b.add("protected_path", f"{name} into, or to an ancestor of, keys/ or experience/")
 
 
 def _links(b, name, rest):
@@ -328,8 +330,18 @@ def note_write(t: Track, cands) -> None:
         t.writes.update(cands)
 
 
+def note_dir(t: Track, cands) -> None:
+    """Maintainer R5: a copy/extract fills a whole directory; record it as ``<dir>/`` (see bash_write_targets)."""
+    note_write(t, None if cands is None else [p.rstrip("/") + "/" for p in cands])
+
+
 def bash_write_targets(command: str, ctx):
-    """Realpaths the classifier treats as written by ``command``; None stands for an unresolvable target."""
+    """Realpaths the classifier treats as written by ``command``; None stands for an unresolvable target.
+
+    An entry ending in ``/`` is a DIRECTORY marker (cp -r, rsync, ditto, tar -x, unzip, git apply): the
+    command may create or change anything below it, so callers must prefix-match it (treat every path
+    under ``<dir>/`` as written), never compare it for equality.
+    """
     from . import classes as C
 
     b = C._Bash(ctx)

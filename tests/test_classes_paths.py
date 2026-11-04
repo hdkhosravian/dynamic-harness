@@ -118,7 +118,7 @@ def test_cd_in_children_and_with_options_propagates(ctx, cmd):
     ". ./env.sh; cat keys/k",
     "cd - && cat keys/k",
     "CDPATH={data} cd keys && cat k",
-    "cd {data} && cat $PWD/keys/k",
+    "cd src && cat $PWD/keys/k",
     "echo {data} | xargs cd; cat keys/k",
     "cd ~nobody && ls",
 ])
@@ -280,3 +280,164 @@ def test_self_written_uses_ctime_not_mtime(ctx):
     os.utime(new, (0, 0))  # backdated mtime cannot hide a file changed this task
     ctx.task_started = os.stat(new).st_ctime - 0.01
     assert B(ctx, "python3 new.py").cls == "self_written_exec"
+
+
+# ---- maintainer rules, round 2 ------------------------------------------------
+
+
+def _cwd(ctx, p):
+    object.__setattr__(ctx, "cwd", p)
+
+
+# R1: every word (not only ones with "/"), here-strings and redirect sources resolve against every cwd
+
+
+@pytest.mark.parametrize("cmd", [
+    "cat keys",
+    "head experience",
+    "base64 -i keys",
+    "cd {ws} && cat keys",  # the event cwd stays a candidate after a cd
+    "xargs cat <<< keys/k",
+    "xargs cat <<< 'x keys/k'",
+    "wc -c < keys/k",
+])
+def test_r1_bare_words_resolve_against_every_cwd(ctx, cmd):
+    _cwd(ctx, ctx.data_root)
+    assert B(ctx, cmd).cls == "protected_path"
+
+
+@pytest.mark.parametrize("cmd", ["xargs cat <<< {data}/keys/k", "xargs -I{{}} cat {{}} <<< '{data}/experience/x'"])
+def test_r1_here_string_words_are_read_targets(ctx, cmd):
+    assert B(ctx, cmd).cls == "protected_path"
+
+
+@pytest.mark.parametrize("cmd", ["cat keys", "echo keys", "cat <<< keys", "wc -l < src/app.py"])
+def test_r1_bare_words_in_the_workspace_stay_allowed(ctx, cmd):
+    c = B(ctx, cmd)
+    assert not c.irreversible, c
+
+
+# R2: cd/pushd into, or to an ancestor of, a protected read tree is denied
+
+
+@pytest.mark.parametrize("cmd", [
+    "cd {data}",
+    "cd {data}/keys",
+    "pushd {data}/experience",
+    "cd {data}/..",
+    "cd {ws}/.. && ls",
+    "cd {data}/keys/sub",
+])
+def test_r2_cd_into_or_above_protected_tree_is_denied(ctx, cmd):
+    assert B(ctx, cmd).cls == "protected_path"
+
+
+@pytest.mark.parametrize("cmd", ["cd src", "cd {ws}", "pushd {ws}/src && popd", "cd {data}/control"])
+def test_r2_cd_elsewhere_stays_allowed(ctx, cmd):
+    c = B(ctx, cmd)
+    assert not c.irreversible, c
+
+
+# R3: recursive readers over a tree that contains a protected read tree
+
+
+@pytest.mark.parametrize("cmd", [
+    "diff -r {data} {ws}/src",
+    "diff -R {ws}/src {data}",
+    "diff --recursive {data} {ws}/src",
+    "grep -r secret",  # no path: grep -r searches the cwd
+    "rg secret",
+    "grep -r --exclude-dir=keys secret",  # experience/ still reachable
+    "grep -R --exclude-dir=keys --exclude-dir=experience secret",  # -R follows links into the trees
+    "rg --exclude-dir=keys --exclude-dir=experience secret",  # not an rg narrowing
+    "find -L {data} -name k",
+    "find -H {data}",
+    "du -a {data}",
+    "du -sh",
+    "tar cf - {data} > {ws}/out.tar",
+    "tar -cf {ws}/out.tar -C {data} keys",
+    "zip -r {ws}/out.zip {data}",
+    "rsync -a {data}/ {ws}/copy/",
+    "rsync -r {data}/keys {ws}/x",
+    "cp --recursive {data} {ws}/copy",
+    "cp --archive {data}/keys {ws}/copy",
+    "ditto {data} {ws}/copy",
+    "git -C {data} ls-files",
+    "git -C {data} grep secret",
+    "git -C {data}/keys log",
+    "git -C {ws}/src diff --no-index ../../data/keys/k /dev/null",
+    "git --work-tree={data} ls-files",
+])
+def test_r3_recursive_readers_over_protected_trees_are_denied(ctx, cmd):
+    _cwd(ctx, ctx.data_root.parent) if "{data}" not in cmd and "{ws}" not in cmd else None
+    assert B(ctx, cmd).cls == "protected_path"
+
+
+@pytest.mark.parametrize("cmd", [
+    "grep -r --exclude-dir=keys --exclude-dir=experience secret",
+    "grep -r '--exclude-dir={{keys,experience}}' secret",
+])
+def test_r3_grep_narrowed_to_exclude_the_trees_stays_allowed(ctx, cmd):
+    _cwd(ctx, ctx.data_root.parent)
+    c = B(ctx, cmd)
+    assert not c.irreversible, c
+
+
+@pytest.mark.parametrize("cmd", [
+    "grep -r print src", "grep -r print", "rg print", "find src -name '*.py'", "du -sh src", "du -sh",
+    "rsync -a src/ out/", "git -C src status", "tar -cf out.tar -C src .", "diff -r src src", "cp -R src out",
+])
+def test_r3_recursive_readers_in_the_workspace_stay_allowed(ctx, cmd):
+    c = B(ctx, cmd)
+    assert not c.irreversible, c
+
+
+# R4: untrusted_files (hook layer, ctime since session start) count as agent-written
+
+
+def test_r4_ctx_untrusted_files_defaults_to_empty_set(tmp_path):
+    assert Ctx(workspace=tmp_path).untrusted_files == set()
+
+
+@pytest.mark.parametrize("cmd", [
+    "pytest", "py.test -q", "python3 -m pytest tests", "python3 -m unittest", "tox", "npm test", "make test",
+    "python3 tests/conftest.py",
+])
+def test_r4_runner_over_untrusted_code_is_self_written_exec(ctx, cmd):
+    (ctx.workspace / "tests").mkdir()
+    conf = ctx.workspace / "tests" / "conftest.py"
+    conf.write_text("import os\n")
+    object.__setattr__(ctx, "untrusted_files", {os.path.realpath(conf)})
+    assert B(ctx, cmd).cls == "self_written_exec"
+
+
+def test_r4_runner_pointed_at_a_root_with_untrusted_code(ctx, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "test_x.py").write_text("")
+    object.__setattr__(ctx, "untrusted_files", {os.path.realpath(other / "test_x.py")})
+    assert B(ctx, "pytest {}".format(other)).cls == "self_written_exec"
+    assert B(ctx, "pytest").cls == "local_reversible"  # outside the discovery root
+
+
+def test_r4_untrusted_non_code_does_not_block_runners(ctx):
+    (ctx.workspace / "README.md").write_text("x")
+    object.__setattr__(ctx, "untrusted_files", {os.path.realpath(ctx.workspace / "README.md")})
+    assert B(ctx, "pytest").cls == "local_reversible"
+
+
+def test_r4_untrusted_config_in_an_ancestor_dir_counts(ctx, tmp_path):
+    for n in ("conftest.py", "stray.py"):
+        (tmp_path / n).write_text("")
+    object.__setattr__(ctx, "untrusted_files", {os.path.realpath(tmp_path / "stray.py")})
+    assert B(ctx, "pytest").cls == "local_reversible"  # a stray module above the root is not auto-loaded
+    object.__setattr__(ctx, "untrusted_files", {os.path.realpath(tmp_path / "conftest.py")})
+    assert B(ctx, "pytest").cls == "self_written_exec"  # pytest walks up to load conftest.py
+
+
+def test_env_chdir_into_protected_tree_is_denied(ctx):
+    # env -C / --chdir changes the directory like cd (gap left by the read-bypass fixes)
+    for cmd in (f"env -C {ctx.data_root} cat keys/hmac.key", f"env --chdir={ctx.data_root}/keys cat hmac.key",
+                f"env --chdir {ctx.data_root} ls keys"):
+        r = classes.classify("Bash", {"command": cmd}, None, ctx)
+        assert r.irreversible, cmd

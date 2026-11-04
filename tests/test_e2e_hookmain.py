@@ -223,3 +223,43 @@ def test_launcher_denies_writes_through_a_symlinked_claude_md(h):
     r = launch(h, h["ws"], "open('AGENTS.md', 'a').write('evil')")
     assert r.returncode != 0
     assert (h["ws"] / "AGENTS.md").read_text() == "rules\n"
+
+
+def test_bash_write_is_recorded_before_the_command_runs(h):
+    # PostToolUse may never fire (the command fails, is interrupted, or the hook is skipped): PreToolUse records it
+    setup(h)
+    assert start(h)[0] == 0
+    sub = h["ws"] / "sub"
+    sub.mkdir()
+    assert pre(h, "Bash", cwd=str(sub), command="printf 'print(1)' > y.py") == 0
+    (sub / "y.py").write_text("print(1)\n")  # the command ran; no PostToolUse follows
+    assert pre(h, "Bash", command="python3 sub/y.py") == 2
+
+
+def test_compact_keeps_the_written_record(h):
+    setup(h)
+    start(h)
+    (h["ws"] / "x.py").write_text("print(1)\n")
+    assert post(h, "Write", file_path=str(h["ws"] / "x.py")) == 0
+    evt = {"session_id": SID, "cwd": str(h["ws"]), "source": "compact", "permission_mode": "default"}
+    assert hookmain.main("SessionStart", evt, h["env"])[0] == 0
+    assert pre(h, "Bash", command="python3 x.py") == 2
+
+
+def test_files_extracted_into_a_recorded_directory_count_as_self_written(tmp_path):
+    # pathtrack marks copy/extract destinations as directories; the written set must cover their files
+    from harness_core import pathtrack, written
+    from harness_core.safety import Ctx
+
+    ws, data = tmp_path / "ws", tmp_path / "data"
+    (ws / "out").mkdir(parents=True)
+    data.mkdir()
+    ctx = Ctx(workspace=ws, data_root=data, plugin_root=tmp_path / "root", home=tmp_path, job="j1")
+    cmd = f"tar -xf a.tar -C {ws / 'out'}"
+    assert pathtrack.bash_write_targets(cmd, ctx)  # a directory marker, not "nothing"
+    sdir = written.session_dir(data, "s1")
+    sdir.mkdir(parents=True)
+    (sdir / "written.json").write_text("[]")
+    written.record_bash({"session_id": "s1", "tool_input": {"command": cmd}}, ctx)  # the real recording path
+    (ws / "out" / "conftest.py").write_text("x = 1\n")  # what the archive contained
+    assert os.path.realpath(ws / "out" / "conftest.py") in written.self_written(data, "s1", ws)

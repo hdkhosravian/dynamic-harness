@@ -31,7 +31,8 @@ def watchdog(event: str) -> float:
 
 
 HANDLERS = {"PreToolUse": ("safety", "on_pre"), "SessionStart": ("session", "on_start"),
-            "ConfigChange": ("config_guard", "on_change"), "PostToolUse": ("written", "on_post")}
+            "ConfigChange": ("config_guard", "on_change"), "PostToolUse": ("written", "on_post"),
+            "PostToolUseFailure": ("written", "on_post")}  # a failed Write/Edit may still have written
 
 
 def _handler(event):
@@ -135,8 +136,8 @@ def build_ctx(evt: dict, env, event=None):
         return ctx
     ctx.log = EventLog(sdir, sdir / "head")
     ctx.settings_baseline = load(sdir / "settings_baseline.json")
-    if event in (None, "PreToolUse"):  # only the classifier reads it; the strict fallback walks the workspace
-        ctx.written_this_task = written.self_written(data, sid, ctx.workspace)
+    if event in (None, "PreToolUse"):  # only the classifier reads them; one workspace walk per call
+        ctx.written_this_task, ctx.untrusted_files = written.session_sets(data, sid, ctx.workspace)
     sess = load(data / "sessions" / f"{sid}.json") or {}
     job = sess.get("active_task")
     if job:

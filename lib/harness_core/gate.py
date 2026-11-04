@@ -20,7 +20,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from . import canon, fold, protected, schema
+from . import canon, fold, protected, sandbox_exec, schema
 from .errors import HarnessError, TamperError
 from .ledger import ROW_SCHEMA, Ledger
 from .safeio import atomic_write, safe_open
@@ -221,9 +221,11 @@ def run_gate(paths, log, key: bytes, profile: dict, fold_ledger_path, runner=Non
             (box / rel).parent.mkdir(parents=True, exist_ok=True)
             (box / rel).write_bytes(safe_open(paths.run / rel, [paths.run]))
         argv = _argv(box, proj, profile, fold_ledger_path, head)
-        code, _out, err = runner(argv, str(box), None, timeout=SANDBOX_TIMEOUT,
-                                 deny_read=[str(paths.keys), str(paths.data_root / "experience")],
-                                 deny_write=[str(paths.run)])
+        # the whole data root (keys, experience, lock files) and every installed plugin's secrets
+        data = os.path.realpath(paths.data_root)
+        deny_read = [data] + [os.path.realpath(d) for d in sandbox_exec.secret_dirs(data, Path.home())]
+        code, _out, err = runner(argv, str(box), None, timeout=SANDBOX_TIMEOUT, deny_read=deny_read,
+                                 deny_write=[os.path.realpath(paths.run)])
         if isinstance(err, bytes):
             err = err.decode("utf-8", "replace")
         if code != 0:

@@ -249,7 +249,7 @@ def test_canary_does_not_log_its_own_deny(ctx):
 
 
 def test_session_start_starts_written_record(ctx):
-    session.on_start({"session_id": "s1"}, ctx)
+    session.on_start({"session_id": "s1", "source": "startup"}, ctx)
     sdir = ctx.data_root / "sessions" / "s1"
     assert json.loads((sdir / "written.json").read_text()) == []
     assert isinstance(json.loads((sdir / "tracked.json").read_text()), dict)
@@ -276,3 +276,25 @@ def test_settings_baseline_snapshot(ctx):
 def test_bad_session_id_raises(ctx):
     with pytest.raises(ValueError):
         session.on_start({"session_id": "../x"}, ctx)
+
+
+@pytest.mark.parametrize("source", ["compact", "resume", "clear", None])
+def test_session_start_keeps_the_written_record_unless_startup(ctx, source):
+    session.on_start({"session_id": "s1", "source": "startup"}, ctx)
+    sdir = ctx.data_root / "sessions" / "s1"
+    (sdir / "written.json").write_text(json.dumps(["/ws/earlier.py"]))
+    tracked, started = (sdir / "tracked.json").read_bytes(), (sdir / "started.json").read_bytes()
+    evt = {"session_id": "s1"} if source is None else {"session_id": "s1", "source": source}
+    assert session.on_start(evt, ctx) == {}
+    assert json.loads((sdir / "written.json").read_text()) == ["/ws/earlier.py"]
+    # the ctime baseline must not move either, or files written before the compact would look pre-existing
+    assert (sdir / "tracked.json").read_bytes() == tracked and (sdir / "started.json").read_bytes() == started
+    session.on_start({"session_id": "s1", "source": "startup"}, ctx)
+    assert json.loads((sdir / "written.json").read_text()) == []
+
+
+def test_non_startup_without_a_record_stays_strict(ctx):
+    # e.g. a fork into a new session id: what the parent wrote is unknown, so no empty record is invented
+    session.on_start({"session_id": "s2", "source": "fork"}, ctx)
+    sdir = ctx.data_root / "sessions" / "s2"
+    assert not (sdir / "written.json").exists() and (sdir / "tracked.json").exists()

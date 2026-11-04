@@ -6,6 +6,7 @@ line; the Claude Code sandbox set up by /harness:setup is the hard backstop.
 """
 from __future__ import annotations
 
+import fnmatch
 import glob
 import os
 import re
@@ -318,11 +319,18 @@ GIT_READ = {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame", "
 GIT_NET = {"fetch", "pull", "clone", "ls-remote", "submodule", "archive-remote", "request-pull"}
 GIT_OPT_ARGS = {"-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix"}
 PY_OPT_ARGS = {"-W", "-X", "-Q"}
+GREP_OPT_ARGS = {"-e", "-f", "-m", "-A", "-B", "-C", "-d", "-D", "--regexp", "--file", "--include", "--exclude",
+                 "--exclude-dir", "--max-count", "-g", "--glob", "-t", "--type", "-T", "--type-not"}
 
 
 def _code_like(path: str) -> bool:
     b = os.path.basename(path).casefold()
     return b in CODE_NAMES or b.endswith(CODE_SUFFIXES)
+
+
+def _short_or_long(opts, letters, longs):
+    """Any short option cluster containing one of ``letters``, or any of the long options ``longs``."""
+    return any((o.startswith("-") and not o.startswith("--") and set(o[1:]) & set(letters)) or o.split("=", 1)[0] in longs for o in opts)
 
 
 def _split_opts(args, opt_args=()):
@@ -656,6 +664,8 @@ class _Bash:
                     args.pop()  # fd number such as 2>
                 if t in (">&", "<&") and re.fullmatch(r"\d*-?", tgt):
                     continue
+                if t == "<<<" and any(self.read_protected(x) for x in [tgt] + tgt.split()):
+                    self.add("protected_path", "here-string names a path in keys/ or experience/")
                 if t == "<<<" or tgt.startswith("__HEREDOC_"):
                     stdin_code = True
                     continue
@@ -690,14 +700,14 @@ class _Bash:
             return None
         return None if "$" in w else w
 
-    def candidates(self, w):
+    def candidates(self, w, cwds=None):
         """Every realpath ``w`` may refer to (all cwd candidates, braces, globs); None if unresolvable."""
         e = self.expand(w)
         if e is None:
             return None
         outs = []
         for x in _brace_expand(e):
-            for c in self.cwds:
+            for c in self.cwds if cwds is None else cwds:
                 if c is None and not os.path.isabs(x):
                     return None
                 base = x if os.path.isabs(x) else os.path.join(c, x)
@@ -722,9 +732,12 @@ class _Bash:
                 return False
         return any(p.startswith(r.rstrip("/") + "/") for r in self.temp_roots())
 
+    def untrusted(self):
+        return {os.path.realpath(os.fspath(x)) for x in getattr(self.ctx, "untrusted_files", ()) or ()}
+
     def is_written(self, p):
         listed = {os.path.realpath(os.fspath(x)) for x in getattr(self.ctx, "written_this_task", ()) or ()}
-        if p in listed or p in self.written:
+        if p in listed or p in self.written or p in self.untrusted():  # maintainer R4
             return True
         if protected.is_scratch(p, self.ctx) and os.path.lexists(p):  # pathtrack rule 4: job folders are agent-written
             return True
@@ -734,9 +747,31 @@ class _Bash:
         except OSError:
             return False
 
-    def any_written_code(self):
+    def any_written_code(self, args=()):
+        """Code written this task (anywhere), or untrusted code a runner started with ``args`` may load.
+
+        Maintainer R4: the discovery roots are every cwd plus every existing path named in ``args``
+        (directory, or a file's directory); an untrusted file counts when it is under a root, or when it is
+        a file runners load walking up from a root (conftest.py, __init__.py, *.ini/*.toml/*.cfg, package.json,
+        Makefile) in one of the root's ancestor directories.
+        """
         listed = [os.fspath(x) for x in getattr(self.ctx, "written_this_task", ()) or ()]
-        return any(_code_like(p) for p in list(self.written) + listed)
+        if any(_code_like(p) for p in list(self.written) + listed):
+            return True
+        code = [p for p in self.untrusted() if _code_like(p)]
+        if not code:
+            return False
+        if None in self.cwds:
+            return True  # unknown cwd: fail closed
+        roots = list(self.cwds)
+        for a in args:
+            for part in (a, a.split("=", 1)[-1]) + ((a[2:],) if re.match(r"-[A-Za-z].", a) else ()):
+                for p in self.candidates(part) or ():
+                    if os.path.exists(p):
+                        roots.append(p if os.path.isdir(p) else os.path.dirname(p))
+        up = [p for p in code if os.path.basename(p).casefold() in CODE_NAMES | {"__init__.py"} or p.endswith((".cfg", ".toml", ".ini"))]
+        return any(protected._under(p, r) for p in code for r in roots) or any(
+            protected._under(r, os.path.dirname(p)) for p in up for r in roots)
 
     def read_target(self, w):
         if re.match(r"^/dev/(tcp|udp)/", w):
@@ -789,8 +824,8 @@ class _Bash:
             return self.add("self_written_exec", f"{what} a file written this task; use harness-sandbox-exec")
         self.add("local_reversible", f"{what} an existing file")
 
-    def runner(self, name):
-        if self.any_written_code():
+    def runner(self, name, args=()):
+        if self.any_written_code(args):
             return self.add("self_written_exec", f"{name} would execute code written this task; use harness-sandbox-exec")
         self.add("local_reversible", f"{name} on existing code")
 
@@ -812,8 +847,8 @@ class _Bash:
         for a in args:
             if "fold_ledger" in a.casefold():
                 return self.add("protected_path", "direct call to fold_ledger.py is denied")
-            for part in (a, a.split("=", 1)[-1]):
-                if ("/" in part or part.startswith(("~", "."))) and self.read_protected(part):
+            for part in (a, a.split("=", 1)[-1]):  # maintainer R1: every word, resolved against every cwd
+                if self.read_protected(part):
                     return self.add("protected_path", "reads keys/ or experience/")
         cmd = args[0]
         if "$" in cmd:
@@ -839,14 +874,33 @@ class _Bash:
                 return
         self.add("unknown", f"unrecognised command {name!r}; unknown resolves to irreversible")
 
-    def read_protected(self, w):
-        return any(protected.is_read_protected(p, self.ctx) for p in (self.candidates(w) or ()))
+    def read_protected(self, w, cwds=None):
+        return any(protected.is_read_protected(p, self.ctx) for p in (self.candidates(w, cwds) or ()))
 
-    def recursive_read(self, paths):
+    def recursive_read(self, paths, cwds=None):
         for w in paths:
-            for p in self.candidates(w) or ():
+            for p in self.candidates(w, cwds) or ():
                 if protected.contains_read_protected(p, self.ctx):
                     return self.add("protected_path", "recursive read over keys/ or experience/")
+
+    def grep_tree(self, name, rest):
+        """Maintainer R3: a recursive grep reads its whole tree (the cwd when no path is given),
+        unless --exclude-dir globs exclude every protected tree's directory name. The exception is
+        grep-only and void when symlinks are followed (-R, -S): a link may reach a tree under another name."""
+        opts, pos = _split_opts(rest, GREP_OPT_ARGS)
+        narrowing = name in ("grep", "egrep", "fgrep") and not _short_or_long(opts, "RS", ("--dereference-recursive",))
+        if not _has_opt(rest, ("-e", "--regexp", "-f", "--file")):
+            pos = pos[1:]  # the first positional is the pattern
+        excl = [x for v in _opt_value(rest, ("--exclude-dir",)) for x in _brace_expand(v)]
+        names = set()
+        for pat in protected.load_patterns(self.ctx)["read_protected"]:
+            e = protected._expand(pat, self.ctx)
+            if e:  # same literal base as protected.contains_read_protected
+                names.add(os.path.basename(re.split(r"/[^/]*[*?\[]", e, maxsplit=1)[0]))
+        for w in pos or ["."]:
+            for p in self.candidates(w) or ():
+                if protected.is_read_protected(p, self.ctx) or not narrowing or not all(any(fnmatch.fnmatch(n, x) for x in excl) for n in names):
+                    self.recursive_read([p])
 
     def dispatch(self, name, args, stdin_code, stdin_file, dynamic):
         """Classify a known command; return False when ``name`` is unknown."""
@@ -928,10 +982,12 @@ class _Bash:
                 # the workspace (a -m profile path) over-denies. Upgrade to a per-option arity table if that bites.
                 for f in _split_opts(rest)[1]:
                     self.write_target(f, "sips (in place)")
-            if name in ("grep", "egrep", "fgrep") and any(o.startswith("-") and not o.startswith("--") and ("r" in o or "R" in o) or o in ("--recursive", "--dereference-recursive") for o in rest):
-                self.recursive_read(_split_opts(rest)[1][1:])
-            if name in ("rg", "ag", "ack"):
-                self.recursive_read(_split_opts(rest)[1][1:])
+            if name in ("grep", "egrep", "fgrep") and any(o.startswith("-") and not o.startswith("--") and ("r" in o or "R" in o) or o in ("--recursive", "--dereference-recursive") for o in rest) or name in ("rg", "ag", "ack"):
+                self.grep_tree(name, rest)
+            if name == "diff" and _short_or_long(rest, "rR", ("--recursive",)):
+                self.recursive_read(_split_opts(rest)[1])
+            if name == "du":
+                self.recursive_read(_split_opts(rest, {"-d", "-B", "-t", "--max-depth", "--exclude"})[1] or ["."])
             if name == "env" and not rest:
                 return self.add("read", "env") or True
             return self.add("read", name) or True
@@ -967,6 +1023,7 @@ class _Bash:
             else:
                 for d in _opt_value(rest, ("-d",)) or ["."]:
                     self.write_target(d, "unzip")
+                    pathtrack.note_dir(self.track, self.candidates(d))  # maintainer R5
             return self.add("local_reversible", name) or True
         if name == "sqlite3":
             joined = " ".join(rest).casefold()
@@ -998,15 +1055,15 @@ class _Bash:
             if sub in PKG_NET:
                 return self.add("egress_offlist", f"{name} {sub} uses the network") or True
             if sub in RUNNERS or not sub:
-                return self.runner(f"{name} {sub}".strip()) or True
+                return self.runner(f"{name} {sub}".strip(), rest) or True
             return self.add("local_reversible", f"{name} {sub}") or True
         if name in ("make", "gmake"):
             # `-n` is not safe: make still expands $(shell ...) and runs `+`-prefixed recipe lines
-            if self.any_written_code():  # written code: the more specific self_written_exec
-                return self.runner(name) or True
+            if self.any_written_code(rest):  # written code: the more specific self_written_exec
+                return self.runner(name, rest) or True
             return self.add("unknown", f"{name} runs Makefile recipes and $(shell ...), even with -n") or True
         if name in RUNNER_CMDS:
-            return self.runner(name) or True
+            return self.runner(name, rest) or True
         return False
 
     # -- per-command handlers --
@@ -1083,6 +1140,13 @@ class _Bash:
                 break
             if name == "env" and a in ("-S", "--split-string") and i + 1 < len(rest):
                 return self.nested(rest[i + 1] + " " + " ".join(shlex.quote(x) for x in rest[i + 2:]))
+            if name == "env" and (a in ("-C", "--chdir") or a.startswith("--chdir=")):
+                d = a.split("=", 1)[1] if "=" in a else (rest[i + 1] if i + 1 < len(rest) else None)
+                if d is None:
+                    return self.add("unknown", "env -C without a directory")
+                self.dispatch("cd", ["cd", d], stdin_code, stdin_file, dynamic)  # inner command runs in d
+                i += 1 if "=" in a else 2
+                continue
             if name == "env" and _ASSIGN.match(a):
                 n = a.split("=", 1)[0]
                 if n in DANGEROUS_ENV or n.startswith(DANGEROUS_ENV_PREFIXES):
@@ -1207,7 +1271,7 @@ class _Bash:
                 return self.add("egress_offlist", f"pip {sub} uses the network")
             return self.add("local_reversible", f"pip {sub}")
         if mod_l in ("pytest", "unittest", "doctest", "coverage", "tox", "nox", "mypy"):
-            return self.runner(f"{name} -m {mod}")
+            return self.runner(f"{name} -m {mod}", after)
         if mod_l in SAFE_PY_MODULES:
             return self.add("local_reversible", f"{name} -m {mod}")
         self.add("unknown", f"unrecognised python module {mod!r}")
@@ -1241,6 +1305,8 @@ class _Bash:
             a = rest[i]
             if a == "-c" or a.startswith("--config-env") or a.startswith("--exec-path"):
                 return self.add("unknown", "git -c/--exec-path can run arbitrary commands")
+            if a.startswith(("--git-dir=", "--work-tree=")) or (a in ("--git-dir", "--work-tree") and i + 1 < len(rest)):
+                self.recursive_read([a.split("=", 1)[1] if "=" in a else rest[i + 1]], repo_dirs)
             if a in GIT_OPT_ARGS and i + 1 < len(rest):
                 if a == "-C":
                     nxt = []
@@ -1256,6 +1322,14 @@ class _Bash:
             break
         sub = rest[i] if i < len(rest) else ""
         args = rest[i + 1:]
+        if repo_dirs != self.cwds:  # maintainer R3: `git -C d` runs any subcommand with cwd d
+            if None in repo_dirs:
+                return self.add("unknown", "git -C directory cannot be resolved")
+            self.recursive_read(["."], repo_dirs)
+            for a in args:
+                for part in (a, a.split("=", 1)[-1]):
+                    if self.read_protected(part, repo_dirs):
+                        return self.add("protected_path", "git -C reads keys/ or experience/")
         if sub == "format-patch":
             if "--stdout" in args:
                 return self.add("read", "git format-patch --stdout")
@@ -1313,6 +1387,8 @@ class _Bash:
             return self.add("destructive", f"git {sub} rewrites or drops history")
         if not re.fullmatch(r"[a-z][a-z-]*", sub or "x"):
             return self.add("unknown", f"unrecognised git subcommand {sub!r}")
+        if sub == "apply":  # maintainer R5: patch paths are relative to the work-tree root
+            pathtrack.note_dir(self.track, None if None in repo_dirs else [os.path.dirname(self.find_git_dir(d)) for d in repo_dirs])
         # everything else writes the repository: .git/** is protected
         for d in repo_dirs:
             gd = self.find_git_dir(d, init=sub in ("init", "clone"))
@@ -1371,7 +1447,8 @@ class _Bash:
         tdir = _opt_value(rest, ("-t", "--target-directory"))
         if dynamic and not tdir:
             return self.add("unknown", f"{name} with dynamic arguments")
-        if name == "cp" and any(o in ("-r", "-R", "-a") or (o.startswith("-") and not o.startswith("--") and ("r" in o or "R" in o or "a" in o)) for o in opts):
+        recursive = name in ("rsync", "ditto") or (name == "cp" and _short_or_long(opts, "rRa", ("--recursive", "--archive")))
+        if recursive:  # maintainer R3: a recursive copy reads its whole source tree
             self.recursive_read(pos[:-1] if not tdir else pos)
         if tdir:
             dest, srcs = tdir[0], pos
@@ -1384,6 +1461,8 @@ class _Bash:
                 for p in self.candidates(s) or ():
                     if protected.is_protected(p, self.ctx):
                         return self.add("protected_path", f"{name} of protected path {p}")
+        if recursive:
+            pathtrack.note_dir(self.track, self.candidates(dest))  # maintainer R5
         if self.export_target(dest, name):
             return
         for d in self.candidates(dest) or ():
@@ -1428,8 +1507,10 @@ class _Bash:
         self.add("read", "sed")
 
     def find(self, rest):
-        starts = []
-        for a in rest:
+        starts, j = [], 0
+        while j < len(rest) and (rest[j] in ("-H", "-L", "-P", "-E", "-X", "-s", "-x", "-d") or re.fullmatch(r"-O\d*", rest[j]) or rest[j] == "-D"):
+            j += 2 if rest[j] == "-D" else 1  # BSD/GNU options before the start paths
+        for a in rest[j:]:
             if a.startswith("-") or a in ("(", "!", ")"):
                 break
             starts.append(a)
@@ -1472,4 +1553,5 @@ class _Bash:
         if extracting:
             for d in _opt_value(rest, ("-C", "--directory")) or ["."]:
                 self.write_target(d, "tar -x")
+                pathtrack.note_dir(self.track, self.candidates(d))  # maintainer R5
         self.add("local_reversible", "tar")

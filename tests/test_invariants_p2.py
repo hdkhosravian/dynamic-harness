@@ -33,7 +33,8 @@ def pre(ctx, tool, **inp):
 def test_r1_hooks_json_registers_only_safety_entry_points():
     hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text())["hooks"]
     # PostToolUse only records writes (written.py); it never blocks or alters a T0 call
-    assert set(hooks) == {"PreToolUse", "PostToolUse", "SessionStart", "ConfigChange"}
+    # PostToolUseFailure records writes of failed calls too; neither blocks or alters a T0 call
+    assert set(hooks) == {"PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "ConfigChange"}
     for event, entries in hooks.items():
         for e in entries:
             for h in e["hooks"]:

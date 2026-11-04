@@ -35,3 +35,19 @@ def test_post_tool_use_records_every_file_write(env):
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         hits = [g for g in groups if re.fullmatch(g.get("matcher", ".*"), tool)]
         assert any(h["command"].endswith('harness-hook" PostToolUse') for g in hits for h in g["hooks"]), tool
+
+
+def test_post_tool_use_failure_records_every_file_write(env):
+    # a failed Write/Edit may still have written part of the file
+    cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
+    groups = cfg["hooks"]["PostToolUseFailure"]
+    for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        hits = [g for g in groups if re.fullmatch(g.get("matcher", ".*"), tool)]
+        assert any(h["command"].endswith('harness-hook" PostToolUseFailure') for g in hits for h in g["hooks"]), tool
+
+
+def test_bash_writes_are_not_left_to_post_tool_use(env):
+    # PreToolUse records Bash writes before the command runs; PostToolUse need not fire
+    cfg = json.loads((env["root"] / "hooks" / "hooks.json").read_text())
+    for event in ("PostToolUse", "PostToolUseFailure"):
+        assert not any(re.fullmatch(g.get("matcher", ".*"), "Bash") for g in cfg["hooks"][event]), event

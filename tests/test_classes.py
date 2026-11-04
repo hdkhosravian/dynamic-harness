@@ -332,11 +332,15 @@ def tctx(ctx, tmp_path):
     "cd {ws} && rm -r ../",
     "rm -rf {ws}/..",
     "rm -rf {ws}/../../sibling/x",
-    "cd {ws}/../.. && rm -rf sibling",
     "unlink {ws}/src/../../../sibling/f",
 ])
 def test_rm_traversal_out_of_workspace_is_destructive(tctx, cmd):
     assert B(tctx, cmd.format(ws=tctx.workspace)).cls == "destructive"
+
+
+def test_cd_above_the_data_root_then_rm_is_protected_path(tctx):
+    # maintainer R2: that cd lands on an ancestor of the data root, which outranks the rm's destructive
+    assert B(tctx, "cd {ws}/../.. && rm -rf sibling".format(ws=tctx.workspace)).cls == "protected_path"
 
 
 def test_find_delete_traversal_denied(tctx):

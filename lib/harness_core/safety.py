@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import classes, egress, query_guard
+from . import classes, egress, query_guard, written
 from .egress import RESEARCHER
 from .errors import Denied
 
@@ -28,6 +28,7 @@ class Ctx:
     permission_mode: Optional[str] = None
     connector_registry: dict = field(default_factory=dict)
     written_this_task: set = field(default_factory=set)
+    untrusted_files: set = field(default_factory=set)  # realpaths created/changed since session start (ctime); hook layer fills it
     task_started: Optional[float] = None
     grant: Optional[dict] = None
     allowlist: Optional[list] = None
@@ -108,5 +109,7 @@ def on_pre(evt, ctx: Ctx) -> dict:
         why = ctx.session_reason or "no passing SessionStart status for this session"
         return _deny(tool, "session", why, f"session checks have not passed ({why}): only reads are allowed", ctx)
     if _v1_allows(c, ctx) or _research_exception(tool, c, ctx):
+        if tool == "Bash":  # recorded before the command runs: PostToolUse may never fire
+            written.record_bash(evt, ctx)
         return {}
     return _deny(tool, c.cls, c.reason, f"{c.cls}: {c.reason} (v1 denies irreversible actions)", ctx)

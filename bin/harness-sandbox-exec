@@ -3,10 +3,16 @@
 
 Runs ARGV (no shell) under the harness sandbox: no network, no Apple Events, no
 reads of ${CLAUDE_PLUGIN_DATA}/keys|experience, writes only under the working
-directory and a temp dir, never to the workspace's protected paths.
+directory and a temp dir, never to the workspace's protected paths, and no reads
+or writes anywhere under ${CLAUDE_PLUGIN_DATA} (keys, state, lock files).
+
+Every path is resolved once (``_resolve``: realpath, then lstat of each component)
+and only those resolved paths reach the profile and the child's cwd, so a symlink
+swapped in after the checks cannot move a rule.
 """
 import glob
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -18,6 +24,19 @@ PROTECTED = (".git", ".claude", "CLAUDE.md", "CLAUDE.local.md", ".mcp.json")  # 
 def _under(p, root):
     p, root = p.casefold(), root.casefold().rstrip(os.sep)  # the default macOS filesystem ignores case
     return p == root or p.startswith(root + os.sep)
+
+
+def _resolve(p):
+    """realpath, then lstat every component: a symlink there means a swap since the resolve."""
+    real, cur = os.path.realpath(p), os.sep
+    for part in real.split(os.sep)[1:]:
+        cur = os.path.join(cur, part)
+        try:
+            if stat.S_ISLNK(os.lstat(cur).st_mode):
+                raise ValueError(f"{cur} became a symlink while resolving {p!r}; refusing to run")
+        except FileNotFoundError:
+            break  # the rest does not exist yet
+    return real
 
 
 def _job_dirs(project):
@@ -40,7 +59,7 @@ def _job_dirs(project):
             if os.path.islink(d):
                 raise ValueError(f"{d} is a symlink; refusing to run")
             if os.path.isdir(d):
-                out.append(d)
+                out.append(_resolve(d))
     return out
 
 
@@ -68,26 +87,27 @@ def main(argv):
         # fail closed: without the data root we cannot deny its keys/
         print("harness-sandbox-exec: CLAUDE_PLUGIN_DATA is not set; refusing to run", file=sys.stderr)
         return 2
-    home = os.path.realpath(os.path.expanduser("~"))
+    home = _resolve(os.path.expanduser("~"))
     claude_home = os.path.join(home, ".claude")
-    # the agent controls this process's env, so also deny every installed plugin's secrets by location
-    secret_dirs = [os.path.join(data, "keys"), os.path.join(data, "experience")]
-    secret_dirs += glob.glob(os.path.join(claude_home, "plugins", "data", "*", "keys"))
-    secret_dirs += glob.glob(os.path.join(claude_home, "plugins", "data", "*", "experience"))
-    deny_read += secret_dirs
-    real_cwd = os.path.realpath(cwd)
+    data = _resolve(data)
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    plugin_root = _resolve(plugin_root) if plugin_root else None
+    # the whole data root (state, lock files, keys); the agent controls this process's env, so also
+    # every installed plugin's secrets by location
+    deny_read = [_resolve(d) for d in deny_read + [data] + sandbox_exec.secret_dirs(data, home)]
+    real_cwd = _resolve(cwd)
     project = os.environ.get("CLAUDE_PROJECT_DIR")
     if not project:
         print("harness-sandbox-exec: CLAUDE_PROJECT_DIR is not set; refusing to run", file=sys.stderr)
         return 2
     # allow-only: the cwd must be inside the workspace (the PreToolUse classifier is the primary
     # check and denies env/export changes to CLAUDE_PROJECT_DIR; this is defence in depth)
-    real_project = os.path.realpath(project)
+    real_project = _resolve(project)
     if not (real_cwd == real_project or real_cwd.startswith(real_project + os.sep)):
         print(f"harness-sandbox-exec: cwd {cwd!r} is outside the workspace; refusing to run", file=sys.stderr)
         return 2
-    for bad in (claude_home, os.path.realpath(data), os.environ.get("CLAUDE_PLUGIN_ROOT")):
-        if bad and (real_cwd == os.path.realpath(bad) or real_cwd.startswith(os.path.realpath(bad) + os.sep)):
+    for bad in (claude_home, data, plugin_root):
+        if bad and (real_cwd == bad or real_cwd.startswith(bad + os.sep)):
             print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected tree; refusing to run", file=sys.stderr)
             return 2
     # every root below is fixed from the project root, never from the cwd
@@ -104,10 +124,10 @@ def main(argv):
         d = os.path.dirname(d)
     nested += glob.glob(os.path.join(real_cwd, "**", "CLAUDE*.md"), recursive=True)
     deny_write = protected + nested
-    deny_write += [os.path.realpath(p) for p in deny_write]  # a symlinked CLAUDE.md protects its target too
-    deny_write += [p for p in (data, os.environ.get("CLAUDE_PLUGIN_ROOT"), claude_home) if p]
+    deny_write += [_resolve(p) for p in deny_write]  # a symlinked CLAUDE.md protects its target too
+    deny_write += [p for p in (data, plugin_root, claude_home) if p]
     stdin = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read()
-    code, out, err = sandbox_exec.run(cmd, cwd, stdin, timeout, deny_read, deny_write, allow_write)
+    code, out, err = sandbox_exec.run(cmd, real_cwd, stdin, timeout, deny_read, deny_write, allow_write)
     sys.stdout.buffer.write(out)
     sys.stderr.buffer.write(err)
     return code

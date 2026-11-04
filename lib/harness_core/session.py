@@ -9,7 +9,8 @@ and runs an in-process PreToolUse canary. It needs the loop-contract plugin
 root (``ctx.loop_contract_root``) at version >= 1.1.0.
 
 With a ``session_id`` it also writes, under ``sessions/<sid>/``: the settings
-baseline (for ConfigChange), the written-files record (``written.start``) and
+baseline (for ConfigChange), the written-files record (``written.start``: fresh only
+for ``source == "startup"``; compact/resume/clear/fork keep it) and
 ``status.json`` ``{ok, reasons, canary, ts, cwd}``. A failed status is written
 before the checks run, so a crash never leaves an earlier ``ok`` behind.
 PreToolUse allows only reads unless a fresh ``ok`` status exists.
@@ -126,7 +127,7 @@ def on_start(evt, ctx) -> dict:
           "cwd": str(ctx.workspace)}
     atomic_write(sdir / "status.json", json.dumps(st).encode())
     atomic_write(sdir / "settings_baseline.json", json.dumps(config_guard.snapshot(ctx)).encode())
-    written.start(ctx.data_root, sid, ctx.workspace)
+    written.start(ctx.data_root, sid, ctx.workspace, source=evt.get("source"))
     out = _checks(evt, ctx)
     st.update(ok=out == {}, reasons=[out["reason"]] if out else [], ts=time.time(),
               canary=True if out == {} else (False if out.get("state") == "CANARY_FAILED" else None))

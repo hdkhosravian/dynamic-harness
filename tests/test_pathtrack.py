@@ -93,3 +93,29 @@ def test_search_roots_glob(ctx, inp, extra):
 def test_search_roots_non_glob_is_just_the_path(ctx):
     assert pt.search_roots("Grep", {"pattern": "../x", "path": "src"}, ctx) == ["src"]
     assert pt.search_roots("Glob", {"pattern": 3, "path": None}, ctx) == [str(ctx.workspace)]
+
+
+# ---- maintainer R5: copy/extract into a directory reports the directory -------
+
+@pytest.mark.parametrize("cmd, d", [
+    ("tar -xf a.tar -C out", "out"),
+    ("tar -xzf a.tgz", ""),
+    ("unzip a.zip -d out", "out"),
+    ("unzip a.zip", ""),
+    ("cp -r src out", "out"),
+    ("cp --recursive src out", "out"),
+    ("rsync -a src/ out", "out"),
+    ("ditto src out", "out"),
+    ("git apply p.diff", ""),
+    ("git -C sub apply p.diff", ""),  # patch paths are relative to the work-tree root
+])
+def test_bash_write_targets_marks_destination_directories(ctx, cmd, d):
+    ws = os.path.realpath(ctx.workspace)
+    (ctx.workspace / ".git").mkdir()
+    (ctx.workspace / "sub").mkdir()
+    marker = os.path.join(ws, d).rstrip("/") + "/"
+    assert marker in pt.bash_write_targets(cmd, ctx)
+
+def test_bash_write_targets_plain_copy_has_no_directory_marker(ctx):
+    got = pt.bash_write_targets("cp a.txt b.txt", ctx)
+    assert got == [os.path.join(os.path.realpath(ctx.workspace), "b.txt")]

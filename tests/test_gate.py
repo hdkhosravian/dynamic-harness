@@ -523,3 +523,19 @@ def test_argv_runs_fold_ledger_with_isolated_absolute_python(h):
     _all_pass(h)
     _, r = _run(h)
     assert r.calls[0][:2] == ["/usr/bin/python3", "-I"]
+
+
+def test_gate_child_cannot_read_the_data_root_or_any_plugin_secret(h, tmp_path, monkeypatch):
+    import os
+
+    home = tmp_path / "home"
+    for d in ("other/keys", "other/experience"):
+        (home / ".claude" / "plugins" / "data" / d).mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    _all_pass(h)
+    r = FakeRunner()
+    _run(h, runner=r)
+    deny = set(r.kw["deny_read"])
+    r_ = os.path.realpath
+    assert r_(h["p"].data_root) in deny  # covers keys/, experience/ and every lock file under it
+    assert {r_(home / ".claude" / "plugins" / "data" / "other" / d) for d in ("keys", "experience")} <= deny

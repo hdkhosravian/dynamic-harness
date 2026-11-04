@@ -8,10 +8,14 @@ and no writes to ``CLAUDE*.md`` or ``.mcp.json`` at any depth.
 SBPL is last-match-wins, so rule order below is the policy.
 The child runs in its own session; on timeout and on exit the whole process group
 is killed, so background children cannot outlive the call.
+Paths go into the profile exactly as given (never resolved here): callers pass
+real paths they resolved and checked once, and the sandbox matches resolved paths,
+so swapping a component for a symlink later cannot widen a rule.
 Fails closed: if ``sandbox-exec`` is missing, ``run`` raises ``HarnessError``.
 """
 from __future__ import annotations
 
+import glob
 import os
 import shutil
 import signal
@@ -26,12 +30,20 @@ SAFE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 
 
 def _q(path) -> str:
-    s = os.path.realpath(os.fspath(path))
+    s = os.fspath(path)  # never resolved here: callers resolve and check once, so a later swap cannot move a rule
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _subpaths(paths) -> str:
     return " ".join(f"(subpath {_q(p)})" for p in paths)
+
+
+def secret_dirs(data_root, home) -> list:
+    """keys/ and experience/ of this data root and of every installed plugin (``~/.claude/plugins/data/*``)."""
+    out = [os.path.join(os.fspath(data_root), n) for n in ("keys", "experience")]
+    for n in ("keys", "experience"):
+        out += glob.glob(os.path.join(os.fspath(home), ".claude", "plugins", "data", "*", n))
+    return out
 
 
 def profile(cwd, tmp, deny_read=(), deny_write=(), allow_write=()) -> str:

@@ -265,3 +265,68 @@ def test_case_variant_of_denied_dir_is_not_writable(box):
     code, _, _ = py("import os; open(os.path.join('.CLAUDE', 'settings.json'), 'w').write('x')", cwd,
                     deny_write=[str(cwd / ".claude")])
     assert code != 0 and not (cwd / ".claude" / "settings.json").exists()
+
+
+def test_profile_does_not_resolve_its_inputs(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    p = sandbox_exec.profile(tmp_path / "link", tmp_path / "t", deny_write=[tmp_path / "link"])
+    assert str(tmp_path / "real") not in p and f'(subpath "{tmp_path / "link"}")' in p
+
+
+def test_cwd_swapped_to_a_symlink_after_resolution_stays_unwritable(tmp_path):
+    # the launcher resolves and checks once; a swap afterwards must not move the write allowance
+    work, target = tmp_path / "work", tmp_path / "target"
+    work.mkdir()
+    target.mkdir()
+    resolved = os.path.realpath(work)
+    work.rename(tmp_path / "moved")
+    work.symlink_to(target)
+    code, _, _ = sandbox_exec.run(["/bin/sh", "-c", f"echo x > {target}/f"], resolved)
+    assert code != 0 and not (target / "f").exists()
+
+
+def test_secret_dirs_cover_every_installed_plugin(tmp_path):
+    home = tmp_path / "home"
+    for d in ("a/keys", "b/experience"):
+        (home / ".claude" / "plugins" / "data" / d).mkdir(parents=True)
+    got = sandbox_exec.secret_dirs(tmp_path / "data", home)
+    base = home / ".claude" / "plugins" / "data"
+    assert {str(tmp_path / "data" / "keys"), str(base / "a" / "keys"), str(base / "b" / "experience")} <= set(got)
+
+
+def test_bin_denies_reading_and_locking_anything_in_the_data_root(box, tmp_path):
+    cwd, _ = box
+    data = tmp_path / "data"
+    (data / "sessions" / "s1").mkdir(parents=True)
+    (data / "sessions" / "s1" / "written.json").write_text('["/x"]')
+    (data / "sessions" / "s1" / "written.lock").write_text("")
+    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(data), "CLAUDE_PROJECT_DIR": str(cwd)}
+    lock = data / "sessions" / "s1" / "written.lock"
+    r = _bin(["--", PY, "-I", "-c", f"print(open({str(data / 'sessions' / 's1' / 'written.json')!r}).read())"], cwd, env)
+    assert r.returncode != 0 and b"/x" not in r.stdout and b"refusing" not in r.stderr
+    r = _bin(["--", PY, "-I", "-c", f"import fcntl; fcntl.flock(open({str(lock)!r}), fcntl.LOCK_EX); print('LOCKED')"],
+             cwd, env)
+    assert b"LOCKED" not in r.stdout
+
+
+def _launcher():
+    import importlib.machinery
+    import importlib.util
+
+    loader = importlib.machinery.SourceFileLoader("harness_sandbox_exec_bin", str(ROOT / "bin" / "harness-sandbox-exec"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def test_launcher_resolve_refuses_a_symlink_in_the_resolved_path(tmp_path, monkeypatch):
+    # realpath, then lstat every component: a component swapped to a symlink in between is refused
+    mod = _launcher()
+    (tmp_path / "a").mkdir()
+    assert mod._resolve(str(tmp_path / "a" / "missing")) == os.path.realpath(tmp_path / "a" / "missing")
+    (tmp_path / "b").symlink_to(tmp_path / "a")
+    monkeypatch.setattr(mod.os.path, "realpath", lambda p: str(tmp_path / "b" / "x"))
+    with pytest.raises(ValueError):
+        mod._resolve(str(tmp_path / "anything"))
