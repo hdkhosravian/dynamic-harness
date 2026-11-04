@@ -631,3 +631,27 @@ its last `file_sha`, appends the row, then appends an event carrying
 - `bin/`: `harness-compile --card F [--second-draft F]`, `harness-contact TYPE [--text|--text-file|
   --plan|--handoff|--accept]`, `harness-card validate F | merge F1 F2`, and `harness-probe TEXT`. They
   only print.
+
+## P4: lease, budget, gate hook, Stop, RE_UNDERSTAND, decision record
+
+- `lease.read/acquire/status(ctx, job, sid) -> owner|other|stale|none`, `require` (fails closed: with no
+  lease only the jobs-index owner may claim one), `claim(ctx, job, sid, allow_stale=True)` (under the log lock:
+  acquire, or take over a stale lease with epoch + 1), `heartbeat` (at most once a minute), `remaining`,
+  `takeover`. `runs/<job>/lease.json` `{session_id, epoch, heartbeat, ttl}`.
+- `budget.charge(evt, ctx) -> {} | block` (PostToolUse, T1/T2 tasks), `stop(ctx, job, state, reason, sid,
+  calls, amount) -> message`, `latest_stop(log) -> STOPPED_* | PAUSED | None` (a PAUSED never masks a
+  STOPPED_*), `STALL_CALLS = 40`. `budget.json` `{calls, calls_cap, verdicts_seen, calls_at_verdict,
+  money_increment, seconds_increment}`. The money cap is active only with `business/profile.json`
+  `caps.task` and `control/prices.json` `{currency, as_of, per_mtok{input, output}}` in the same currency.
+- `contact.apply` with `{type: cost, accept: <turn_id>|latest}` -> `{resumed, contact_id, calls, amount}`:
+  the reply must come after the stop (`turn_seq` on the cost row) and be a whole-reply approval.
+- `gatehook.on_post(evt, ctx)` (event `gate`, `harness-hook PostToolUse --gate`), `run(evt, ctx) ->
+  {state, mode, caps}`, `load_key(data_root) -> 32 bytes` (`keys/hmac.key`, 0600). `bin/harness-gate request`.
+- `stopgate.on_stop(evt, ctx)` (Stop) -> `{}` | `{systemMessage}` | block; `lexicon_hits(ctx, text,
+  allowed=())`. Session `stop_blocks {turn, reason, n}`.
+- `reunderstand.apply(req, ctx, evt, budget_of)` via `compile.apply` when `req.reunderstand` is set ->
+  `{job_id, state, tier, reunderstood, version, notice, removed}`. `bin/harness-compile --card F
+  --reunderstand TURN_ID`.
+- `record.write(ctx, job, state, interim=False) -> row` appends `records/<job>.jsonl` (redacted).
+- `normalize.quantity_tokens(text) -> [(token, Decimal)]`: the vendored loop-contract tokeniser.
+- Card field `follows`: a DONE job id; `compile.apply` refuses any other value.

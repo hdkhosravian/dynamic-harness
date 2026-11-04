@@ -2259,10 +2259,49 @@ profiles:
   - A refused card keeps the pending card, so a refusal cannot lift the gate.
   - The tripwire skips only the print-only CLIs; `harness-sandbox-exec` counts.
 - **Corrections and shadow.** Corrections are logged verbatim, as evidence only, and cite a real owner turn. The second draft is logged in shadow and never changes the card.
-- **Known gaps carried to P4.**
+- **Known gaps carried to P4** (see §Build decisions (P4) for what P4 closed).
   - The Stop hook does not exist yet. A model can still answer in plain text while a card is pending, and a live `-p` run did exactly that (2 orders, 30 toman, from a read). The spec's enforcement for this is Stop refusing a T0 completion while `pending_card` is set.
   - Not built yet: lease, budget, stall, RE_UNDERSTAND, thread matching to terminal jobs, `cost` contacts, `harness-claims fetch` (P5 business tools) and `harness-run` (P5 packs).
   - `templates/fa.json` is a P5 item; P3 ships English only.
+
+### Build decisions (P4, as built in `dynamic-harness` @ `feat/p1-p2`)
+
+- **Lease.** `lease.json` has one owner session. `require` fails closed: with no lease, only the session in the jobs index may claim one. `claim` runs under the event-log lock and either acquires, or takes over a stale lease and raises the epoch. "continue" in another session claims the lease; a live lease elsewhere leaves that prompt outside the task, and it still needs its own card.
+- **Budget.** PostToolUse charges every tool call in a T1/T2 task, subagents included (`BUDGET_CHARGE`). The checks run in this order:
+  - calls above `calls_cap`, or a T1 task older than 30 minutes, give `STOPPED_BUDGET`;
+  - 40 calls with no new unit verdict give `STOPPED_STALL`;
+  - an estimated spend above the owner's task cap gives `STOPPED_COST`.
+- **Money estimate.** The estimate is the transcript's token usage since the task started, priced by `control/prices.json`. It is active only when `business/profile.json` has `caps.task` in the price table's currency, so it stays off until the business layer (P5) sets a cap. The transcript is read again on each call; a byte offset is the upgrade if transcripts grow large.
+- **Stops.** A stop appends `STOPPED{state}`, marks the jobs index and writes an interim decision record. Budget and cost stops also record an uncounted `cost` contact. The contact stores the latest turn seq, so only a later reply can accept it. While a task is stopped, only reads and `harness-contact cost --accept` run, and `contact.apply` refuses every other contact type. A `PAUSED` never masks a budget, cost or stall stop. The prompt hook resumes only a `PAUSED` task.
+- **Continue after a stop.** `harness-contact cost --accept latest` needs the owner's reply to that contact, and the whole reply must be an approval ("yes", "continue"). The writer grants a one-time increment: half the old cap in calls (at least 20), 15 more minutes for T1, and half the spend for money. It then appends `APPROVAL{cost_increment}` and `RESUMED`.
+- **Gate hook.** It has its own PostToolUse entry: matcher `Bash`, 1800 s timeout, watchdog 1795 s. It returns at once for any other command. On a lone `harness-gate request` it checks that the task is T1/T2, owned by this session and not stopped. It then runs `gate.run_gate` with:
+  - the profile `gate.json` `<tier>.<task_type>` or `<tier>.default`, plus the task type;
+  - the key `keys/hmac.key`, created 0600 on first use;
+  - fold_ledger from the loop-contract root.
+
+  The main PostToolUse entry treats `harness-gate` as print-only. Both entries run in parallel; a `BUDGET_CHARGE` after the receipt head is allowed, and a concurrent stop invalidates the receipt as it should.
+- **Done mode needs packs.** Done mode needs an `oracle_cmd` that comes from a pack manifest, and no live writer records check outputs before `harness-run` (P5). In P4 a live task therefore gates in known mode, and its state line is "Partly done" or "Done, not fully checked".
+- **Stop hook.** It never runs the gate (10 s timeout). With an open task it allows a stop on:
+  - tamper, as `STOPPED_TAMPER`;
+  - a running background subagent, as a wait with no record and no block count;
+  - a stop record with no `RESUMED` after it;
+  - a recorded contact (`pending_contact_id`);
+  - a verified receipt, if the final message passes the lint. The task is then DONE in the jobs index, a final decision record is written, and the state line is the `systemMessage`.
+
+  A final message that asks the owner something counts as a contact when one is allowed; otherwise it blocks. Any other stop blocks with the missing item named. Three blocks with the same reason in one request write `STOPPED_STALL`; that is how `stop_hook_active` loops end.
+- **Final-message lint.** The lint finds state-lexicon words outside lines that match a `templates/en.json` template or the state line. After the gate, every money or quantity token must be in the receipt's traced set. That set is read from `gate/fold_receipt.json` and checked against `traced_set_sha` in the HMAC. The tokeniser is vendored from loop-contract (`harness_core/normalize.py`), and a test keeps the two copies identical.
+- **Quick answers (rule 3).** A pending card blocks. State words block. A money word in the answer blocks once and sets `pending_card` with floor T1. This closes the P3 gap where a model answered in plain text while a card was pending.
+- **RE_UNDERSTAND.** `harness-compile --card F --reunderstand <turn>` re-compiles the open task, once per task. The turn must be a correction that the prompt hook recorded after the latest scope freeze; the hook now tells the model how to re-understand. The writer:
+  - writes card v(n+1), which keeps the owner's original request;
+  - lets the tier only go up;
+  - keeps a unit's id and verdicts only if the unit is identical and the oracle is unchanged, and gives every other unit a new id, so nothing carries over unverified;
+  - marks units that are not kept `DESCOPED_BY_USER`, citing the turn;
+  - resets the start-question allowance only when the turn names a changed unit;
+  - returns the rework notice as a statement.
+- **Follow-ups.** A prompt that matches the session's DONE task gets a hint to copy its card with the change and set `follows`. `compile` refuses `follows` unless it names a finished task. Refused and abandoned tasks are not followed up.
+- **Decision record (R-15).** `records/<job>.jsonl` gets interim rows at resumable stops and a final row at REFUSED, DONE and STOPPED_TAMPER. It is assembled from artefacts only, and every string is redacted.
+- **Tests.** `test_lease`, `test_budget`, `test_gatehook`, `test_stopgate` and `test_state_machine` cover these paths. The suite passes on macOS and on Ubuntu 22.04 and 24.04 (`--privileged` containers, real fold_ledger, `HARNESS_REQUIRE_INTEGRATION=1`).
+- **Known gaps carried to P5.** `harness-claims fetch`, `harness-run` and packs (done mode), `templates/fa.json`, `/dynamic-harness:memory`, the business layer (which turns the money cap on) and `/dynamic-harness:status --abandon`. The R-2 end-to-end run under `claude -p` with the P4 hooks is still to do.
 
 ### Build decisions (P5 setup, as built in `dynamic-harness` @ `feat/p1-p2`)
 
