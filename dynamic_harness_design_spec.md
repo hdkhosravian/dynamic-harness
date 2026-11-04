@@ -4,7 +4,7 @@
 *   **Status:** Draft v2 (revised after the EGM Goldfish review; see `egm-harness-review/`)
 *   **Date:** 2026-11-04
 *   **Companion paper:** `هارنسینگ پویا برای Claude Code.md` (the rationale; this file is the normative spec)
-*   **Builds on:** loop-contract-skill v1.0.0 (`/Users/sam/Project/loop-contract-skill`)
+*   **Builds on:** loop-contract-skill v1.0.0 (https://github.com/hdkhosravian/loop-contract-skill)
 
 --------------------------------------------------------------------------------
 
@@ -1897,7 +1897,7 @@ them.
 
 Paths are relative to two repos:
 - `harness/`: this new plugin.
-- `loop-contract-skill/`: `/Users/sam/Project/loop-contract-skill`.
+- `loop-contract-skill/`: https://github.com/hdkhosravian/loop-contract-skill (a sibling checkout).
 
 ### Build phases
 

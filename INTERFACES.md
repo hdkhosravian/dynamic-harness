@@ -1,6 +1,6 @@
 # Interface contract (P1–P2)
 
-This is the normative design: `/Users/sam/Downloads/dynamic_harness_design_spec.md`.
+This is the normative design: `dynamic_harness_design_spec.md` in this repository.
 The sections that matter most are "Trust boundaries and protected writes", "Hooks",
 "Gate adapter", "Gate and Stop semantics" and "Irreversible-action control".
 

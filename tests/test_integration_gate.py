@@ -1,6 +1,6 @@
 """End to end: harness ledger -> fold.project -> REAL fold_ledger.py under the REAL sandbox_exec -> receipt.
 
-fold_ledger path: env HARNESS_FOLD_LEDGER, default the loop-contract checkout next to this repo.
+fold_ledger path: env HARNESS_FOLD_LEDGER, default a loop-contract-skill checkout next to this repo.
 HARNESS_REQUIRE_INTEGRATION=1 turns every "fold_ledger missing / too old" skip into a failure (CI).
 """
 from __future__ import annotations
@@ -22,7 +22,8 @@ from harness_core.paths import job_paths
 
 FOLD = os.environ.get(
     "HARNESS_FOLD_LEDGER",
-    "/Users/sam/Project/loop-contract-skill/skills/loop-contract/scripts/fold_ledger.py",
+    str(Path(__file__).resolve().parents[2] / "loop-contract-skill" / "skills" / "loop-contract" / "scripts"
+        / "fold_ledger.py"),  # default: a loop-contract-skill checkout next to this repository
 )
 KEY = b"k" * 32
 PROFILE = {"allow_blocked": "units", "oracle_cmd": "/usr/bin/true", "oracle_timeout": 30,
