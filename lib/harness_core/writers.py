@@ -73,6 +73,10 @@ def _say(tool, res):
     if tool == "contact":
         if res.get("resumed"):
             return f"harness: the owner approved continuing; the task resumed ({res['calls'] or 0} more calls)."
+        if res.get("defined"):
+            restated = (f" It replaces version {res['restated']}: show the restated figure." if res.get("restated")
+                        else "")
+            return f"harness: the owner confirmed metric {res['defined']} (version {res['version']}).{restated}"
         if res.get("granted"):
             return f"harness: research plan {res['plan_sha'][:12]} accepted; grant for {', '.join(res['domains'])}."
         return (f"harness: contact {res['contact_id']} ({res['type']}) recorded. Show it to the owner and wait for "
@@ -106,6 +110,7 @@ def on_post(evt, ctx) -> dict:
     except HarnessError as e:  # Denied, CardError, SchemaError, TamperError: nothing was recorded
         return {"decision": "block", "reason": f"harness-{name} not recorded: {e}"}
     out = _context(_say(name, res))
-    if name == "contact" and res.get("type") == "plan" and not res.get("granted"):
+    if name == "contact" and res.get("type") in ("plan", "definition_confirm") and res.get("text") \
+            and not res.get("granted") and not res.get("defined"):
         out["systemMessage"] = res["text"]  # the owner sees the rendered plan itself, not the model's retelling
     return out

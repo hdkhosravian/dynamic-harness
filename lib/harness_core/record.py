@@ -76,6 +76,12 @@ def write(ctx, job, state, interim=False) -> dict:
         report_sha = canon.sha256_bytes(data)
         headings = [m.strip() for m in re.findall(r"(?m)^#{1,6} (.+)$", data.decode("utf-8", "replace"))]
     budget = store.read_json(p.run, log, "budget.json", None) if p.run.is_dir() else None
+    tier_row = (store.read_json(p.run, log, "tier.json", None) or {}) if p.run.is_dir() else {}
+    duration = None
+    if tier_row.get("ts"):
+        import calendar
+        import time
+        duration = int(time.time() - calendar.timegm(time.strptime(tier_row["ts"][:19], "%Y-%m-%dT%H:%M:%S")))
     row = {
         "schema": "harness/record@1", "job_id": job, "state": state, "interim": bool(interim), "ts": now(),
         "request": last.get("request", ""), "request_sha": canon.sha256_bytes(last.get("request", "").encode("utf-8")),
@@ -86,6 +92,7 @@ def write(ctx, job, state, interim=False) -> dict:
         "checks": checks, "approvals": approvals,
         "versions": dict(last.get("versions") or {}, business_hash=last.get("business_hash")),
         "cost": {"calls": (budget or {}).get("calls"), "money": (budget or {}).get("money")},
+        "duration_s": duration, "task_type": last.get("task_type"),
         "receipt": {k: receipt.get(k) for k in ("mode", "caps", "hmac")} if isinstance(receipt, dict) else None,
         "report_sha": report_sha, "report_sections": headings,
     }

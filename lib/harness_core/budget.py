@@ -6,9 +6,11 @@
 - calls above ``calls_cap`` (T1 150, T2 60 per unit, plus approved increments), or a T1 task older than
   30 minutes → ``STOPPED_BUDGET``;
 - no new unit verdict in ``STALL_CALLS`` (40) calls → ``STOPPED_STALL``;
-- estimated spend above the owner's task cap → ``STOPPED_COST``. The estimate is the transcript's token
-  usage since the task started × ``control/prices.json``; it is active only when the business profile has
-  ``caps.task`` in the price table's currency (the business layer arrives in P5).
+- estimated spend above the owner's task cap, or this month's recorded spend plus this task's above the
+  monthly cap → ``STOPPED_COST``. The estimate is the transcript's token usage since the task started ×
+  ``control/prices.json``, converted with the profile's ``fx.<currency>`` when the price table is in another
+  currency; with no rate the money caps stay off. The estimate is kept in ``budget.json`` ``money``, which the
+  decision record carries.
 
 A stop appends ``STOPPED{state}``, marks the jobs index, writes an interim decision record, and for budget
 and cost stops records an uncounted ``cost`` contact that the owner answers with ``harness-contact cost
@@ -58,12 +60,28 @@ def _verdicts(log) -> int:
     return sum(1 for v in latest.values() if v in TERMINAL)
 
 
+def rate(ctx):
+    """(price table, multiplier from its currency to the owner's), or (None, None) when money cannot be priced:
+    the owner's caps need a currency, and a foreign price table needs ``fx.<currency>`` in the profile."""
+    prof = sessionstate_business(ctx)
+    cur = (prof.get("caps") or {}).get("currency") or prof.get("currency")
+    try:
+        prices = protected.load_control("prices.json", ctx)
+    except Exception:  # no price table: the money caps stay off, the call caps still apply
+        return None, None
+    if not cur or not isinstance(prices.get("per_mtok"), dict):
+        return None, None
+    if prices.get("currency") == cur:
+        return prices, 1.0
+    fx = (prof.get("fx") or {}).get(prices.get("currency"))
+    return (prices, float(fx)) if isinstance(fx, (int, float)) and fx > 0 else (None, None)
+
+
 def _spend(ctx, transcript, since) -> float:
-    """Estimated money spent since ``since`` (epoch seconds), or None when it cannot be estimated."""
-    caps = (sessionstate_business(ctx).get("caps") or {})
-    prices = protected.load_control("prices.json", ctx) if (Path(ctx.data_root) / "control" / "prices.json").is_file() \
-        else None
-    if not prices or not isinstance(caps.get("task"), (int, float)) or prices.get("currency") != caps.get("currency"):
+    """Estimated money spent since ``since`` (epoch seconds), in the owner's currency, or None when it cannot be
+    estimated (no price table, no currency rate, no transcript)."""
+    prices, mult = rate(ctx)
+    if prices is None:
         return None
     if not isinstance(transcript, str) or not Path(transcript).is_file():
         return None
@@ -82,7 +100,27 @@ def _spend(ctx, transcript, since) -> float:
             tin += sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_creation_input_tokens"))
             tout += int(u.get("output_tokens") or 0)
     per = prices.get("per_mtok") or {}
-    return tin / 1e6 * float(per.get("input", 0)) + tout / 1e6 * float(per.get("output", 0))
+    return (tin / 1e6 * float(per.get("input", 0)) + tout / 1e6 * float(per.get("output", 0))) * mult
+
+
+def month_spent(ctx, exclude=None) -> float:
+    """Spend recorded this calendar month by other tasks (their latest decision-record row)."""
+    import glob
+    import json as _json
+    month = time.strftime("%Y-%m")
+    total = 0.0
+    for f in glob.glob(str(Path(ctx.data_root) / "records" / "*.jsonl")):
+        if exclude and Path(f).stem == exclude:
+            continue
+        try:
+            rows = [_json.loads(x) for x in Path(f).read_text("utf-8").splitlines() if x.strip()]
+        except (OSError, ValueError):
+            continue
+        last = rows[-1] if rows else {}
+        money = (last.get("cost") or {}).get("money")
+        if str(last.get("ts", ""))[:7] == month and isinstance(money, (int, float)):
+            total += money
+    return total
 
 
 def sessionstate_business(ctx) -> dict:
@@ -128,15 +166,18 @@ def charge(evt, ctx) -> dict:
     log = EventLog(p.run, p.heads)
     if latest_stop(log):
         return {}
+    tier = store.read_json(p.run, log, "tier.json", None) or {}
+    started = calendar.timegm(time.strptime(tier["ts"][:19], "%Y-%m-%dT%H:%M:%S")) if tier.get("ts") else time.time()
+    spent = _spend(ctx, evt.get("transcript_path"), started)
     with log.lock():
         b = store.read_json(p.run, log, "budget.json", None) or {}
         b = dict(b, calls=int(b.get("calls") or 0) + 1)
+        if spent is not None:
+            b["money"] = round(spent, 2)
         seen = _verdicts(log)
         if seen != b.get("verdicts_seen", 0):
             b.update(verdicts_seen=seen, calls_at_verdict=b["calls"])
         store.write_json(p.run, log, "budget.json", b, "BUDGET_CHARGE", {"calls": b["calls"]})
-    tier = store.read_json(p.run, log, "tier.json", None) or {}
-    started = calendar.timegm(time.strptime(tier["ts"][:19], "%Y-%m-%dT%H:%M:%S")) if tier.get("ts") else time.time()
     sid = evt.get("session_id")
     cap = b.get("calls_cap")
     if isinstance(cap, int) and b["calls"] > cap:
@@ -146,11 +187,15 @@ def charge(evt, ctx) -> dict:
         return _block(stop(ctx, job, "STOPPED_BUDGET", "T1 time budget (30 minutes)", sid, calls=max((cap or 150) // 2, 20)))
     if b["calls"] - int(b.get("calls_at_verdict") or 0) >= STALL_CALLS:
         return _block(stop(ctx, job, "STOPPED_STALL", f"no new verdict in {STALL_CALLS} calls", sid))
-    spent = _spend(ctx, evt.get("transcript_path"), started)
     caps = sessionstate_business(ctx).get("caps") or {}
-    if spent is not None and spent > float(caps["task"]) + float(b.get("money_increment") or 0):
+    extra = float(b.get("money_increment") or 0)
+    if spent is not None and isinstance(caps.get("task"), (int, float)) and spent > float(caps["task"]) + extra:
         return _block(stop(ctx, job, "STOPPED_COST", f"estimated spend {spent:.2f} over the task cap", sid,
                            amount=round(spent * 0.5, 2)))
+    if spent is not None and isinstance(caps.get("month"), (int, float)) and \
+            month_spent(ctx, exclude=job) + spent > float(caps["month"]) + extra:
+        return _block(stop(ctx, job, "STOPPED_COST", "estimated spend over the monthly cap", sid,
+                           amount=round(max(spent * 0.5, 1.0), 2)))
     return {}
 
 

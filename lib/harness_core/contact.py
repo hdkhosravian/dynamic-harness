@@ -14,6 +14,9 @@ boundaries writers: contacts, plan.json, egress grant; §Turns and contacts; bui
   egress grant ``{plan_sha, domains, page_budget, active, expires_at}`` is written with a ``GRANT`` event,
   which is the only form ``hookmain`` honours. Domains come from the plan's URLs.
 - ``cost`` contacts come with the budget hook (P4) and are refused here.
+- ``definition_confirm --metric FILE`` stores ``definition.json`` and shows the owner a sentence rendered from it
+  ("I'll count revenue as …. Is that right?"); ``definition_confirm --accept latest`` after the owner's plain
+  approval writes the metric dictionary entry (a changed definition gets a new version) (P5).
 """
 from __future__ import annotations
 
@@ -102,6 +105,11 @@ def apply(req, ctx, evt) -> dict:
         store.write_json(p.run, log, "plan.json", stored, "PLAN", {"plan_sha": plan_sha})
         extra["plan_sha"] = plan_sha
         text = _plan_text(stored)  # the model's own wording is not what the owner approves
+    if kind == "definition_confirm" and req.get("metric") is not None:
+        metric = _metric(req["metric"])
+        store.write_json(p.run, log, "definition.json", metric, "DEFINITION", {"metric_id": metric["metric_id"]})
+        extra["metric_sha"] = canon.sha256_json(metric)
+        text = definition_text(metric, ctx)  # the owner confirms the rendered sentence, not the model's wording
     row = contacts.record(ctx, kind, canon.sha256_bytes(text.encode("utf-8")), handoff=handoff, extra=extra)
     sessionstate.update(ctx, evt.get("session_id"), pending_contact_id=row["contact_id"])
     if handoff:
@@ -109,6 +117,24 @@ def apply(req, ctx, evt) -> dict:
         sessionstate.set_job(ctx, job, state="PAUSED")
     return {"contact_id": row["contact_id"], "type": kind, "counted": row["counted"], "text": text,
             "handoff": handoff}
+
+
+def _metric(m) -> dict:
+    from . import business
+    schema.validate(m, business.METRIC, "metric")
+    if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", m["metric_id"]):
+        raise SchemaError("metric_id is lower-case letters, digits and _ (for example revenue or net_sales)")
+    for k in ("inclusions", "exclusions"):
+        if len(m[k]) > 300 or "\n" in m[k]:
+            raise SchemaError(f"{k} is one line of at most 300 characters")
+    return dict(m, currency=m["currency"].upper())
+
+
+def definition_text(metric, ctx) -> str:
+    from . import business, templates
+    unit = business.CURRENCIES.get(metric["currency"], metric["currency"])
+    return templates.render("definition", ctx, metric=metric["metric_id"], inclusions=metric["inclusions"],
+                            exclusions=metric["exclusions"] or "nothing", unit=unit)
 
 
 def _owner_reply(ctx, row, accept):
@@ -153,9 +179,31 @@ def _accept_cost(req, ctx, p, log) -> dict:
     return {"resumed": True, "contact_id": row["contact_id"], "calls": row.get("calls"), "amount": row.get("amount")}
 
 
+def _accept_definition(req, ctx, p, log) -> dict:
+    """The owner's plain approval of a rendered definition writes the metric dictionary entry."""
+    from . import business
+    with log.lock():
+        rows = [r for r in contacts.state(ctx).get("rows", []) if r.get("type") == "definition_confirm"
+                and r.get("metric_sha")]
+        if not rows or rows[-1].get("accepted"):
+            raise Denied("there is no open definition to accept")
+        row = rows[-1]
+        metric = store.read_json(p.run, log, "definition.json", None)
+        if not isinstance(metric, dict) or canon.sha256_json(metric) != row["metric_sha"]:
+            raise Denied("definition.json does not match the latest definition contact")
+        turn_id = _owner_reply(ctx, row, req["accept"])
+        entry = business.define_metric(ctx, metric, definition_text(metric, ctx), turn_id)
+        contacts.mark(ctx, row["contact_id"], accepted=True, accepted_turn=turn_id)
+        log.append("APPROVAL", {"kind": "definition", "metric_id": metric["metric_id"], "version": entry["version"],
+                                "turn_id": turn_id, "contact_id": row["contact_id"]})
+    return {"defined": metric["metric_id"], "version": entry["version"], "restated": entry.get("previous_version")}
+
+
 def _accept(req, ctx, p, log) -> dict:
+    if req.get("type") == "definition_confirm":
+        return _accept_definition(req, ctx, p, log)
     if req.get("type") != "plan":
-        raise Denied("only a plan contact is accepted this way in P3")
+        raise Denied("only plan and definition_confirm contacts are accepted this way")
     st = contacts.state(ctx)
     plans = [r for r in st.get("rows", []) if r.get("type") == "plan"]
     if not plans:

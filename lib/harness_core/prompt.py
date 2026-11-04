@@ -2,7 +2,8 @@
 
 Order, for every prompt:
 
-1. ``/dynamic-harness:setup …`` goes to ``setup.on_prompt`` (it blocks; the model never sees it).
+1. ``/dynamic-harness:setup …`` goes to ``setup.on_prompt``, and ``/dynamic-harness:business|config|memory|status|
+   export|off …`` to ``admin.on_prompt`` (both block; the model never sees them).
 2. The turn is appended to ``turns.jsonl`` with ``text_norm = pii.redact(prompt)``, ``typed_command`` for a
    slash command, and ``pending_contact_id`` when the session was waiting for a reply. A
    ``<task-notification>`` prompt is a system turn; nothing else happens for it.
@@ -107,6 +108,9 @@ def _context(text):
 def on_prompt(evt, ctx) -> dict:
     if setup.is_setup_prompt(evt):
         return setup.on_prompt(evt, ctx)
+    from . import admin
+    if admin.command_of(evt):  # the owner's typed commands, like setup: answered here, never by the model
+        return admin.on_prompt(evt, ctx)
     sid, text = evt.get("session_id"), evt.get("prompt")
     if not sid or not isinstance(text, str):
         return {}

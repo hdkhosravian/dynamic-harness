@@ -8,5 +8,7 @@
   "pending_card": "A task card is needed first. Write it to .claude/loops/drafts/card.json and run harness-compile --card on it; until then only reads are allowed.",
   "handoff": "I've paused this task so you can answer when ready. Reply here to continue.",
   "stopped_budget": "Stopped, not done: {done} of {total} done. Continuing costs about {more}. Continue?",
-  "stopped_stall": "Stuck on {what} because {why}."
+  "stopped_stall": "Stuck on {what} because {why}.",
+  "definition": "I'll count {metric} as {inclusions}, excluding {exclusions}, in {unit}. Is that right?",
+  "opening.estimate": "Similar tasks took about {lo} to {hi} minutes{money}."
 }

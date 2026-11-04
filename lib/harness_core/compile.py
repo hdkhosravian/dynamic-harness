@@ -70,6 +70,13 @@ def _budget(ctx, tier, units) -> dict:
 
 def _opening(ctx, c, tier, job) -> str:
     line = _template(f"opening.{tier}", ctx, deliverable=c["deliverable"]["description"])
+    from . import business, estimate
+    est = estimate.estimate(ctx, tier) if tier in ("T1", "T2") else None
+    if est:
+        cur = business.profile(ctx).get("currency")
+        money = (f" and roughly {est['money'][0]:,}–{est['money'][1]:,} {business.CURRENCIES.get(cur, cur)}"
+                 if est["money"] and cur else "")
+        line += " " + _template("opening.estimate", ctx, lo=est["minutes"][0], hi=est["minutes"][1], money=money)
     prefs = memory.effective(ctx, job)
     if prefs:
         line += " " + _template("opening.prefs", ctx, prefs=", ".join(f"{k} {v}" for k, v in sorted(prefs.items())))
