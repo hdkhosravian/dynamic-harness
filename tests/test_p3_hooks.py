@@ -220,7 +220,7 @@ def _fetched(h, job, url, text):
     sha = canon.sha256_bytes(text.encode())
     (p.run / "snapshots").mkdir(exist_ok=True)
     (p.run / "snapshots" / sha).write_text(text)
-    store.append_jsonl(p.run, log, "fetch_log.jsonl", {"url": url, "snapshot_sha": sha}, "FETCH", {"url": url})
+    store.append_jsonl(p.run, log, "fetch_log.jsonl", {"url": url, "snapshot_sha": sha, "status": "OK"}, "FETCH", {"url": url})
     return sha
 
 
@@ -236,7 +236,7 @@ def test_researcher_claims_are_checked_against_fetched_snapshots(h):
     subagent.on_subagent_stop({"agent_type": lanes.RESEARCHER, "agent_id": "a1", "last_assistant_message": msg}, c)
     p = job_paths(h["data"], h["ws"], job)
     log = EventLog(p.run, p.heads)
-    assert [r["quote"] for r in store.read_jsonl(p.run, log, "claims.jsonl")] == ["prices rose 12%  in May"]
+    assert [r["verbatim_quote"] for r in store.read_jsonl(p.run, log, "claims.jsonl")] == ["prices rose 12%  in May"]
     rec = store.read_jsonl(p.run, log, "subagents.jsonl")[-1]
     assert rec["claims_accepted"] == 1 and rec["claims_dropped"] == 3
 

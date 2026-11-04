@@ -31,7 +31,7 @@ HMAC_FIELDS = ("events_head", "scope_sha", "tree_sha", "report_sha", "gate_sha",
 AFTER_RECEIPT = {"RECEIPT", "MODEL_REGISTERED", "RECORD", "BUDGET_CHARGE", "TURN", "LEASE_HEARTBEAT", "CONTACT",
                  "SAFETY_DENY"}
 GATE_FILES = ("ledger.jsonl", "verdicts.jsonl", "scope.jsonl", "profile.json", "decisions.jsonl", "lexicon.json",
-              "fold_receipt.json")
+              "fold_receipt.json", "claims.jsonl")
 CHILD_OUT = ("gate/REPORT.md", "gate/fold_receipt.json")
 # budget.json and lease.json change in the parallel main PostToolUse hook (BUDGET_CHARGE, LEASE_HEARTBEAT are
 # after-receipt events); fold_ledger never reads them
@@ -180,8 +180,8 @@ def _argv(run: Path, proj: dict, profile: dict, fold_ledger_path, events_head: s
         argv += ["--lint-lexicon", str(g / "lexicon.json")]
     if (run / "answer_header.md").exists():
         argv += ["--include", str(run / "answer_header.md")]
-    if (run / "claims.jsonl").exists():  # fold_ledger fails closed when the fetch log or snapshots are missing
-        argv += ["--sources", str(run / "claims.jsonl"), "--fetch-log", str(run / "fetch_log.jsonl"),
+    if (g / "claims.jsonl").exists():  # the cited claims (fold.project); fails closed without fetch log or snapshots
+        argv += ["--sources", str(g / "claims.jsonl"), "--fetch-log", str(run / "fetch_log.jsonl"),
                  "--snapshots", str(run / "snapshots"), "--profile", str(g / "profile.json")]
     if profile.get("require_logs") or profile.get("task_type") == "investigation":
         argv += ["--require-logs", str(run / "contradictions.jsonl"), str(run / "search_log.jsonl")]

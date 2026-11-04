@@ -1,0 +1,48 @@
+#!/usr/bin/python3 -I
+"""harness-claims fetch URL
+harness-claims cite --unit UNIT --claims N[,M...] [--load-bearing N[,M...]]
+
+Only prints a request. fetch: the harness-claims hook (PostToolUse, its own 60 s entry) fetches the page for
+the web-researcher under the task's research grant and stores its text as a snapshot. cite: the writer records
+which claim rows decide a unit (research.check reads it)."""
+import json
+import sys
+
+
+def _nums(v):
+    return [int(x) for x in v.split(",") if x.strip()]
+
+
+def main(argv):
+    if len(argv) == 2 and argv[0] == "fetch":
+        req = {"tool": "claims", "sub": "fetch", "url": argv[1]}
+    elif argv and argv[0] == "cite":
+        req, i = {"tool": "claims", "sub": "cite"}, 1
+        while i + 1 < len(argv):
+            a, v = argv[i], argv[i + 1]
+            if a == "--unit":
+                req["unit"] = v
+            elif a == "--claims":
+                req["claims"] = _nums(v)
+            elif a == "--load-bearing":
+                req["load_bearing"] = _nums(v)
+            else:
+                print(__doc__, file=sys.stderr)
+                return 2
+            i += 2
+        if i != len(argv):
+            print(__doc__, file=sys.stderr)
+            return 2
+    else:
+        print(__doc__, file=sys.stderr)
+        return 2
+    print(json.dumps(req, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-claims: {e}", file=sys.stderr)
+        sys.exit(2)

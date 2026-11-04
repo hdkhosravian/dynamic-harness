@@ -268,12 +268,14 @@ def _claims(h, quote):
     run, sha = h["p"].run, canon.sha256_bytes(SNAP)
     (run / "snapshots").mkdir(exist_ok=True)
     (run / "snapshots" / sha).write_bytes(SNAP)
-    (run / "fetch_log.jsonl").write_text(json.dumps({"url": "https://news.example.ir/a", "snapshot_sha": sha,
-                                                     "ts": "2026-11-01T00:00:00Z"}) + "\n")
+    from harness_core import store
+    store.append_jsonl(run, h["log"], "fetch_log.jsonl", {"url": "https://news.example.ir/a", "snapshot_sha": sha,
+                                                          "ts": "2026-11-01T00:00:00Z", "status": "OK"}, "FETCH", {})
     claim = {"claim": "1,234 widgets shipped", "claim_type": "fact", "load_bearing": False, "source_id": "s1",
              "url": "https://news.example.ir/a", "retrieved_at": "2026-11-01", "snapshot_sha": sha,
              "verbatim_quote": quote, "source_date": "2026-11-01", "source_class": "news", "status": "OK"}
-    (run / "claims.jsonl").write_text(json.dumps(claim) + "\n")
+    store.append_jsonl(run, h["log"], "claims.jsonl", claim, "CLAIM", {})
+    store.append_jsonl(run, h["log"], "cites.jsonl", {"unit": "u1", "claims": [1], "load_bearing": []}, "CITE", {})
 
 
 @need_sandbox

@@ -16,14 +16,15 @@ import os
 import re
 import shlex
 
-from . import answer
+from . import answer, claims
 from . import compile as compile_
 from . import contact, contacts, memory, renders
 from .errors import HarnessError
 
 WRITERS = {"compile": compile_.apply, "contact": contact.apply, "ledger": renders.ledger_apply,
-           "research": renders.research_apply, "critic": renders.critic_apply, "answer": answer.apply}
-JOB_SCOPED = ("contact", "ledger", "research", "critic", "answer")
+           "research": renders.research_apply, "critic": renders.critic_apply, "answer": answer.apply,
+           "claims": claims.apply}
+JOB_SCOPED = ("contact", "ledger", "research", "critic", "answer", "claims")
 _OPERATORS = re.compile(r"[;&|<>`$()\n\\]")
 
 
@@ -86,6 +87,8 @@ def _say(tool, res):
         agent = "web-researcher" if tool == "research" else "verifier"
         return (f"harness: {tool} render recorded. Spawn dynamic-harness:{agent} with exactly this prompt (no "
                 f"changes) as the Agent prompt. PROMPT:\n{res['prompt']}")
+    if tool == "claims":
+        return claims._say(res)
     if tool == "answer":
         return ("harness: answer header recorded for the gate. Put these three lines at the top of the answer, "
                 f"exactly:\n{res['header']}")
@@ -113,6 +116,8 @@ def on_post(evt, ctx) -> dict:
         res = WRITERS[name](_request(evt, name), ctx, evt)
     except HarnessError as e:  # Denied, CardError, SchemaError, TamperError: nothing was recorded
         return {"decision": "block", "reason": f"harness-{name} not recorded: {e}"}
+    if not res:  # harness-claims fetch: its own hook entry does the work
+        return {}
     out = _context(_say(name, res))
     if name == "contact" and res.get("type") in ("plan", "definition_confirm") and res.get("text") \
             and not res.get("granted") and not res.get("defined"):

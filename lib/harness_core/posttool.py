@@ -23,6 +23,9 @@ def on_post(evt, ctx) -> dict:
         from . import lease
         lease.heartbeat(ctx, ctx.job, evt["session_id"])
     res = writers.on_post(evt, ctx) or {}
+    if tool == "WebSearch":
+        from . import claims
+        claims.log_search(evt, ctx)  # the researcher's searches are on the record (--require-logs)
     sid = evt.get("session_id")
     from . import budget
     charged = budget.charge(evt, ctx)  # a refused writer call is charged too: refusals cannot loop for free

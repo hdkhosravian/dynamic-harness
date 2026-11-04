@@ -90,6 +90,27 @@ def _lines(rows) -> bytes:
     return b"".join(canon.canonical_json(r) + b"\n" for r in rows)
 
 
+def _claims(paths, log, units) -> list:
+    """The claims the gate checks: every row a unit cites (uncited rows support nothing), plus, per unit, its
+    load-bearing rows under one key, so check_claims needs two independent origins per unit's finding."""
+    from . import store
+    raw = store.read_jsonl(paths.run, log, "claims.jsonl")
+    latest = {}
+    for c in store.read_jsonl(paths.run, log, "cites.jsonl"):
+        if c.get("unit") in units:
+            latest[c["unit"]] = c
+    out, seen = [], set()
+    for uid, c in sorted(latest.items()):
+        for n in c.get("claims") or []:
+            if 1 <= n <= len(raw) and n not in seen:
+                seen.add(n)
+                out.append(dict(raw[n - 1], load_bearing=False))
+        for n in c.get("load_bearing") or []:
+            if 1 <= n <= len(raw):
+                out.append(dict(raw[n - 1], load_bearing=True, claim=f"[{uid}] {units[uid].get('claim')}"))
+    return out
+
+
 def check_protected(paths, log) -> None:
     """R-6 detection: verify the chain, then every file a writer event recorded plus the
     row files (catches planted ones). Raises TamperError."""
@@ -136,6 +157,8 @@ def project(paths, ledger, scope=None, profile=None) -> dict:
         "profile.json": canon.canonical_json(profile),
         "decisions.jsonl": _lines(r for k, r in ledger.rows() if k == "decision"),
     }
+    if (paths.run / "claims.jsonl").exists():
+        files["claims.jsonl"] = _lines(_claims(paths, log, by_id))
     for name, data in files.items():
         atomic_write(gate / name, data)
     pins = {"scope_sha": canon.sha256_bytes(scope_data), "scope_count": len(units)}

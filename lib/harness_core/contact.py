@@ -179,6 +179,16 @@ def _accept_cost(req, ctx, p, log) -> dict:
     return {"resumed": True, "contact_id": row["contact_id"], "calls": row.get("calls"), "amount": row.get("amount")}
 
 
+def _open_logs(p, log) -> None:
+    """The investigation's search log and contradiction register exist from the start (``--require-logs``)."""
+    from .safeio import atomic_write
+    with log.lock():
+        for name in ("search_log.jsonl", "contradictions.jsonl"):
+            if not (p.run / name).exists() and not log.latest_file_sha(name):
+                atomic_write(p.run / name, b"")
+                log.append("LOG_OPENED", {"log": name}, file=name, file_sha=canon.sha256_bytes(b""))
+
+
 def _accept_definition(req, ctx, p, log) -> dict:
     """The owner's plain approval of a rendered definition writes the metric dictionary entry."""
     from . import business
@@ -231,5 +241,6 @@ def _accept(req, ctx, p, log) -> dict:
              "page_budget": plan["page_budget"], "active": True, "turn_id": req["accept"],
              "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + GRANT_TTL))}
     store.write_json(p.run, log, "egress_grant.json", grant, "GRANT", {"plan_sha": plan["plan_sha"]})
+    _open_logs(p, log)
     contacts.mark(ctx, last["contact_id"], accepted=True, accepted_turn=req["accept"])
     return {"granted": True, "plan_sha": plan["plan_sha"], "domains": plan["domains"]}

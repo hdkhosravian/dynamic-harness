@@ -6,7 +6,9 @@
 - A researcher's output is accepted only as schema-valid claim rows ``{claim, quote ≤ 300 chars, date, url,
   snapshot_sha}`` (a JSON list, or one JSON object per line). Each row's ``(url, snapshot_sha)`` must be in
   the hook-written fetch log, and its quote must appear in that snapshot (whitespace and case folded).
-  Accepted rows go to ``claims.jsonl``; everything else, free text included, is dropped and only counted.
+  Accepted rows go to ``claims.jsonl`` as full claim-ledger rows (``claims.claim_row``: claim type, source id and
+  class, retrieval time and status from the fetch log); everything else, free text included, is dropped and only
+  counted. A page flagged for embedded instructions keeps its rows, and ``research.check`` refuses them.
 """
 from __future__ import annotations
 
@@ -76,11 +78,15 @@ def on_subagent_stop(evt, ctx) -> dict:
     rec = {"ts": now(), "agent_type": agent_type, "agent_id": evt.get("agent_id"), "prompt_sha": spawn.get("prompt_sha"),
            "verdict_sha": canon.sha256_bytes(msg.encode("utf-8"))}
     if agent_type == RESEARCHER:
-        fetched = {(r.get("url"), r.get("snapshot_sha")) for r in store.read_jsonl(p.run, log, "fetch_log.jsonl")}
+        flog = {(r.get("url"), r.get("snapshot_sha")): r for r in store.read_jsonl(p.run, log, "fetch_log.jsonl")
+                if r.get("status") == "OK"}
+        fetched = set(flog)
         rows = _rows(msg)
         accepted = [r for r in rows if isinstance(r, dict) and _accept(r, p, log, fetched)]
-        for r in accepted:
-            store.append_jsonl(p.run, log, "claims.jsonl", dict(r, agent_id=evt.get("agent_id")), "CLAIM",
+        from .claims import claim_row
+        for r in accepted:  # the claim-ledger row: loop-contract's sources.jsonl format plus the harness fields
+            store.append_jsonl(p.run, log, "claims.jsonl",
+                               claim_row(r, flog[(r["url"], r["snapshot_sha"])], evt.get("agent_id")), "CLAIM",
                                {"url": r["url"], "snapshot_sha": r["snapshot_sha"]})
         rec.update(claims_accepted=len(accepted), claims_dropped=len(rows) - len(accepted))
     store.append_jsonl(p.run, log, "subagents.jsonl", rec, "SUBAGENT", {"agent_type": agent_type})

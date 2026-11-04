@@ -305,14 +305,22 @@ def test_argv_include_answer_header_only_when_present(h):
     assert _flag(r.calls[0], "--include") == str(r.cwd / "answer_header.md")
 
 
+def _recorded_claims(h):
+    """A claim row and a cite, written the way the writers write them (each with its event)."""
+    from harness_core import store
+    store.append_jsonl(h["p"].run, h["log"], "claims.jsonl", {"claim": "c", "url": "https://x.example/a"}, "CLAIM", {})
+    store.append_jsonl(h["p"].run, h["log"], "cites.jsonl", {"unit": SCOPE[0]["id"], "claims": [1],
+                                                             "load_bearing": []}, "CITE", {})
+
+
 def test_argv_claims_flags_only_when_job_has_claims(h):
     _all_pass(h)
     _, r = _run(h)
     assert not {"--sources", "--fetch-log", "--snapshots", "--profile"} & set(r.calls[0])
-    (h["p"].run / "claims.jsonl").write_text("{}\n")
+    _recorded_claims(h)
     _, r = _run(h)
     run, argv = r.cwd, r.calls[0]
-    assert _flag(argv, "--sources") == str(run / "claims.jsonl")
+    assert _flag(argv, "--sources") == str(run / "gate" / "claims.jsonl")  # only the cited claims
     assert _flag(argv, "--fetch-log") == str(run / "fetch_log.jsonl")
     assert _flag(argv, "--snapshots") == str(run / "snapshots")
     assert _flag(argv, "--profile") == str(run / "gate" / "profile.json")
@@ -322,7 +330,7 @@ def test_argv_require_logs_for_investigations(h):
     _all_pass(h)
     _, r = _run(h)
     assert "--require-logs" not in r.calls[0]
-    (h["p"].run / "claims.jsonl").write_text("{}\n")
+    _recorded_claims(h)
     _, r = _run(h, profile=dict(PROFILE, task_type="investigation"))
     assert _multi(r.calls[0], "--require-logs") == [str(r.cwd / "contradictions.jsonl"),
                                                      str(r.cwd / "search_log.jsonl")]
