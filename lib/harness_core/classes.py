@@ -1171,6 +1171,8 @@ class _Bash:
                 break
             if name == "env" and a in ("-S", "--split-string") and i + 1 < len(rest):
                 return self.nested(rest[i + 1] + " " + " ".join(shlex.quote(x) for x in rest[i + 2:]))
+            if name == "env" and a == "-P":
+                return self.add("unknown", "env -P changes where the utility is looked up")
             if name == "env" and (a in ("--chdir", "-C") or a.startswith("--chdir=")):
                 d = a.split("=", 1)[1] if "=" in a else (rest[i + 1] if i + 1 < len(rest) else None)
                 if d is None:
@@ -1180,8 +1182,8 @@ class _Bash:
                 continue
             if name == "env" and re.fullmatch(r"-[^-].+", a):  # a short cluster such as -iC DIR or -C/dir
                 m = re.fullmatch(r"-[i0v]*(?:([CuP])(.*))?", a)
-                if not m:
-                    return self.add("unknown", f"env option {a!r} is not understood")
+                if not m or m.group(1) == "P":
+                    return self.add("unknown", f"env option {a!r} is not understood or changes utility lookup")
                 if m.group(1) == "C":
                     rest = rest[:i] + ["-C"] + ([m.group(2)] if m.group(2) else []) + rest[i + 1:]
                 elif m.group(1):
@@ -1552,6 +1554,8 @@ class _Bash:
         starts, j = [], 0
         while j < len(rest):  # BSD/GNU options before the start paths
             m = re.fullmatch(r"-[HLPEXsxd]*f(.*)", rest[j])
+            if re.fullmatch(r"-(false|fls|follow|fprint0?|fprintf|fstype)", rest[j]):
+                break  # GNU primaries: the expression starts here
             if m:  # BSD -f path; GNU reads -fstype etc. as a primary, so the cwd is checked too
                 starts += [m.group(1) or (rest[j + 1] if j + 1 < len(rest) else "."), "."]
                 j += 0 if m.group(1) else 1

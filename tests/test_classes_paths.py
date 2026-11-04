@@ -507,3 +507,22 @@ def test_runner_arguments_from_env_or_file_fail_closed(ctx, cmd):
     object.__setattr__(ctx, "untrusted_files", {os.path.realpath(conf)})
     _cwd(ctx, ctx.workspace / "src")
     assert B(ctx, cmd).irreversible, cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "find -fprint {home}/out -name x",  # GNU write primaries are not BSD -f start paths
+    "find -fprintf {home}/out %p",
+    "find -fls {home}/out",
+])
+def test_find_f_primaries_still_count_as_writes(ctx, cmd):
+    assert B(ctx, cmd).irreversible, cmd
+
+
+def test_find_attached_f_word_is_a_start_path(ctx):
+    os.symlink(str(ctx.data_root), str(ctx.workspace / "dl"))
+    assert B(ctx, "find -fdl -name k").cls == "protected_path"  # BSD: -fdl is start path dl
+
+
+@pytest.mark.parametrize("cmd", ["env -P /tmp/evil ls", "env -iP/tmp/evil ls", "env -P/tmp/evil ls"])
+def test_env_alternate_utility_path_is_unknown(ctx, cmd):
+    assert B(ctx, cmd).cls == "unknown"
