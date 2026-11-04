@@ -6,5 +6,7 @@
   "refused": "I can't help with this kind of decision. Please ask a qualified professional.",
   "tripwire": "This is bigger than a quick answer. Before going further, draft a task card and compile it (harness-card, then harness-compile). Until then only reads are allowed.",
   "pending_card": "A task card is needed first. Draft one and run harness-compile; until then only reads are allowed.",
-  "handoff": "I've paused this task so you can answer when ready. Reply here to continue."
+  "handoff": "I've paused this task so you can answer when ready. Reply here to continue.",
+  "stopped_budget": "Stopped, not done: {done} of {total} done. Continuing costs about {more}. Continue?",
+  "stopped_stall": "Stuck on {what} because {why}."
 }

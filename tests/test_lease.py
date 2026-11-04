@@ -87,3 +87,24 @@ def test_heartbeats_are_throttled(h):
     for _ in range(5):
         lease.heartbeat(ctx_of(h), job, SID)
     assert n() == before  # fresh lease: nothing to write yet
+
+
+def test_without_a_lease_only_the_indexed_owner_may_claim_it(h):
+    job = compiled(h)
+    p = job_paths(h["data"], h["ws"], job)
+    store.write_json(p.run, EventLog(p.run, p.heads), lease.FILE, {}, "LEASE", {"cleared": True})
+    start_other(h)
+    with pytest.raises(Denied, match="another session"):
+        lease.require(ctx_for(h, OTHER, job), job, OTHER)
+    lease.require(ctx_of(h), job, SID)  # the compiling session re-acquires
+    assert lease.read(ctx_of(h), job)["session_id"] == SID
+
+
+def test_continue_held_elsewhere_still_needs_a_card(h):
+    compiled(h)
+    start_other(h)
+    code, out = hookmain.main("UserPromptSubmit", {"session_id": OTHER, "prompt_id": "o1", "prompt": "continue",
+                                                   "cwd": str(h["ws"])}, h["env"])
+    st2 = sessionstate.load(ctx_for(h, OTHER), OTHER)
+    assert st2.get("prompt_scope") == "new" and st2.get("active_task") is None
+    assert st2.get("pending_card") or "task card" not in out["hookSpecificOutput"]["additionalContext"]

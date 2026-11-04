@@ -22,6 +22,7 @@ import re
 import secrets
 
 from . import corrections, pii, probe, sessionstate, setup, store
+from .errors import Denied
 from .events import EventLog
 from .ledger import Ledger
 from .paths import job_paths
@@ -67,12 +68,12 @@ def _resume_elsewhere(ctx, sid, text, turn_id):
     if len(rows) != 1:
         return None, None
     (job,) = rows
-    st = lease.status(ctx, job, sid)
-    if st == "other":
+    try:
+        taken = lease.claim(ctx, job, sid)
+    except Denied:
         return None, f"harness: task {job} is open in another session; it continues there."
     note = None
-    if st == "stale":
-        taken = lease.takeover(ctx, job, sid)
+    if taken["taken"]:
         note = (f"harness: took over task {job} from a stale session (epoch {taken['epoch']}); "
                 f"remaining units: {', '.join(taken['remaining']) or 'none'}.")
     sessionstate.update(ctx, sid, active_task=job, prompt_scope="active_task", request_turn=turn_id)
@@ -108,15 +109,13 @@ def on_prompt(evt, ctx) -> dict:
         return {}
     job = st.get("active_task")
     open_job = job and not sessionstate.jobs(ctx).get(job, {}).get("terminal")
-    note = None
+    held = None
     if not open_job:
         job, note = _resume_elsewhere(ctx, sid, text, turn_id)
         open_job = bool(job)
         if open_job:
             return _context(note) if note else {}
-        if note:  # held elsewhere: this "continue" is not routed to it
-            sessionstate.update(ctx, sid, prompt_scope="new", request_turn=turn_id, pending_card=None)
-            return _context(note)
+        held = note  # held elsewhere: this "continue" is a new request here and still needs its card
     elif open_job:
         from . import lease
         lease.heartbeat(ctx, job, sid)
@@ -143,11 +142,11 @@ def on_prompt(evt, ctx) -> dict:
     scope = "inline_t0" if open_job else "new"
     if verdict == "T0-fast":
         sessionstate.update(ctx, sid, prompt_scope=scope, probe=pr, request_turn=turn_id, pending_card=None)
-        return {}
+        return _context(held) if held else {}
     floor = pr["floor_tier"]
     sessionstate.update(ctx, sid, prompt_scope=scope, probe=pr, request_turn=turn_id,
                         pending_card={"floor": floor, "reason": reason, "turn_id": turn_id})
     bindir = f"{ctx.plugin_root}/bin" if getattr(ctx, "plugin_root", None) else "bin"
-    return _context(f"harness: this request needs a task card before any work (floor {floor}). Draft it as the "
+    return _context((f"{held}\n" if held else "") + f"harness: this request needs a task card before any work (floor {floor}). Draft it as the "
                     f"dynamic-harness skill describes, then run {bindir}/harness-card validate <file> and "
                     f"{bindir}/harness-compile --card <file>. Until it compiles, only reads are allowed.")

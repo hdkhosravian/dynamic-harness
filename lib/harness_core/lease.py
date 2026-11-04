@@ -53,10 +53,30 @@ def status(ctx, job, sid) -> str:
     return "stale" if time.time() - float(lease.get("heartbeat", 0)) > float(lease.get("ttl", TTL)) else "other"
 
 
+def _indexed_owner(ctx, job, sid) -> bool:
+    from .sessionstate import jobs
+    return jobs(ctx).get(job, {}).get("session_id") == sid
+
+
 def require(ctx, job, sid) -> None:
-    st = status(ctx, job, sid)
-    if st != "owner" and st != "none":
-        raise Denied(f"another session holds task {job} (lease {st}); this session may only read it")
+    """Fails closed: with no lease, only the session that compiled the task (jobs index) may claim one."""
+    if status(ctx, job, sid) != "owner":
+        claim(ctx, job, sid, allow_stale=False)
+
+
+def claim(ctx, job, sid, allow_stale=True) -> dict:
+    """Owner, or obtain the lease under the log lock: ``none`` → acquire (the indexed owner only),
+    ``stale`` → takeover. Anything else is refused."""
+    p, log = _p(ctx, job)
+    with log.lock():
+        st = status(ctx, job, sid)
+        if st == "owner":
+            return dict(read(ctx, job), taken=False)
+        if st == "none" and _indexed_owner(ctx, job, sid):
+            return dict(acquire(ctx, job, sid), taken=False)
+        if st != "stale" or not allow_stale:
+            raise Denied(f"another session holds task {job} (lease {st}); this session may only read it")
+    return dict(takeover(ctx, job, sid), taken=True)
 
 
 def heartbeat(ctx, job, sid) -> None:

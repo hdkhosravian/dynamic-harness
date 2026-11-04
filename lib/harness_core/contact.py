@@ -40,8 +40,8 @@ PLAN_SCHEMA = {"type": "object", "additionalProperties": False,
                               "load_bearing": {"type": "array", "items": {"type": "string"}}}}
 GRANT_TTL = 24 * 3600
 # the whole reply must be an approval (no keyword search: "no, don't, okay?" is not consent)
-_YES = r"(?:yes|y|ok|okay|sure|approve|approved|accept|accepted|agreed|go ahead|بله|آره|باشه|تایید|تأیید|قبول|موافقم)"
-_TAIL = r"(?:yes|ok|okay|go ahead|approved|approve it|approve the plan|go ahead with the plan|with the plan|please|thanks|thank you|تایید|قبول|ممنون|لطفا)"
+_YES = r"(?:yes|y|ok|okay|sure|approve|approved|accept|accepted|agreed|go ahead|continue|بله|آره|باشه|تایید|تأیید|قبول|موافقم)"
+_TAIL = r"(?:yes|ok|okay|go ahead|continue|approved|approve it|approve the plan|go ahead with the plan|with the plan|please|thanks|thank you|تایید|قبول|ممنون|لطفا)"
 APPROVAL = re.compile(rf"{_YES}(?: {_TAIL})*")
 
 
@@ -78,12 +78,12 @@ def apply(req, ctx, evt) -> dict:
     job = getattr(ctx, "job", None)
     if not job:
         raise Denied("contacts belong to a task: there is no active task")
-    if kind == "cost":
-        raise Denied("cost contacts are written by the budget hook (P4)")
+    if kind == "cost" and not req.get("accept"):
+        raise Denied("cost contacts are written by the budget hook; answer one with harness-contact cost --accept")
     p = job_paths(ctx.data_root, ctx.workspace, job)
     log = EventLog(p.run, p.heads)
     if req.get("accept"):
-        return _accept(req, ctx, p, log)
+        return _accept_cost(req, ctx, p, log) if kind == "cost" else _accept(req, ctx, p, log)
     handoff = req.get("handoff") is True
     why = contacts.check(kind, ctx, handoff=handoff)  # early, clear refusal; record() re-checks under the lock
     if why:
@@ -106,6 +106,47 @@ def apply(req, ctx, evt) -> dict:
         sessionstate.set_job(ctx, job, state="PAUSED")
     return {"contact_id": row["contact_id"], "type": kind, "counted": row["counted"], "text": text,
             "handoff": handoff}
+
+
+def _owner_reply(ctx, row, accept):
+    if accept == "latest":
+        replies = [r for r in Turns(ctx.data_root)._rows()
+                   if r.get("pending_contact_id") == row["contact_id"] and not r.get("system")]
+        if not replies:
+            raise Denied(f"the owner has not replied to contact {row['contact_id']}")
+        accept = replies[-1]["turn_id"]
+    turn = Turns(ctx.data_root).cite(accept)
+    if turn.get("pending_contact_id") != row["contact_id"]:
+        raise Denied(f"turn {accept} is not the owner's reply to contact {row['contact_id']}")
+    if not is_approval(turn["text_norm"]):
+        raise Denied(f"turn {accept} is not a plain approval (reply yes to continue)")
+    return accept
+
+
+def _accept_cost(req, ctx, p, log) -> dict:
+    """Continue after STOPPED_BUDGET / STOPPED_COST: a one-time increment, recorded, then RESUMED."""
+    from . import budget
+    st = contacts.state(ctx)
+    rows = [r for r in st.get("rows", []) if r.get("type") == "cost"]
+    if not rows or rows[-1].get("accepted"):
+        raise Denied("there is no open cost contact to accept")
+    row = rows[-1]
+    if budget.latest_stop(log) not in ("STOPPED_BUDGET", "STOPPED_COST"):
+        raise Denied("the task is not stopped on its budget")
+    turn_id = _owner_reply(ctx, row, req["accept"])
+    with log.lock():
+        b = store.read_json(p.run, log, "budget.json", None) or {}
+        b = dict(b, calls_cap=int(b.get("calls_cap") or 0) + int(row.get("calls") or 0),
+                 money_increment=float(b.get("money_increment") or 0) + float(row.get("amount") or 0),
+                 seconds_increment=float(b.get("seconds_increment") or 0) + budget.T1_SECONDS / 2,
+                 calls_at_verdict=int(b.get("calls") or 0))
+        store.write_json(p.run, log, "budget.json", b, "BUDGET", {"increment": True})
+        log.append("APPROVAL", {"kind": "cost_increment", "calls": row.get("calls"), "amount": row.get("amount"),
+                                "turn_id": turn_id, "contact_id": row["contact_id"]})
+        log.append("RESUMED", {"job": p.job, "turn_id": turn_id})
+    contacts.mark(ctx, row["contact_id"], accepted=True, accepted_turn=turn_id)
+    sessionstate.set_job(ctx, p.job, state="EXECUTING")
+    return {"resumed": True, "contact_id": row["contact_id"], "calls": row.get("calls"), "amount": row.get("amount")}
 
 
 def _accept(req, ctx, p, log) -> dict:

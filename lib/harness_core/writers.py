@@ -68,6 +68,8 @@ def _say(tool, res):
         return (f"harness: compiled {res['job_id']} at {res['tier']}. Print this opening line verbatim, then work "
                 f"in .claude/loops/{res['job_id']}/work/: {res['opening']}")
     if tool == "contact":
+        if res.get("resumed"):
+            return f"harness: the owner approved continuing; the task resumed ({res['calls'] or 0} more calls)."
         if res.get("granted"):
             return f"harness: research plan {res['plan_sha'][:12]} accepted; grant for {', '.join(res['domains'])}."
         return (f"harness: contact {res['contact_id']} ({res['type']}) recorded. Show it to the owner and wait for "

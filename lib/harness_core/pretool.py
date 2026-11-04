@@ -48,6 +48,15 @@ def on_pre(evt, ctx) -> dict:
         if not approved_skill(ctx, ti.get("skill")):
             return _deny(f"harness: only approved dynamic-harness skills load in a task (R-5), not {ti.get('skill')!r}")
     if getattr(ctx, "job", None):
+        from . import budget
+        from .events import EventLog
+        from .paths import job_paths
+        jp = job_paths(ctx.data_root, ctx.workspace, ctx.job)
+        stopped = budget.latest_stop(EventLog(jp.run, jp.heads)) if jp.run.is_dir() else None
+        if stopped in ("STOPPED_BUDGET", "STOPPED_COST", "STOPPED_STALL"):
+            c = classes.classify(tool, ti, ctx.connector_registry, ctx)
+            if not (neutral(tool, c) or (lone is not None and lone[0] == "contact")):
+                return _deny(f"harness: task {ctx.job} is {stopped}: only reads and harness-contact until it resumes")
         from . import lease
         if lease.status(ctx, ctx.job, evt.get("session_id")) in ("other", "stale"):
             c = classes.classify(tool, ti, ctx.connector_registry, ctx)

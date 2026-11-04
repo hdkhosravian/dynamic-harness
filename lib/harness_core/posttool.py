@@ -25,6 +25,10 @@ def on_post(evt, ctx) -> dict:
     if res.get("decision") == "block":
         return res
     sid = evt.get("session_id")
+    from . import budget
+    charged = budget.charge(evt, ctx)
+    if charged.get("decision") == "block":
+        return charged
     lone = writers._lone_harness((evt.get("tool_input") or {}).get("command")) if tool == "Bash" else None
     if sid and not (lone and lone[0] in PRINT_ONLY):  # harness-sandbox-exec runs code: it counts
         trip = tripwire.on_post(evt, ctx, sessionstate.load(ctx, sid))
