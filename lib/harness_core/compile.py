@@ -126,6 +126,8 @@ def apply(req, ctx, evt) -> dict:
     out = {"job_id": job}
     if tier == tier_select.REFUSE:
         log.append("STOPPED", {"state": "REFUSED", "reason": f"decision class {c['decision_class']} is refused"})
+        from . import record
+        record.write(ctx, job, "REFUSED")  # R-15: every terminal task
         sessionstate.set_job(ctx, job, state="REFUSED", tier=None, task_type=c["task_type"], session_id=sid)
         # a refusal never lifts the gate: the model may raise decision_class, so it could refuse on purpose
         keep = pending or {"floor": "T2", "reason": "the request was refused", "turn_id": turn_id}
