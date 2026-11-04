@@ -3,12 +3,12 @@
   "procedures": [
     {
       "path": "skills/finance/SKILL.md",
-      "sha256": "302c98e5e42e78dd57abe6221ab9b8d7d3ff86001dcbec05c6e95c305bf45b56",
+      "sha256": "824113ee1e8657df5410af0d2c1eb997a759fbca0701018b32d56b70ca18e3ee",
       "approver": "release 0.4.0"
     },
     {
       "path": "skills/model/SKILL.md",
-      "sha256": "63bac8430de066276b93ba5c84fa8cc550ddf70cef66637ce7f4c9cc15f7db56",
+      "sha256": "d5a8c8ebe690ec9eddeafaa5ed640b2a7bada2329b79e2e3a3dafdd97c699936",
       "approver": "release 0.4.0"
     },
     {

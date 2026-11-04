@@ -33,6 +33,9 @@
       },
       "type": "array"
     },
+    "note_codes": {
+      "type": "array"
+    },
     "notes": {
       "items": {
         "type": "string"

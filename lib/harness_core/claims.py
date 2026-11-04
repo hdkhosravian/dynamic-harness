@@ -214,6 +214,29 @@ def log_search(evt, ctx) -> None:
                        "SEARCH", {"results": len(urls)})
 
 
+SATURATION = 5
+
+
+def saturated(ctx) -> bool:
+    """The last ``SATURATION`` searches found no URL that earlier searches or fetches had not already found
+    (spec §Business investigations "Stopping": saturation)."""
+    if not getattr(ctx, "job", None):
+        return False
+    _, p, log = _job(ctx)
+    searches = store.read_jsonl(p.run, log, "search_log.jsonl")
+    if len(searches) < SATURATION:
+        return False
+    seen = set()
+    for r in searches[:-SATURATION]:
+        seen.update(r.get("urls") or [])
+    seen.update(r.get("url") for r in store.read_jsonl(p.run, log, "fetch_log.jsonl")
+                if r.get("ts", "") < searches[-SATURATION].get("ts", ""))
+    new = set()
+    for r in searches[-SATURATION:]:
+        new.update(u for u in r.get("urls") or [] if u not in seen)
+    return not new
+
+
 def apply_cite(req, ctx, evt) -> dict:
     from .ledger import Ledger
     job, p, log = _job(ctx)

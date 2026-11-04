@@ -24,8 +24,16 @@ Assumptions are parameters, not questions. Every number in the report comes from
 5. Write `work/report.md`: ranges (low, base, high) rounded in the owner's unit, the top 3 drivers, the flip point
    ("you run out of cash in month 7 if sales fall more than 14%"), "This is a scenario, not a prediction." and
    "Arithmetic checked; assumptions not." Then `harness-run model.report`.
-6. After the gate and DONE, `harness-model register --deliverable model.json`. "Now try 15%" is a scenario run:
-   `harness-model scenario --set sales_growth=0.15`.
+6. Build the owner's workbook with `harness-model workbook` (work/forecast.xlsx: a coloured Assumptions sheet the
+   owner can edit, a protected Calc sheet of formulas, a Checks sheet, a Summary), then `harness-run
+   model.workbook --unit <id> --attempt <n>`.
+7. For uncertainty, add `"monte_carlo": {"runs": 1000, "seed": 7, "vary": {"<id>": {"dist": "normal", "sd": 0.02,
+   "why": "<the reason for this distribution>"}}}` to model.json (`normal` with `sd`, `uniform` with `low` and
+   `high`, `triangular` with `low`, `high` and an optional `mode`). `model.recalc` then gives P10/P50/P90 and the
+   chance of running out of cash; say in the report that the varied assumptions are treated as independent.
+8. After the gate and DONE, `harness-model register --deliverable model.json`. "Now try 15%" is a scenario run:
+   `harness-model scenario --set sales_growth=0.15`. A workbook the owner sends back goes through
+   `harness-model import <file>`.
 
 Use the simplest model first: naive seasonal, then linear, then driver-based. A more complex method must beat
 the baseline on held-out months.

@@ -127,6 +127,18 @@ def parse(code, out: bytes):
     return last["result"], last["values"], notes
 
 
+def note_codes(out: bytes) -> list:
+    """The ``note_codes`` of a check's result line: ``[{code, params} | None]``, one per note."""
+    lines = [x for x in out.decode("utf-8", "replace").splitlines() if x.strip()]
+    try:
+        last = json.loads(lines[-1]) if lines else {}
+    except ValueError:
+        return []
+    codes = last.get("note_codes") if isinstance(last, dict) and isinstance(last.get("note_codes"), list) else []
+    return [c if isinstance(c, dict) and isinstance(c.get("code"), str) and isinstance(c.get("params", {}), dict)
+            else None for c in codes][:50]
+
+
 def execute(entry: Path, box: Path, stdin: bytes, timeout: int, ctx, runner=None):
     runner = runner or sandbox_exec.run
     data = os.path.realpath(ctx.data_root)
@@ -186,10 +198,11 @@ def apply(req, ctx, evt, runner=None) -> dict:
         shutil.rmtree(box, ignore_errors=True)
     out = (out or b"")[:MAX_STDOUT]
     result, values, notes = parse(code, out)
+    codes = note_codes(out) if result != "error" else []
     if result == "error" and err:
         notes.append(err.decode("utf-8", "replace")[-300:] if isinstance(err, bytes) else str(err)[-300:])
     extra = {"inputs": [{"source": r["source"], "sha256": r["sha256"]} for r in rows],
-             "stdin_sha": canon.sha256_bytes(stdin), "work_sha": work_sha, "notes": notes,
+             "stdin_sha": canon.sha256_bytes(stdin), "work_sha": work_sha, "notes": notes, "note_codes": codes,
              "pack": f"{s['pack']}@{s['pack_version']}", "entry_sha": s["sha256"]}
     row = Outputs(p, log).record(check_id, unit_id, attempt, code if isinstance(code, int) else -1, result, values,
                                  out, extra=extra, blobs=[stdin] + [d for _, d in inputs])

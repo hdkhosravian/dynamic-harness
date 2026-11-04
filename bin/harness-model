@@ -1,6 +1,7 @@
 #!/usr/bin/python3 -I
 """harness-model assume ID VALUE --unit U --period month|year|once --source history|benchmark|guess|owner [--label L]
 harness-model register [--deliverable FILE]
+harness-model workbook [--out forecast.xlsx]
 harness-model scenario --set ID=VALUE [--set ID=VALUE ...]
 harness-model import FILE
 
@@ -29,7 +30,7 @@ def main(argv):
     elif sub == "import" and len(rest) == 1:
         req["file"] = rest[0]
         rest = []
-    elif sub not in ("register", "scenario"):
+    elif sub not in ("register", "scenario", "workbook"):
         print(__doc__, file=sys.stderr)
         return 2
     i = 0
@@ -41,7 +42,7 @@ def main(argv):
         if a == "--set" and "=" in v:
             k, _, val = v.partition("=")
             req.setdefault("set", {})[k] = _num(val)
-        elif a in ("--unit", "--period", "--source", "--label", "--deliverable", "--as-of"):
+        elif a in ("--unit", "--period", "--source", "--label", "--deliverable", "--as-of", "--out", "--model"):
             req[a[2:].replace("-", "_")] = v
         else:
             print(__doc__, file=sys.stderr)

@@ -92,7 +92,7 @@ def test_disagreeing_sources_show_both_and_the_gap(h, job):
     sales(h, "date,amount (Toman)\n1402/12/01,1240\n1402/12/29,0\n")
     sales(h, "date,amount (Toman)\n1402/12/03,1180\n1402/12/29,0\n", "bank.csv")
     res = run_req(h, inputs=("sales.csv", "bank.csv"), control={"input": 2, "label": "bank deposits"})
-    assert res["result"] == "fail" and "this file says 1240, bank deposits says 1180; the gap of 60" in notes(res)
+    assert res["result"] == "fail" and "this file says 1240, bank.csv says 1180; the gap of 60" in notes(res)
 
 
 def test_a_stale_export_says_incomplete(h, job):

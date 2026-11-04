@@ -2473,10 +2473,16 @@ profiles:
 - **Platforms.** The suite passes on macOS (sandbox-exec) and on Ubuntu 22.04 and 24.04 (bubblewrap,
   `--privileged` containers, real fold_ledger, `HARNESS_REQUIRE_INTEGRATION=1`). Under bubblewrap `/tmp` is
   private, so fold_ledger must not live under `/tmp`.
-- **Known gaps.** Check notes are in English inside Persian text. The rows behind an answer are not attached
-  as an Excel file, and the model deliverable is a JSON model plus a CSV table, not a formula workbook (no
-  `openpyxl` or `formulas` dependency). Monte Carlo runs are not built. The stall and saturation stop rules for
-  research are recorded but not enforced. v2 items stay v2.
+- **Gaps closed after the review.** Check notes carry a code and parameters, so the answer header renders them in
+  the owner's language. `harness-answer header` attaches the rows behind the figure as `work/rows-<unit>.xlsx`
+  (a stdlib XLSX writer, `xlsx.py`; attachments are capped so the check's result line always fits).
+  `harness-model workbook` writes the forecast workbook (Assumptions, a protected Calc sheet of formulas, Checks,
+  Summary); `model.workbook` lints it (formulas only, no `#REF`, check cells true, values equal to the model);
+  `harness-model import` reads it back. `model.json` may declare a seeded Monte Carlo with a stated reason per
+  distribution; `model.recalc` reports P10/P50/P90 and the chance of running out of cash, and lists independence
+  as an assumption. The researcher's WebSearch is denied after 5 searches that found nothing new.
+- **Known gaps.** v2 items stay v2. The token budget of a research run is the task's call budget; there is no
+  separate count of tokens read.
 
 ### Verification Plan
 

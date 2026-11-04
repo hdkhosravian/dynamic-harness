@@ -176,6 +176,13 @@ def recalc(req):
               "flip_month": f["month"], "top_drivers": tornado(model, A), "unit": model.get("unit"),
               "scenario_overrides": model.get("scenarios") or {}}
     notes = []
+    mc = model.get("monte_carlo")
+    if mc:
+        mv, mnotes = monte_carlo(model, A, mc)
+        values["monte_carlo"] = mv
+        notes += mnotes
+        if any(n.startswith("monte carlo:") for n in mnotes):
+            return "fail", values, notes
     missing = [k for k in ("low", "high") if k not in res]
     if missing:
         notes.append(f"no {' and '.join(missing)} scenario: results must be ranges")
@@ -184,6 +191,58 @@ def recalc(req):
         values["unconfirmed_top_drivers"] = unconfirmed
         notes.append(f"top drivers not confirmed by you: {', '.join(unconfirmed)}")
     return ("fail" if missing else "pass"), values, notes
+
+
+MC_MAX_RUNS = 5000
+
+
+def monte_carlo(model, A, mc):
+    """P10/P50/P90 of the final cash and the chance of running out, from stated and justified distributions.
+    Seeded, so the same model gives the same figures; independence between the varied assumptions is listed."""
+    import random
+    runs, seed = int(mc.get("runs", 1000)), mc.get("seed")
+    vary = mc.get("vary") or {}
+    problems = []
+    if not isinstance(seed, int):
+        problems.append("monte carlo: a seed is required, so the run can be repeated")
+    if not 100 <= runs <= MC_MAX_RUNS:
+        problems.append(f"monte carlo: runs must be between 100 and {MC_MAX_RUNS}")
+    for k, d in vary.items():
+        if k not in A or isinstance(A[k].get("value"), list):
+            problems.append(f"monte carlo: {k} is not a recorded single-value assumption")
+        elif not isinstance(d, dict) or d.get("dist") not in ("normal", "uniform", "triangular"):
+            problems.append(f"monte carlo: {k} needs dist normal, uniform or triangular")
+        elif not str(d.get("why") or "").strip():
+            problems.append(f"monte carlo: {k} needs a why: the reason for its distribution")
+    if not vary:
+        problems.append("monte carlo: vary names no assumption")
+    if problems:
+        return {}, problems
+    rnd = random.Random(seed)
+
+    def draw(k, d):
+        base = float(A[k]["value"])
+        if d["dist"] == "normal":
+            return rnd.gauss(float(d.get("mean", base)), float(d["sd"]))
+        if d["dist"] == "uniform":
+            return rnd.uniform(float(d["low"]), float(d["high"]))
+        return rnd.triangular(float(d["low"]), float(d["high"]), float(d.get("mode", base)))
+    finals, out_of_cash = [], 0
+    for _ in range(runs):
+        over = {k: draw(k, d) for k, d in sorted(vary.items())}
+        r = run(model, A, over=over)
+        finals.append(r["closing"][-1])
+        out_of_cash += any(c < 0 for c in r["closing"])
+    finals.sort()
+
+    def pct(q):
+        return _num(_q(finals[min(len(finals) - 1, int(q * len(finals)))]))
+    values = {"runs": runs, "seed": seed, "p10": pct(0.1), "p50": pct(0.5), "p90": pct(0.9),
+              "chance_out_of_cash_pct": _num(_q(Decimal(out_of_cash * 100) / runs, 1)),
+              "varied": sorted(vary)}
+    notes = [f"the varied assumptions ({', '.join(sorted(vary))}) are treated as independent: that is an assumption"]
+    notes += [f"{k}: {d['dist']} because {d['why']}" for k, d in sorted(vary.items())]
+    return values, notes
 
 
 def _table(path) -> dict:
@@ -357,3 +416,153 @@ def write_table(path, r) -> None:
         w.writerow(["line", *r["periods"]])
         for k, vals in r["lines"].items():
             w.writerow([k, *[str(_q(v)) for v in vals]])
+
+
+# --- the deliverable workbook (spec §Business simulations "Deliverable") -------------------------------------------
+def _assumption_rows(model, A):
+    """[(id, label, value, unit, period, source)] for the Assumptions sheet; literals in model.json become rows
+    too, so the calculation sheet holds formulas only. A seasonality becomes 12 rows ``<id>.1`` to ``<id>.12``."""
+    rows, where = [], {}
+
+    def add(key, label, value, unit, period, source):
+        where[key] = len(rows)
+        rows.append((key, label, value, unit, period, source))
+
+    def ref(r, key, unit, period):
+        if isinstance(r, dict) and "assumption" in r:
+            k = r["assumption"]
+            a = A[k]
+            if isinstance(a["value"], list):
+                for i, v in enumerate(a["value"], 1):
+                    if f"{k}.{i}" not in where:
+                        add(f"{k}.{i}", f"{a.get('label') or k} ({L.JALALI_MONTHS[i - 1]})", v, a["unit"], a["period"],
+                            a.get("source"))
+                return k
+            if k not in where:
+                add(k, a.get("label") or k, a["value"], a["unit"], a["period"], a.get("source"))
+            return k
+        add(key, key, r, unit, period, "model")
+        return key
+
+    keys = {"opening": ref(model.get("opening_balance", 0), "opening_balance", model.get("unit"), "once")}
+    for ln in model["lines"]:
+        if "share_of" in ln:
+            keys[(ln["id"], "rate")] = ref(ln["rate"], f"{ln['id']}_rate", "ratio", "month")
+        else:
+            keys[(ln["id"], "base")] = ref(ln["base"], f"{ln['id']}_base", model.get("unit"), "month")
+            keys[(ln["id"], "growth")] = ref(ln.get("growth", 0), f"{ln['id']}_growth", "ratio", "month")
+            if ln.get("seasonality") is not None:
+                keys[(ln["id"], "season")] = ref(ln["seasonality"], f"{ln['id']}_season", "index", "month")
+    return rows, where, keys
+
+
+def workbook_sheets(model, A, lang="en") -> list:
+    from .xlsx import ref as cell
+    r = run(model, A)
+    arows, where, keys = _assumption_rows(model, A)
+    fa = lang == "fa"
+    head = ["id", "label", "value", "unit", "period", "source"]
+    sheet1 = [[{"v": h, "style": "header"} for h in head]]
+    for k, label, value, unit, period, source in arows:
+        sheet1.append([k, label, {"v": value, "style": "input"}, unit, period, source])
+
+    def a(key):  # absolute reference to an assumption's value cell
+        return f"Assumptions!$C${where[key] + 2}"
+
+    ps = r["periods"]
+    lines = model["lines"]
+    calc = [[{"v": "line", "style": "header"}] + [{"v": p, "style": "header"} for p in ps]]
+    row_of = {}
+    order = [x for x in lines if "share_of" not in x] + [x for x in lines if "share_of" in x]
+    for ln in order:
+        row_of[ln["id"]] = len(calc)
+        out = [ln["id"]]
+        for t, p in enumerate(ps):
+            if "share_of" in ln:
+                f = f"{a(keys[(ln['id'], 'rate')])}*{cell(row_of[ln['share_of']], t + 1)}"
+            else:
+                f = f"{a(keys[(ln['id'], 'base')])}*(1+{a(keys[(ln['id'], 'growth')])})^{t}"
+                if (ln["id"], "season") in keys:
+                    f += f"*{a(keys[(ln['id'], 'season')] + '.' + str(int(p.split('/')[1])))}"
+            out.append({"f": f, "v": float(_q(r["lines"][ln["id"]][t]))})
+        calc.append(out)
+    totals = {}
+    for name, kind in (("inflow", "inflow"), ("outflow", "outflow")):
+        totals[name] = len(calc)
+        idx = [row_of[x["id"]] for x in lines if x["kind"] == kind]
+        calc.append([name] + [{"f": "+".join(cell(i, t + 1) for i in idx) if idx else "0",
+                               "v": float(_q(r[name][t]))} for t in range(len(ps))])
+    totals["opening"], totals["closing"] = len(calc), len(calc) + 1
+    calc.append(["opening"] + [{"f": a(keys["opening"]) if t == 0 else cell(totals["closing"], t),
+                                "v": float(_q(r["opening"][t]))} for t in range(len(ps))])
+    calc.append(["closing"] + [{"f": f"{cell(totals['opening'], t + 1)}+{cell(totals['inflow'], t + 1)}-"
+                                     f"{cell(totals['outflow'], t + 1)}", "v": float(_q(r["closing"][t]))}
+                               for t in range(len(ps))])
+    checks = [[{"v": h, "style": "header"} for h in ("period", "closing = opening + inflow - outflow",
+                                                       "opening = previous closing")]]
+    for t, p in enumerate(ps):
+        c = lambda name: f"Calc!{cell(totals[name], t + 1)}"  # noqa: E731
+        ident = {"f": f"ROUND({c('opening')}+{c('inflow')}-{c('outflow')}-{c('closing')},2)=0", "v": True,
+                 "style": "check"}
+        cont = ({"f": f"{c('opening')}={a(keys['opening'])}", "v": True, "style": "check"} if t == 0 else
+                {"f": f"Calc!{cell(totals['opening'], t + 1)}=Calc!{cell(totals['closing'], t)}", "v": True,
+                 "style": "check"})
+        checks.append([p, ident, cont])
+    sc = model.get("scenarios") or {}
+    res = {"base": r, **{k: run(model, A, over=sc[k]) for k in ("low", "high") if k in sc}}
+    f = flip(model, A)
+    summary = [[{"v": "خلاصه" if fa else "Summary", "style": "header"}, ""]]
+    for k in ("low", "base", "high"):
+        if k in res:
+            summary.append([f"final closing ({k})", float(_q(res[k]["closing"][-1]))])
+    summary.append(["runway (base)", _runway(r) or "beyond the horizon"])
+    if f["month"]:
+        summary.append(["flip point", f"cash runs out in {f['month']} if {f['driver']} falls more than "
+                                      f"{f['fall_pct']}%"])
+    summary.append(["top drivers", ", ".join(tornado(model, A))])
+    summary.append([SCENARIO_SENTENCE if not fa else "این یک سناریو است، نه پیش‌بینی.", ""])
+    summary.append([LIMITS_SENTENCE if not fa else "محاسبات بررسی شد؛ فرض‌ها نه.", ""])
+    return [{"name": "Assumptions", "rows": sheet1, "widths": [22, 32, 16, 10, 10, 12]},
+            {"name": "Calc", "rows": calc, "protect": True, "widths": [14] + [14] * len(ps)},
+            {"name": "Checks", "rows": checks, "protect": True, "widths": [12, 36, 28]},
+            {"name": "Summary", "rows": summary, "widths": [24, 60]}]
+
+
+def workbook(req):
+    """The ``model.workbook`` check: the delivered workbook's calculation cells are formulas only, it has no
+    ``#REF``, every check cell is true, and its cached values equal the engine's cells."""
+    import re as _re
+    from .checklib import safe_path
+    from .xlsx import sheet_xml
+    a = req.get("args") or {}
+    data = safe_path(req.get("work", "work"), a.get("workbook", "forecast.xlsx")).read_bytes()
+    model, A = load(req)
+    notes = []
+    calc = sheet_xml(data, 2).decode("utf-8", "replace")
+    checks = sheet_xml(data, 3).decode("utf-8", "replace")
+    if "#REF" in calc or "#REF" in checks:
+        notes.append("the workbook has #REF errors")
+    constants = []
+    for m in _re.finditer(r'<c r="([A-Z]+)(\d+)"([^>]*)>(.*?)</c>', calc, _re.S):
+        colname, row, attrs, body = m.groups()
+        if colname != "A" and int(row) > 1 and "<f>" not in body:
+            constants.append(f"{colname}{row}")
+    if constants:
+        notes.append(f"calculation cells hold constants instead of formulas: {', '.join(constants[:8])}")
+    bad = [m.group(1) for m in _re.finditer(r'<c r="([B-Z]+\d+)" t="b"[^>]*><f>[^<]*</f><v>0</v></c>', checks)]
+    if bad:
+        notes.append(f"failing check cells: {', '.join(bad[:8])}")
+    r = run(model, A)
+    cached = {}
+    for m in _re.finditer(r'<row r="(\d+)">(.*?)</row>', calc, _re.S):
+        cells = _re.findall(r'<c r="([A-Z]+)\d+"[^>]*>(?:<is><t[^>]*>([^<]*)</t></is>|<f>[^<]*</f><v>([^<]*)</v>)', m.group(2))
+        if m.group(1) == "1":
+            continue
+        line = cells[0][1] if cells and cells[0][1] else None
+        for t, (_, _, v) in enumerate(cells[1:]):
+            if line and v and t < len(r["periods"]):
+                cached[f"{line}@{r['periods'][t]}"] = Decimal(v)
+    diff = [k for k, v in r["cells"].items() if k in cached and abs(cached[k] - v) > max(abs(v) * TOL, Decimal(1))]
+    if diff:
+        notes.append(f"the workbook's values differ from the model at {diff[:5]}")
+    return ("fail" if notes else "pass"), {"calc_cells": len(cached)}, notes

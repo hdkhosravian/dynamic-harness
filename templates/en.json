@@ -46,5 +46,18 @@
   "model.tripwire": "This is bigger than a quick answer. Before going further, draft a task card and compile it (harness-card, then harness-compile). Until then only reads are allowed.",
   "definition.anchor": " Each amount is dated by {anchor}.",
   "definition.sources": " When sources differ, I use them in this order: {order}.",
-  "definition.measure": " It is measured as {measure}."
+  "definition.measure": " It is measured as {measure}.",
+  "note.metric_undefined": "metric {metric} has no confirmed definition yet",
+  "note.unit_converted": "amounts were in {src} and are shown in {dst}",
+  "note.left_out_undated": "left out: {n} rows with no date",
+  "note.left_out_unparsable": "left out: {n} rows whose amount could not be read",
+  "note.transfers": "{n} transfers between your own accounts were excluded",
+  "note.duplicates": "{n} rows look like duplicates (same date, amount and description)",
+  "note.incomplete_end": "incomplete: the data ends {date} ({gregorian}), before the period ends",
+  "note.incomplete_start": "incomplete: the data starts {date}, after the period starts",
+  "note.no_rows": "no rows fall in the period",
+  "note.total_row": "the file's own total row says {row}, the rows add up to {rows}",
+  "note.partition": "the rows do not add up: {used} accounted for, {file} in the file",
+  "note.magnitude": "the total is {ratio} times the prior period's: check for a Toman/Rial mix-up or a missing zero",
+  "note.sources_disagree": "sources disagree: this file says {x}, {b} says {y}; the gap of {gap} is not explained"
 }

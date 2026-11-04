@@ -87,3 +87,16 @@ def state_line(state, ctx=None, lang=None) -> str:
         what = "؛ ".join(REASON_FA.get(x.strip(), x.strip()) for x in m.group(1).split(";"))
         return render("state.not_fully", ctx, lang, what=what)
     return state
+
+
+def note(entry, text, ctx=None, lang=None) -> str:
+    """A check's note in the owner's language: ``entry`` is its ``{code, params}``; ``text`` the English."""
+    lang = lang or language(ctx)
+    if lang == "en" or not isinstance(entry, dict) or f"note.{entry.get('code')}" not in load(lang):
+        return text
+    fa = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+    params = {k: (v.translate(fa) if isinstance(v, str) and k != "b" else v) for k, v in (entry.get("params") or {}).items()}
+    try:
+        return render(f"note.{entry['code']}", ctx, lang, **params)
+    except (KeyError, IndexError, ValueError):  # a template that does not fit the params: the English note
+        return text

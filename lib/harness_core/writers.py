@@ -94,8 +94,10 @@ def _say(tool, res):
     if tool == "model":
         return model_cmd.say(res)
     if tool == "answer":
+        rows = (f" The rows behind the figure are in work/{res['rows_file']}; attach it to the answer."
+                if res.get("rows_file") else "")
         return ("harness: answer header recorded for the gate. Put these three lines at the top of the answer, "
-                f"exactly:\n{res['header']}")
+                f"exactly:{rows}\n{res['header']}")
     if tool == "ledger":
         return f"harness: {res['kind']} row recorded: {json.dumps(res['row'], ensure_ascii=False)[:200]}"
     return f"harness: {tool} recorded"

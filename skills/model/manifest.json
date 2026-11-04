@@ -41,6 +41,18 @@
         "assumptions.json"
       ],
       "description": "The report gives ranges, the top drivers, the flip point and the two required sentences."
+    },
+    "model.workbook": {
+      "entry": "checks/workbook.py",
+      "sha256": "4f55a65c97c9d98d0e8182e0a565bac1b54fbca85ae074868b2cebf01404ac55",
+      "task_types": [
+        "simulation"
+      ],
+      "timeout": 60,
+      "run_files": [
+        "assumptions.json"
+      ],
+      "description": "The delivered workbook: formulas only in the calculation sheet, no #REF, every check cell true, values equal to the model."
     }
   }
 }

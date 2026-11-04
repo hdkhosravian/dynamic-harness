@@ -105,7 +105,9 @@ def apply(req, ctx, evt) -> dict:
         line3 = templates.render("header.checked_control" if label else "header.checked", ctx, lang,
                                  control=label)
     else:
-        reason = (out.get("notes") or ["a check did not pass"])[0]
+        texts = out.get("notes") or ["a check did not pass"]
+        codes = out.get("note_codes") or []
+        reason = templates.note(codes[0] if codes else None, texts[0], ctx, lang)
         line3 = templates.render("header.not_checked", ctx, lang, reason=reason.rstrip("."))
         card = store.read_json(p.run, log, "card.v1.json", None) or {}
         if card.get("decision_class") in ("financial", "tax"):
@@ -116,6 +118,7 @@ def apply(req, ctx, evt) -> dict:
         atomic_write(p.run / FILE, data)
         log.append("ANSWER_HEADER", {"unit": unit["id"], "output": out["sha256"], "metric_id": metric_id,
                                      "version": entry["version"]}, file=FILE, file_sha=canon.sha256_bytes(data))
+    rows_file = _attach_rows(p, out, unit["id"], ctx, lang)
     if out.get("inputs"):
         business.register_source(ctx, src, {"role": "figure", "as_of": v.get("data_end"),
                                             "coverage_min": v.get("data_start"), "coverage_max": v.get("data_end"),
@@ -123,4 +126,24 @@ def apply(req, ctx, evt) -> dict:
         if label:
             business.register_source(ctx, label, {"role": "control", "unit": v.get("unit"),
                                                   "sha256": out["inputs"][1]["sha256"]})
-    return {"header": text, "unit": unit["id"]}
+    return {"header": text, "unit": unit["id"], "rows_file": rows_file}
+
+
+def _attach_rows(p, out, unit_id, ctx, lang):
+    """The rows behind the figure (from the recorded output), as ``work/rows-<unit>.xlsx``."""
+    from . import checklib, xlsx
+    from .gate import _literal_dir
+    blob = p.run / "outputs" / "blobs" / out["sha256"]
+    att = checklib.attachment(safe_open(blob, [p.run]), "rows") if blob.exists() else None
+    if not att:
+        return None
+    work = _literal_dir(p, p.work)
+    if work is None:
+        return None
+    name = f"rows-{unit_id}.xlsx"
+    if (work / name).is_symlink():
+        raise Denied(f"work/{name} is a symlink; nothing was written")
+    title = "ردیف‌های به‌کاررفته" if lang == "fa" else "Rows used"
+    rows = [[{"v": h, "style": "header"} for h in att.get("headers") or []]] + list(att.get("rows") or [])
+    atomic_write(work / name, xlsx.to_bytes([{"name": title, "rows": rows}]))
+    return name

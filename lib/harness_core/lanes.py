@@ -79,6 +79,11 @@ def on_pre(evt, ctx) -> dict:
     if agent == RESEARCHER:
         if _task_type(ctx) != "investigation":
             return _deny("the researcher works only in an investigation task")
+        if tool == "WebSearch":
+            from .claims import SATURATION, saturated
+            if saturated(ctx):
+                return _deny(f"saturation: the last {SATURATION} searches found nothing new. Stop searching and "
+                             "return your claim rows")
         if tool in WEB:
             return {}
         if tool == "Bash" and _lone_fetch(ti.get("command")):

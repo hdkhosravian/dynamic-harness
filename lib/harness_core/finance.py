@@ -18,6 +18,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from . import localize as L
 from . import tables
+from .checklib import Note as N
 
 AMOUNT_WORDS = ("amount", "total", "sum", "value", "مبلغ", "جمع", "مقدار", "بستانکار", "واریز", "price")
 DATE_WORDS = ("date", "تاریخ", "day", "روز")
@@ -26,6 +27,7 @@ ACCOUNT_WORDS = ("account", "counterparty", "حساب", "طرف حساب")
 TOTAL_LABELS = ("total", "grand total", "sum", "جمع", "جمع کل", "مجموع", "total amount")
 TRANSFER_WORDS = ("transfer between", "own account", "internal transfer", "انتقال بین حساب", "انتقال وجه بین",
                   "حواله داخلی", "انتقال به حساب خود", "transfer to own", "between own accounts")
+ROWS_ATTACHED = 50000  # the rows behind an answer, attached as a workbook by harness-answer
 JUMP = Decimal(8)  # a ×10 unit slip (Toman/Rial) shows as a ratio of 8 or more against the prior period
 
 
@@ -200,53 +202,62 @@ def reconcile(req):
         m = ((req.get("business") or {}).get("dictionary") or {}).get(a["metric_id"])
         values.update(metric_id=a["metric_id"], metric_version=(m or {}).get("version"))
         if not m:
-            notes.append(f"metric {a['metric_id']} has no confirmed definition yet")
+            notes.append(N("metric_undefined", f"metric {a['metric_id']} has no confirmed definition yet",
+                           metric=a["metric_id"]))
             fail = True
     if per:
         values.update(period=per["label"], period_gregorian=per["label_gregorian"],
                       period_jalali=per["label_jalali"], period_years=period_years(per))
     if agg["unit_in"] != agg["unit"] and agg["unit_in"] and agg["unit"]:
-        notes.append(f"amounts were in {agg['unit_in']} and are shown in {agg['unit']}")
+        notes.append(N("unit_converted", f"amounts were in {agg['unit_in']} and are shown in {agg['unit']}",
+                       src=agg["unit_in"], dst=agg["unit"]))
     for k, what in (("undated", "no date"), ("unparsable", "an amount that could not be read")):
         if st[k]:
             values[f"rows_left_out_{k}"] = st[k]
-            notes.append(f"left out: {st[k]} rows with {what}")
+            notes.append(N(f"left_out_{k}", f"left out: {st[k]} rows with {what}", n=st[k]))
             fail = True
     if st["transfers"]:
         values.update(transfers_excluded=st["transfers"], transfers_amount=agg["transfers_amount"])
-        notes.append(f"{st['transfers']} transfers between your own accounts were excluded")
+        notes.append(N("transfers", f"{st['transfers']} transfers between your own accounts were excluded",
+                       n=st["transfers"]))
     if agg["duplicates"]:
         values["possible_duplicates"] = agg["duplicates"]
-        notes.append(f"{agg['duplicates']} rows look like duplicates (same date, amount and description)")
+        notes.append(N("duplicates", f"{agg['duplicates']} rows look like duplicates (same date, amount and "
+                       "description)", n=agg["duplicates"]))
     if agg["data_end"]:
         values.update(data_start=agg["data_start"].isoformat(), data_end=agg["data_end"].isoformat(),
                       data_end_jalali=L.jalali_str(agg["data_end"]))
     if per and (agg["data_end"] is None or agg["data_end"] < per["end"]):
-        notes.append(f"incomplete: the data ends {L.jalali_str(agg['data_end']) if agg['data_end'] else 'before the period'}"
-                     f" ({agg['data_end'].isoformat() if agg['data_end'] else 'no dated rows'}), before the period ends")
+        end_j = L.jalali_str(agg["data_end"]) if agg["data_end"] else "before the period"
+        end_g = agg["data_end"].isoformat() if agg["data_end"] else "no dated rows"
+        notes.append(N("incomplete_end", f"incomplete: the data ends {end_j} ({end_g}), before the period ends",
+                       date=end_j, gregorian=end_g))
         fail = True
     if per and agg["data_start"] and agg["data_start"] > per["start"]:
-        notes.append(f"incomplete: the data starts {L.jalali_str(agg['data_start'])}, after the period starts")
+        notes.append(N("incomplete_start", f"incomplete: the data starts {L.jalali_str(agg['data_start'])}, after "
+                       "the period starts", date=L.jalali_str(agg["data_start"])))
         fail = True
     if st["rows_used"] == 0:
-        notes.append("no rows fall in the period")
+        notes.append(N("no_rows", "no rows fall in the period"))
         fail = True
     # second computation path
     if agg["file_total"] is not None and not per and not a.get("filters"):
         values["file_total_row"] = agg["file_total"]
         if agg["file_total"] != total + agg["transfers_amount"]:
-            notes.append(f"the file's own total row says {agg['file_total']}, the rows add up to "
-                         f"{total + agg['transfers_amount']}")
+            notes.append(N("total_row", f"the file's own total row says {agg['file_total']}, the rows add up to "
+                           f"{total + agg['transfers_amount']}", row=agg["file_total"],
+                           rows=total + agg["transfers_amount"]))
             fail = True
     if agg["partition"] != agg["grand"]:
-        notes.append(f"the rows do not add up: {agg['partition']} accounted for, {agg['grand']} in the file")
+        notes.append(N("partition", f"the rows do not add up: {agg['partition']} accounted for, {agg['grand']} "
+                       "in the file", used=agg["partition"], file=agg["grand"]))
         fail = True
     if agg["prior"] is not None:
         values["prior_period_total"] = agg["prior"]
         lo, hi = sorted((abs(total), abs(agg["prior"])))
         if lo and hi / lo >= JUMP:
-            notes.append(f"the total is {_round(hi / lo, 1)} times the prior period's: check for a Toman/Rial "
-                         "mix-up or a missing zero")
+            notes.append(N("magnitude", f"the total is {_round(hi / lo, 1)} times the prior period's: check for a "
+                           "Toman/Rial mix-up or a missing zero", ratio=_round(hi / lo, 1)))
             fail = True
     control = a.get("control")
     if control:
@@ -259,11 +270,17 @@ def reconcile(req):
         gap = total - c["total"]
         values.update(control_total=c["total"], gap=gap, control_rows_used=c["stats"]["rows_used"])
         if abs(gap) > tol:
-            label = control.get("label") or "the control source"
-            notes.append(f"sources disagree: this file says {total}, {label} says {c['total']}; the gap of "
-                         f"{abs(gap)} is not explained")
+            label = ins[n - 1]["name"] if 1 <= n <= len(ins) else "the control source"  # a file, never model text
+            notes.append(N("sources_disagree", f"sources disagree: this file says {total}, {label} says {c['total']}; "
+                           f"the gap of {abs(gap)} is not explained", x=total, b=label, y=c["total"], gap=abs(gap)))
             fail = True
-    return ("fail" if fail else "pass"), values, notes
+    rows = {"headers": agg["headers"], "rows": [[_cell(v) for v in r] for r in agg["kept"][:ROWS_ATTACHED]],
+            "truncated": len(agg["kept"]) > ROWS_ATTACHED}
+    return ("fail" if fail else "pass"), values, notes, {"rows": rows}
+
+
+def _cell(v):
+    return v if v is None or isinstance(v, (int, float, bool)) else str(v)
 
 
 def kpi(req):
@@ -272,7 +289,7 @@ def kpi(req):
     out, notes, fail = {}, [], False
     for k in a.get("kpis") or []:
         sub = dict(req, args=dict({x: y for x, y in a.items() if x != "kpis"}, **k))
-        res, vals, n = reconcile(sub)
+        res, vals, n = reconcile(sub)[:3]
         out[k["id"]] = vals
         notes += [f"{k['id']}: {x}" for x in n]
         fail |= res == "fail"

@@ -27,4 +27,5 @@ the check in a sandbox, records its output, and prints the output sha and values
 - After a `pass`, append the unit's ledger row with `"outputs": ["<sha>"]` and the same attempt number. After a
   `fail`, append a `FAIL` row citing the output; a second failure ends the unit as "done, not fully checked".
 - Cite only the values the check printed: `total`, `total_millions`, `total_other_unit`, `rows_used`, and so on.
-- For a figure the owner relies on, run `harness-answer header --unit <id> --output <sha>` before the gate.
+- For a figure the owner relies on, run `harness-answer header --unit <id> --output <sha>` before the gate. It
+  also writes the rows behind the figure as `work/rows-<unit>.xlsx`; attach it to the answer.

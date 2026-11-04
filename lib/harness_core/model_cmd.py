@@ -137,6 +137,32 @@ def accept_sheet(ctx, p, log, row, turn_id) -> dict:
     return {"confirmed": [r["id"] for r in rows]}
 
 
+def write_workbook(req, ctx, p, log) -> dict:
+    """``harness-model workbook [--out FILE]``: the hook builds the deliverable workbook from work/model.json and
+    the recorded assumptions (Assumptions, a protected Calc sheet of formulas, Checks, Summary)."""
+    from . import model, templates, xlsx
+    from .gate import _literal_dir
+    out = req.get("out") or "forecast.xlsx"
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}\.xlsx", out):
+        raise Denied("--out is a file name ending in .xlsx, inside the task's work folder")
+    work = _literal_dir(p, p.work)
+    if work is None:
+        raise Denied("the task has no work folder yet")
+    try:
+        m = json.loads(safe_open(work / (req.get("model") or "model.json"), [work]))
+    except Exception as e:
+        raise Denied(f"work/{req.get('model') or 'model.json'} cannot be read: {e}") from e
+    rows = {r["id"]: r for r in _rows(p, log)}
+    try:
+        sheets = model.workbook_sheets(m, rows, templates.language(ctx))
+    except (KeyError, ValueError, TypeError) as e:
+        raise Denied(f"the model cannot be built: {e}") from e
+    if (work / out).is_symlink():
+        raise Denied(f"work/{out} is a symlink; nothing was written")
+    atomic_write(work / out, xlsx.to_bytes(sheets))
+    return {"workbook": out}
+
+
 def register(req, ctx, p, log) -> dict:
     from . import gate
     from .gatehook import load_key
@@ -220,6 +246,23 @@ def scenario(req, ctx, evt, delta=None, note=None) -> dict:
     return dict(out, scenario_of=parent, set=delta)
 
 
+def _sheet_rows(data: bytes) -> list:
+    """Rows of a returned sheet as dicts: a CSV ``id,value[,...]`` or the delivered workbook's Assumptions sheet."""
+    if data[:2] == b"PK":
+        import os
+        import tempfile
+        from . import tables
+        fd, tmp = tempfile.mkstemp(suffix=".xlsx")
+        try:
+            os.write(fd, data)
+            os.close(fd)
+            headers, body = tables.read(tmp)
+        finally:
+            os.unlink(tmp)
+        return [{h: (str(v) if v is not None else "") for h, v in zip(headers, r)} for r in body]
+    return list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
+
+
 def import_sheet(req, ctx, evt) -> dict:
     from .run import _input, _written
     parent = _done_parent(ctx, evt)
@@ -228,17 +271,26 @@ def import_sheet(req, ctx, evt) -> dict:
     if canon.sha256_bytes(data) == reg["deliverable_sha"]:
         return {"unchanged": True, "parent": parent}
     try:
-        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
-    except (UnicodeDecodeError, csv.Error) as e:
-        raise Denied(f"{src} is not a CSV assumption sheet (id,value): {e}") from e
+        rows = _sheet_rows(data)
+    except (UnicodeDecodeError, csv.Error, ValueError, KeyError) as e:
+        raise Denied(f"{src} is not an assumption sheet (CSV id,value or the delivered workbook): {e}") from e
     if not rows or set(rows[0]) - {"id", "value", "unit", "period", "source", "label"} or "value" not in rows[0]:
         return {"structural": True, "parent": parent}
     pp = job_paths(ctx.data_root, ctx.workspace, parent)
     base = {r["id"]: r for r in _rows(pp, EventLog(pp.run, pp.heads))}
     from .localize import parse_amount
-    delta = {}
+    delta, lists = {}, {}
     for r in rows:
+        m = re.fullmatch(r"([a-z][a-z0-9_]*)\.(\d{1,2})", str(r.get("id") or ""))
+        if m and m.group(1) in base and isinstance(base[m.group(1)]["value"], list):
+            v = parse_amount(r["value"])  # one factor of a seasonality row
+            if v is None or not 1 <= int(m.group(2)) <= 12:
+                raise Denied(f"{r['id']}: {r['value']!r} is not a monthly factor")
+            lists.setdefault(m.group(1), list(base[m.group(1)]["value"]))[int(m.group(2)) - 1] = float(v)
+            continue
         if r.get("id") not in base:
+            if str(r.get("source")) == "model":  # a literal of model.json shown on the sheet: not an assumption
+                continue
             return {"structural": True, "parent": parent}
         v = parse_amount(r["value"])
         if v is None:
@@ -246,6 +298,7 @@ def import_sheet(req, ctx, evt) -> dict:
         v = int(v) if v == v.to_integral_value() else float(v)
         if v != base[r["id"]]["value"]:
             delta[r["id"]] = v
+    delta.update({k: v for k, v in lists.items() if v != base[k]["value"]})
     if not delta:
         return {"unchanged": True, "parent": parent}
     return scenario({}, ctx, evt, delta=delta, note=f"imported from {src}")
@@ -266,6 +319,8 @@ def apply(req, ctx, evt) -> dict:
         return assume(req, ctx, p, log)
     if sub == "register":
         return register(req, ctx, p, log)
+    if sub == "workbook":
+        return write_workbook(req, ctx, p, log)
     raise Denied("harness-model supports: assume, register, scenario, import")
 
 
@@ -274,6 +329,9 @@ def say(res) -> str:
         flag = " It came after half the work, so it is flagged in the report." if res["late"] else ""
         conf = "confirmed by the owner's own words" if res["owner_confirmed"] else "not yet confirmed by the owner"
         return f"harness: assumption {res['assumed']} recorded ({conf}).{flag}"
+    if "workbook" in res:
+        return (f"harness: work/{res['workbook']} written from the model (Assumptions, Calc formulas, Checks, Summary). "
+                f"Run harness-run model.workbook --arg workbook={res['workbook']} before the gate.")
     if "registered" in res:
         return f"harness: model {res['registered']} registered (version {res['version']})."
     if res.get("unchanged"):
