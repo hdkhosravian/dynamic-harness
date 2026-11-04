@@ -93,3 +93,15 @@ def test_snapshot_changes_with_the_effective_preferences(ctx):
 def test_odd_events_store_nothing(ctx):
     for evt in ({}, {"tool_input": None}, {"tool_input": {"questions": "x"}}, ask([{"header": 5}], {})):
         assert memory.apply(evt, ctx) == []
+
+
+def test_answers_prefilled_by_the_model_in_tool_input_are_ignored(ctx):
+    q = Q("[pref:tone] T", "T?", ["formal", "warm"])
+    evt = {"tool_name": "AskUserQuestion", "tool_input": {"questions": [q], "answers": {"T?": "warm"}},
+           "tool_response": {}}
+    assert memory.apply(evt, ctx) == []
+
+
+def test_the_answer_must_be_one_of_the_offered_options(ctx):
+    evt = ask([Q("[pref:tone] T", "T?", ["formal"])], {"T?": "warm"})  # "warm" was not offered
+    assert memory.apply(evt, ctx) == []

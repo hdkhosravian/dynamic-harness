@@ -1,0 +1,26 @@
+#!/usr/bin/python3 -I
+"""harness-probe TEXT: print the probe of a request (informational; the UserPromptSubmit hook runs the
+recorded probe). The workspace is the current directory; control defaults are used."""
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+
+def main(argv):
+    from harness_core import probe
+    from harness_core.safety import Ctx
+
+    if len(argv) != 1:
+        print(__doc__, file=sys.stderr)
+        return 2
+    ctx = Ctx(workspace=Path(os.getcwd()), data_root=None)
+    p = probe.run(argv[0], ctx)
+    print(json.dumps(dict(p, prefilter=probe.prefilter(p)), ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

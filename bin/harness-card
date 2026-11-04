@@ -1,0 +1,43 @@
+#!/usr/bin/python3 -I
+"""harness-card validate FILE | harness-card merge FILE1 FILE2
+
+validate prints {"ok": bool, "errors": [...]}; merge prints {"card": merged, "questions": [...]}.
+Read-only: there is no writer; harness-compile is what records a card."""
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+
+def main(argv):
+    from harness_core import card
+
+    if len(argv) == 2 and argv[0] == "validate":
+        with open(argv[1], encoding="utf-8") as fh:
+            errors = card.validate(json.load(fh))
+        print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False))
+        return 0 if not errors else 1
+    if len(argv) == 3 and argv[0] == "merge":
+        docs = []
+        for f in argv[1:]:
+            with open(f, encoding="utf-8") as fh:
+                docs.append(json.load(fh))
+        for d in docs:
+            errors = card.validate(d)
+            if errors:
+                print(json.dumps({"ok": False, "errors": errors}, ensure_ascii=False))
+                return 1
+        merged, questions = card.merge(*docs)
+        print(json.dumps({"ok": True, "card": merged, "questions": questions}, ensure_ascii=False))
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-card: {e}", file=sys.stderr)
+        sys.exit(2)

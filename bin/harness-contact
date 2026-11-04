@@ -1,0 +1,45 @@
+#!/usr/bin/python3 -I
+"""harness-contact TYPE [--text TEXT | --text-file FILE] [--plan FILE] [--handoff] [--accept TURN_ID]
+
+TYPE is question, plan, assumption_sheet, definition_confirm or decision_ack. Only prints a request; the
+PostToolUse writer (contact.apply) checks the cap and the 50% rule and records the contact."""
+import json
+import sys
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__, file=sys.stderr)
+        return 2
+    req, i = {"tool": "contact", "type": argv[0]}, 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "--handoff":
+            req["handoff"] = True
+            i += 1
+        elif a in ("--text", "--text-file", "--plan", "--accept") and i + 1 < len(argv):
+            v = argv[i + 1]
+            if a == "--text":
+                req["text"] = v
+            elif a == "--text-file":
+                with open(v, encoding="utf-8") as fh:
+                    req["text"] = fh.read()
+            elif a == "--plan":
+                with open(v, encoding="utf-8") as fh:
+                    req["plan"] = json.load(fh)
+            else:
+                req["accept"] = v
+            i += 2
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+    print(json.dumps(req, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-contact: {e}", file=sys.stderr)
+        sys.exit(2)

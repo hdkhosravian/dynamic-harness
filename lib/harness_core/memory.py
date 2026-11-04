@@ -35,12 +35,10 @@ def _value(key, answer):
 
 
 def _answers(evt) -> dict:
-    out = {}
-    for src in ((evt.get("tool_input") or {}), (evt.get("tool_response") or {})):
-        a = src.get("answers") if isinstance(src, dict) else None
-        if isinstance(a, dict):
-            out.update({k: v for k, v in a.items() if isinstance(k, str)})
-    return out
+    """The user's reply, from ``tool_response`` only: the model writes ``tool_input`` and could pre-fill it."""
+    tr = evt.get("tool_response")
+    a = tr.get("answers") if isinstance(tr, dict) else None
+    return {k: v for k, v in a.items() if isinstance(k, str)} if isinstance(a, dict) else {}
 
 
 def apply(evt, ctx) -> list:
@@ -59,7 +57,9 @@ def apply(evt, ctx) -> list:
         if not m or m.group(1) not in ALLOWED:
             continue
         key, scope = m.group(1), m.group(2) or "global"
-        value = _value(key, answers.get(q.get("question")))
+        offered = {o.get("label") for o in q.get("options") or [] if isinstance(o, dict)}
+        answer = answers.get(q.get("question"))
+        value = _value(key, answer) if answer in offered else None  # only an option the question offered
         if value is None:
             continue
         row = {"schema": "harness/memory@1", "id": secrets.token_hex(8), "scope": scope, "person_id": "owner",

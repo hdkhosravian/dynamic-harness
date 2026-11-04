@@ -1,0 +1,37 @@
+#!/usr/bin/python3 -I
+"""harness-compile --card FILE [--second-draft FILE]: print a compile request.
+
+Only prints. The PostToolUse writer (compile.apply) re-validates the card, selects the tier and writes
+the run state; nothing here touches a protected path. Put drafts under .claude/loops/<job>/requests/
+or any workspace file."""
+import json
+import sys
+
+
+def main(argv):
+    card, second, i = None, None, 0
+    while i < len(argv):
+        if argv[i] in ("--card", "--second-draft") and i + 1 < len(argv):
+            with open(argv[i + 1], encoding="utf-8") as fh:
+                v = json.load(fh)
+            card, second = (v, second) if argv[i] == "--card" else (card, v)
+            i += 2
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+    if card is None:
+        print(__doc__, file=sys.stderr)
+        return 2
+    req = {"tool": "compile", "card": card}
+    if second is not None:
+        req["second_draft"] = second
+    print(json.dumps(req, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as e:
+        print(f"harness-compile: {e}", file=sys.stderr)
+        sys.exit(2)

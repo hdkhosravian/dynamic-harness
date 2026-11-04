@@ -1,0 +1,10 @@
+{
+  "opening.T0": "Here is a quick answer.",
+  "opening.T1": "I'll prepare: {deliverable}. I'll check it before I call it done.",
+  "opening.T2": "I'll prepare: {deliverable}. This needs careful checking, so it may take longer.",
+  "opening.prefs": "Using your usual settings: {prefs}.",
+  "refused": "I can't help with this kind of decision. Please ask a qualified professional.",
+  "tripwire": "This is bigger than a quick answer. Before going further, draft a task card and compile it (harness-card, then harness-compile). Until then only reads are allowed.",
+  "pending_card": "A task card is needed first. Draft one and run harness-compile; until then only reads are allowed.",
+  "handoff": "I've paused this task so you can answer when ready. Reply here to continue."
+}
