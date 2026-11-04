@@ -248,7 +248,7 @@ def _creatable(p) -> bool:
     while not os.path.lexists(d):
         made.append(d)
         d = os.path.dirname(d)
-    if not os.path.isdir(d) or os.path.islink(d):
+    if not os.path.isdir(d):  # follows a symlinked ancestor: creating through it lands at its target
         return False
     ok = False
     try:

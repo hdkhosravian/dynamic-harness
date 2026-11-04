@@ -495,8 +495,15 @@ its last `file_sha`, appends the row, then appends an event carrying
   - no loop-contract ≥ 1.1.0.
 - `verify(ctx) -> [problem]`: `[]` when set up. SessionStart refuses otherwise.
 - `settings_paths(ctx) -> {user, project, local}`; `find_loop_contract(ctx)`.
-- Backups: `setup/backups/<ts>-<rand>/{manifest.json, <scope>.json}`; `undo` restores
-  the latest one and removes it.
+- `required()` also has `delete` (keys that must be absent: proxy ports) and
+  `no_overlap` (allow lists that may not reach the `include` deny lists).
+- `_problems(ctx, lcr, scopes, managed)` is pure and never raises. `verify` and
+  `plan` both use it; `plan` raises `Blocked` when the state it would write
+  still has problems.
+- Backups: `setup/backups/<ts>-<rand>/{manifest.json, <scope>.json}`. The manifest
+  records the operations `{scope, key, kind: set|add|remove|delete, …}`. `undo`
+  reverses them on the current files, keeps later edits, and removes the backup
+  afterwards. The full copies are for recovery by hand.
 
 ## Sandbox exec (`harness_core/sandbox_exec.py`, `bin/harness-sandbox-exec`)
 

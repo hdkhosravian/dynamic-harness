@@ -722,3 +722,10 @@ def test_launcher_outer_mode_checks_claude_md_in_every_directory_up_to_the_proje
     real = os.path.realpath(cwd)
     for d in (real, os.path.join(real, "a"), os.path.join(real, "a", "b")):
         assert os.path.join(d, "CLAUDE.md") in seen["dw"] and os.path.join(d, "CLAUDE.local.md") in seen["dw"], d
+
+
+def test_creatable_follows_a_symlinked_parent(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    assert sandbox_exec._creatable(str(tmp_path / "link" / "CLAUDE.md"))  # creation through the link works
+    assert not (tmp_path / "real" / "CLAUDE.md").exists()

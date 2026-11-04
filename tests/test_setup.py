@@ -311,3 +311,117 @@ def test_sandbox_weakening_keys_fail_verify_and_setup_removes_them(ctx, key, val
     assert any(".".join(key) in p for p in setup.verify(ctx))
     apply(ctx)
     assert setup.verify(ctx) == []
+
+
+# --- review of 4c6fac6..e99d9d2 ---
+
+
+def test_undo_keeps_edits_made_after_setup(ctx):
+    files(ctx)["user"].write_text('{"theme": "dark"}')
+    apply(ctx)
+    u = load(files(ctx)["user"])
+    u["enabledPlugins"] = {"x@y": True}
+    files(ctx)["user"].write_text(json.dumps(u))
+    loc = load(files(ctx)["local"])
+    loc["permissions"]["allow"] = ["Bash(ls)"]  # e.g. an "always allow" Claude Code wrote later
+    files(ctx)["local"].write_text(json.dumps(loc))
+    prompt(ctx, f"/dynamic-harness:setup confirm {code_of(prompt(ctx, '/dynamic-harness:setup undo'))}")
+    assert load(files(ctx)["user"]) == {"theme": "dark", "enabledPlugins": {"x@y": True}}
+    assert load(files(ctx)["local"]) == {"permissions": {"allow": ["Bash(ls)"]}}
+
+
+def test_undo_leaves_a_value_changed_after_setup_and_says_so(ctx):
+    apply(ctx)
+    loc = load(files(ctx)["local"])
+    loc["sandbox"]["failIfUnavailable"] = False
+    files(ctx)["local"].write_text(json.dumps(loc))
+    out = prompt(ctx, "/dynamic-harness:setup undo")
+    assert "changed since setup" in out["reason"]
+    prompt(ctx, f"/dynamic-harness:setup confirm {code_of(out)}")
+    assert load(files(ctx)["local"]) == {"sandbox": {"failIfUnavailable": False}}
+
+
+@pytest.mark.parametrize("key, value", [
+    (("sandbox", "filesystem", "allowRead"), "{data}"),
+    (("sandbox", "filesystem", "allowRead"), "{data}/keys"),
+    (("sandbox", "filesystem", "allowWrite"), "~/.claude"),
+    (("sandbox", "filesystem", "allowWrite"), "{ws}/CLAUDE.md"),
+])
+def test_allow_entries_over_protected_paths_fail_verify_and_are_removed(ctx, key, value):
+    apply(ctx)
+    loc = load(files(ctx)["local"])
+    entry = value.format(data=os.path.realpath(ctx.data_root), ws=os.path.realpath(ctx.workspace))
+    setup._put(loc, key, [entry, "/opt/fine"])
+    files(ctx)["local"].write_text(json.dumps(loc))
+    assert any(".".join(key) in p for p in setup.verify(ctx))
+    apply(ctx)
+    assert setup._get(load(files(ctx)["local"]), key) == ["/opt/fine"] and setup.verify(ctx) == []
+
+
+@pytest.mark.parametrize("key", [("sandbox", "network", "httpProxyPort"), ("sandbox", "network", "socksProxyPort")])
+def test_a_custom_proxy_port_fails_verify_and_is_removed(ctx, key):
+    apply(ctx)
+    u = load(files(ctx)["user"])
+    setup._put(u, key, 8080)
+    files(ctx)["user"].write_text(json.dumps(u))
+    assert any(".".join(key) in p for p in setup.verify(ctx))
+    apply(ctx)
+    assert setup._get(load(files(ctx)["user"]), key) is None and setup.verify(ctx) == []
+
+
+def test_lookalike_values_do_not_count(ctx):
+    apply(ctx)
+    loc = load(files(ctx)["local"])
+    loc["sandbox"]["enabled"] = 1  # 1 == True in Python, not in Claude Code
+    files(ctx)["local"].write_text(json.dumps(loc))
+    assert any("sandbox.enabled" in p for p in setup.verify(ctx))
+    apply(ctx)
+    assert load(files(ctx)["local"])["sandbox"]["enabled"] is True
+
+
+@pytest.mark.parametrize("scope, key, value", [
+    ("project", ("sandbox", "excludedCommands"), True),
+    ("project", ("permissions", "deny"), 5),
+    ("local", ("sandbox", "filesystem", "denyRead"), "/secret"),
+    ("user", ("sandbox",), True),
+])
+def test_odd_value_types_are_reported_never_crash_or_rewrite(ctx, scope, key, value):
+    d = {}
+    setup._put(d, key, value)
+    files(ctx)[scope].parent.mkdir(exist_ok=True)
+    files(ctx)[scope].write_text(json.dumps(d))
+    probs = setup.verify(ctx)
+    assert any("must be" in p for p in probs), probs
+    out = prompt(ctx, "/dynamic-harness:setup")
+    assert "cannot continue" in out["reason"] and load(files(ctx)[scope]) == d
+
+
+def test_managed_settings_that_override_are_named_and_block(ctx, monkeypatch):
+    monkeypatch.setattr(setup, "_managed", lambda: {"sandbox": {"enabled": False}})
+    out = prompt(ctx, "/dynamic-harness:setup")
+    assert "managed" in out["reason"] and "sandbox.enabled" in out["reason"] and "confirm" not in out["reason"]
+
+
+def test_symlinked_loop_contract_path_is_accepted(ctx, tmp_path):
+    link = tmp_path / "lc-link"
+    link.symlink_to(ctx.loop_contract_root)
+    object.__setattr__(ctx, "loop_contract_root", link)
+    apply(ctx)
+    rows = [json.loads(x) for x in (ctx.data_root / "config_log.jsonl").read_text().splitlines()]
+    assert rows[-1]["loop_contract_root"] == os.path.realpath(link)
+
+
+def test_dangling_user_settings_symlink_is_refused(ctx, tmp_path):
+    files(ctx)["user"].symlink_to(tmp_path / "missing.json")
+    assert "missing" in prompt(ctx, "/dynamic-harness:setup")["reason"]
+    assert not (tmp_path / "missing.json").exists()
+
+
+def test_any_whitespace_after_the_command_counts():
+    assert setup.is_setup_prompt({"prompt": "/dynamic-harness:setup\nconfirm 123456"})
+
+
+def test_emptying_user_wide_lists_is_said_plainly(ctx):
+    files(ctx)["user"].write_text(json.dumps({"sandbox": {"network": {"allowedDomains": ["github.com"]}}}))
+    out = prompt(ctx, "/dynamic-harness:setup")
+    assert "github.com" in out["reason"] and "other projects" in out["reason"]

@@ -2212,12 +2212,13 @@ profiles:
   - it comes from the same session;
   - no settings file changed since the plan.
 
-  The code works once. `undo` restores the files from before the last setup, with the same two steps. `status` runs `verify`.
+  The code works once. `undo` reverses setup's own recorded operations, with the same two steps. A value changed after setup is left as is and listed; every other later edit is kept. `status` runs `verify`.
 - **Scopes.** These follow the documented merge rules:
   - `sandbox.network.strictAllowlist` is honoured only from user, managed or `--settings` scope, so it is the one key written to `~/.claude/settings.json`. It acts only where the sandbox is on.
   - Everything else goes into the workspace's `.claude/settings.local.json`, so other projects keep their settings. Local beats project and user for single values; permission rules and sandbox path lists merge across scopes; `disableBypassPermissionsMode` takes the strictest value.
   - Lists that merge and must be empty (`excludedCommands`, `network.allowedDomains`, `network.allowUnixSockets`) are emptied in whichever file sets them.
-  - Sandbox-weakening switches (`enableWeakerNestedSandbox`, `allowNestedUserNamespaces`, `network.allowAllUnixSockets`, `filesystem.disabled`) are turned off wherever they are on.
+  - Sandbox-weakening switches (`enableWeakerNestedSandbox`, `allowNestedUserNamespaces`, `network.allowAllUnixSockets`, `filesystem.disabled`) are turned off wherever they are on. Custom proxy ports (`network.httpProxyPort`, `socksProxyPort`) are removed. `filesystem.allowRead`/`allowWrite` entries on or inside a protected path are removed.
+  - When the user file sets such a list or switch, the plan says that other projects lose it too.
 - **What it writes.**
   - Sandbox: on, with `failIfUnavailable` and no unsandboxed escape hatch.
   - `denyRead`: the whole data root, and every plugin's `keys/` and `experience/` (glob).
@@ -2226,6 +2227,9 @@ profiles:
   - Harness files: `keys/hmac.key` (32 random bytes, 0600 in a 0700 directory, never rotated by a re-run), and a `config_log.jsonl` row with the release hashes and the loop-contract root. loop-contract is found through `config_log`, `LOOP_CONTRACT_ROOT` or `installed_plugins.json`, and must be ≥ 1.1.0.
   - Verified live: Claude Code loads the generated settings without a settings error, and they deny the data root.
 - **Care.**
+  - Values are compared by JSON type and value, so `1` never counts as `true`.
+  - A setting of the wrong shape (a non-object container, a list that is not a list of strings) blocks the plan with a message. It is never rewritten silently.
+  - Before it offers a plan, setup checks the state it would produce, managed settings included. If anything would still be missing, it blocks and names it; an administrator's managed settings are named as the cause.
   - Setup never overwrites invalid JSON.
   - It never writes through a symlinked workspace `.claude/` or `settings*.json`, because a cloned repo controls those. It follows the user's own symlinked dotfile and names the real target.
   - It keeps file modes and backs up every file it changes.

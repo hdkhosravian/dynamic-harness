@@ -33,15 +33,20 @@ A Claude Code plugin that builds a per-task harness on top of loop-contract.
 4. Start a new Claude Code session in the folder. The sandbox and the session
    checks apply from then on.
 
-Use `/dynamic-harness:setup status` to check the folder, and
-`/dynamic-harness:setup undo` to restore the files from before setup.
+Use `/dynamic-harness:setup status` to check the folder.
+`/dynamic-harness:setup undo` reverses setup's own changes. It does not touch
+a value you changed after setup, and it keeps every other edit; the undo plan
+lists both.
 
 ### What setup changes
 
-- `~/.claude/settings.json`: one key only, `sandbox.network.strictAllowlist`.
-  It acts only in projects that turn the sandbox on. In those projects,
-  commands reach only the domains that project allows, with no prompt to add
-  one.
+- `~/.claude/settings.json`: the key `sandbox.network.strictAllowlist`. It
+  acts only in projects that turn the sandbox on. In those projects, commands
+  reach only the domains that project allows, with no prompt to add one.
+  Some lists apply to every project, including this one: allowed network
+  domains, sandbox-exempt commands, socket allowances and custom proxy ports.
+  If your user settings set any of these, setup also removes them there, and
+  other projects lose them too. The plan says so before you confirm.
 - This folder's `.claude/settings.local.json`:
   - the sandbox is on, and commands do not run if it cannot start;
   - no command may run outside the sandbox, and commands get no network access;
