@@ -113,6 +113,12 @@ def normalize(draft, probe, ctx, request) -> dict:
     return c
 
 
+def multi_session(c: dict) -> bool:
+    """Set by the compiler: true with ``resume_of``. The other two triggers (estimated calls above the T1
+    budget, waiting on someone other than the owner) need ``harness-estimate``, which is not built yet."""
+    return bool(c.get("resume_of"))
+
+
 def merge(a: dict, b: dict):
     """Deterministic merge of two drafts: (merged draft, start questions)."""
     m = copy.deepcopy(a)
