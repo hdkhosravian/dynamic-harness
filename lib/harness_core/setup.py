@@ -100,8 +100,29 @@ def required(ctx, lcr) -> dict:
                 os.path.join(ws, "**", "CLAUDE.md"), os.path.join(ws, "**", "CLAUDE.local.md")],
         },
         # merged across scopes: must be empty in every scope (local states it explicitly)
-        "empty": [("sandbox", "excludedCommands"), ("sandbox", "network", "allowedDomains")],
+        "empty": [("sandbox", "excludedCommands"), ("sandbox", "network", "allowedDomains"),
+                  ("sandbox", "network", "allowUnixSockets")],  # a docker.sock allowance is an escape
+        # must not be switched on in any scope: each one weakens the sandbox
+        "forbid": [("sandbox", "enableWeakerNestedSandbox"), ("sandbox", "allowNestedUserNamespaces"),
+                   ("sandbox", "network", "allowAllUnixSockets"), ("sandbox", "filesystem", "disabled")],
     }
+
+
+EXPLAIN = {
+    ("sandbox", "network", "strictAllowlist"): "Allow no network access beyond each project's own list",
+    ("sandbox", "enabled"): "Run every command Claude starts inside the operating system's sandbox",
+    ("sandbox", "failIfUnavailable"): "If the sandbox cannot start, run nothing rather than run unprotected",
+    ("sandbox", "allowUnsandboxedCommands"): "Claude cannot ask to run a command outside the sandbox",
+    ("permissions", "disableBypassPermissionsMode"): "Turn off the mode that skips every permission check",
+    ("permissions", "deny"): "Claude's file tools cannot read the harness keys or change harness, plugin and "
+                             "loop-contract files",
+    ("sandbox", "filesystem", "denyRead"): "Commands cannot read the harness's private data or any plugin's keys",
+    ("sandbox", "filesystem", "denyWrite"): "Commands cannot change Claude's settings, the harness, plugins, "
+                                            "loop-contract or any CLAUDE.md instruction file",
+    ("sandbox", "excludedCommands"): "No command is exempt from the sandbox",
+    ("sandbox", "network", "allowedDomains"): "Commands get no network access (the harness does any web lookups)",
+    ("sandbox", "network", "allowUnixSockets"): "Commands cannot connect to local service sockets, such as Docker's",
+}
 
 
 def _dot(key) -> str:
@@ -185,15 +206,23 @@ def plan(ctx) -> dict:
     if not lv or lv < session.MIN_LOOP_CONTRACT:
         raise Blocked(f"loop-contract at {lcr} is older than 1.1.0; update it, then run setup again")
     req, paths = required(ctx, lcr), settings_paths(ctx)
+    claude_dir = Path(ctx.workspace) / ".claude"
+    if os.path.islink(claude_dir):
+        raise Blocked(f"{claude_dir} is a symlink; setup will not write through it (remove it, then run setup again)")
+    for scope in ("project", "local"):  # a cloned repo controls these; only the user's own dotfile is followed
+        if os.path.islink(paths[scope]):
+            raise Blocked(f"{paths[scope]} is a symlink; setup will not write through it "
+                          "(replace it with a regular file, then run setup again)")
     cur, base = {}, {}
     for scope, path in paths.items():
         cur[scope], raw = _read(path)
         base[scope] = _sha(raw)
     new = copy.deepcopy(cur)
-    lines = []
+    groups = {g: [] for g in ("warning", "user", "project", "local", "harness")}
 
-    def note(scope, text):
-        lines.append(f"{_short(ctx, paths[scope])}: {text}")
+    def note(scope, text, detail=()):
+        groups[scope].append(f"- {text}")
+        groups[scope].extend(f"    {_short(ctx, d)}" for d in detail)
 
     for scope, values in req["set"].items():
         for key, want in values.items():
@@ -201,28 +230,34 @@ def plan(ctx) -> dict:
             if have != want:
                 _put(new[scope], key, want)
                 was = "unset" if have is None else json.dumps(have)
-                note(scope, f"set {_dot(key)} = {json.dumps(want)} (now {was})")
+                note(scope, f"{EXPLAIN[key]} ({_dot(key)} = {json.dumps(want)}, now {was})")
     for key, wanted in req["include"].items():
         merged = {x for s in new for x in (_get(new[s], key) or []) if isinstance(x, str)}
         missing = [w for w in wanted if w not in merged]
         if missing:
             _put(new["local"], key, list(_get(new["local"], key) or []) + missing)
-            note("local", f"add to {_dot(key)}: " + ", ".join(_short(ctx, m) for m in missing))
+            note("local", f"{EXPLAIN[key]} (add to {_dot(key)}):", missing)
     for key in req["empty"]:
         for scope in ("user", "project", "local"):
             have = _get(new[scope], key)
             if have:
-                note(scope, f"empty {_dot(key)} (now {json.dumps(have)}): entries here would apply in every scope")
+                note(scope, f"{EXPLAIN[key]}: remove {json.dumps(have)} ({_dot(key)}; entries in any file apply everywhere)")
             if have or (scope == "local" and have is None):
                 _put(new[scope], key, [])
                 if have is None:
-                    note(scope, f"set {_dot(key)} = []")
-    if any(s == "user" for s in (sc for sc in paths if new[sc] != cur[sc])):
-        lines.append("  The one user-scope key, strictAllowlist, acts in every project that turns the sandbox on: "
-                     "there, Bash can reach only the domains that project allows, with no prompt to add one.")
+                    note(scope, f"{EXPLAIN[key]} ({_dot(key)} = [])")
+    for key in req["forbid"]:
+        for scope in ("user", "project", "local"):
+            if _get(new[scope], key):
+                _put(new[scope], key, False)
+                note(scope, f"Turn off {_dot(key)} (now {json.dumps(_get(cur[scope], key))}): it weakens the sandbox")
+    if os.path.islink(paths["user"]) and new["user"] != cur["user"]:
+        groups["user"].append(f"  ({_short(ctx, paths['user'])} is a symlink: setup writes to "
+                              f"{_short(ctx, os.path.realpath(paths['user']))})")
     key_missing = not (Path(ctx.data_root) / "keys" / "hmac.key").exists()
     if key_missing:
-        lines.append(f"{_short(ctx, Path(ctx.data_root) / 'keys' / 'hmac.key')}: create the receipt key (private, 0600)")
+        note("harness", "Create the private key that signs task receipts (readable only by you):",
+             [Path(ctx.data_root) / "keys" / "hmac.key"])
     log = Path(ctx.data_root) / "config_log.jsonl"
     hashes = session.current_hashes(dataclasses.replace(ctx, loop_contract_root=Path(lcr)))
     try:
@@ -230,9 +265,24 @@ def plan(ctx) -> dict:
     except Exception:
         recorded = {}
     need_log = recorded != hashes or _config(log, "loop_contract_root") != lcr
+    changed_layers = sorted(k for k in set(recorded) | set(hashes) if recorded and recorded.get(k) != hashes.get(k))
+    if changed_layers:  # never re-baseline quietly: this is what SessionStart reports as STOPPED_TAMPER
+        groups["warning"].append(
+            f"WARNING: changed since the last setup: {', '.join(changed_layers)}. Confirm only if you updated or "
+            "edited these yourself. If you did not, do not confirm: something else changed them.")
     if need_log:
-        lines.append(f"{_short(ctx, log)}: record this release (plugin, loop-contract and control hashes) "
-                     f"and loop-contract at {_short(ctx, lcr)}")
+        note("harness", "Record this release, so a later change to the harness, loop-contract or its controls is "
+                        "noticed at session start (plus where loop-contract is):", [log, lcr])
+    heads = {"user": f"Your user settings, {_short(ctx, paths['user'])}. This one key affects every project that "
+                     "turns the sandbox on: there, commands reach only the domains that project allows, with no "
+                     "prompt to add one. Projects without a sandbox are not affected:",
+             "project": f"This folder's shared settings, {_short(ctx, paths['project'])}:",
+             "local": f"This folder only, {_short(ctx, paths['local'])}:",
+             "harness": "Harness files:"}
+    lines = list(groups["warning"])
+    for g in ("user", "project", "local", "harness"):
+        if groups[g]:
+            lines += ([""] if lines else []) + [heads[g], *groups[g]]
     changed = {s: new[s] for s in paths if new[s] != cur[s]}
     return {"files": changed, "paths": {s: str(p) for s, p in paths.items()}, "base": base, "lines": lines,
             "lcr": lcr, "need_key": key_missing, "need_log": need_log}
@@ -311,6 +361,9 @@ def verify(ctx) -> list:
         merged = [x for s in order for x in (_get(s, key) or [])]
         if merged:
             out.append(f"{_dot(key)} must be empty in every scope (has {json.dumps(merged)})")
+    for key in req["forbid"]:
+        if any(_get(s, key) for s in order):
+            out.append(f"{_dot(key)} must be off in every scope")
     return out
 
 
@@ -333,8 +386,11 @@ def _locked(ctx):
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def _write_json(path: Path, value: dict):
-    target = Path(os.path.realpath(path))  # write through a symlinked dotfile, keep the link
+def _write_json(path: Path, value: dict, follow: bool):
+    # only the user's own dotfile is followed (kept as a link); workspace files never are (plan refuses them)
+    target = Path(os.path.realpath(path)) if follow else path
+    if not follow and (os.path.islink(path) or os.path.islink(path.parent)):
+        raise Blocked(f"{path} became a symlink; nothing more was written")
     target.parent.mkdir(parents=True, exist_ok=True)
     mode = stat_mode(target)
     atomic_write(target, (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
@@ -374,7 +430,7 @@ def _apply(ctx, p) -> list:
             shutil.copyfile(os.path.realpath(src), bdir / f"{scope}.json")
     atomic_write(bdir / "manifest.json", json.dumps(manifest, indent=2).encode())
     for scope, value in p["files"].items():
-        _write_json(Path(p["paths"][scope]), value)
+        _write_json(Path(p["paths"][scope]), value, follow=scope == "user")
     if p["need_key"]:
         _make_key(ctx)
     if p["need_log"]:
@@ -401,8 +457,8 @@ def _undo_plan(ctx):
     for scope, m in sorted(manifest.items()):
         path = Path(m["path"])
         base[scope] = _sha(path.read_bytes() if path.exists() else None)
-        lines.append(f"{_short(ctx, path)}: " + ("restore the version from before setup" if m["existed"]
-                                                 else "remove (setup created it)"))
+        lines.append(f"- {_short(ctx, path)}: " + ("restore the version from before setup" if m["existed"]
+                                                   else "remove (setup created it)"))
     return {"backup": str(b), "manifest": manifest, "base": base, "lines": lines}
 
 
@@ -411,7 +467,9 @@ def _undo(ctx, u):
     for scope, m in u["manifest"].items():
         path = Path(m["path"])
         if m["existed"]:
-            target = Path(os.path.realpath(path))
+            if scope != "user" and (os.path.islink(path) or os.path.islink(path.parent)):
+                raise Blocked(f"{path} is now a symlink; undo will not write through it")
+            target = Path(os.path.realpath(path)) if scope == "user" else path
             atomic_write(target, (b / f"{scope}.json").read_bytes())
         else:
             with contextlib.suppress(FileNotFoundError):
@@ -460,10 +518,11 @@ def on_prompt(evt, ctx) -> dict:
             code = _code()
             atomic_write(pending_f, json.dumps({"kind": kind, "code": code, "sid": sid, "ts": time.time(),
                                                 "sha": sha}).encode())
-            head = "Setup will make these changes:" if kind == "apply" else "Undo will make these changes:"
-            tail = (f"Nothing has changed yet. To apply, type: {PREFIX} confirm {code}\n"
+            head = ("Setup will make these changes. Nothing changes until you confirm." if kind == "apply"
+                    else "Undo will make these changes. Nothing changes until you confirm.")
+            tail = (f"To apply, type: {PREFIX} confirm {code}\n"
                     f"(The code works once, in this session, for 10 minutes. Ignore it to cancel.)")
-            return _block("\n".join([head, *[f"- {x}" if not x.startswith("  ") else x for x in body], "", tail]))
+            return _block("\n".join([head, "", *body, "", tail]))
         if args[0] == "confirm" and len(args) == 2:
             try:
                 pend = json.loads(pending_f.read_text("utf-8"))
@@ -482,7 +541,7 @@ def on_prompt(evt, ctx) -> dict:
                     if u is None or _undo_sha(u) != pend.get("sha"):
                         return _block("The settings changed since the undo plan. Nothing was changed. Run undo again.")
                     done = _undo(ctx, u)
-                    return _block("\n".join(["Restored:", *[f"- {x}" for x in done], "",
+                    return _block("\n".join(["Restored:", *done, "",
                                              "Harness tasks above T0 are refused until setup runs again. "
                                              "Start a new session for the restored settings to apply everywhere."]))
                 p = plan(ctx)
@@ -491,7 +550,7 @@ def on_prompt(evt, ctx) -> dict:
                 done = _apply(ctx, p)
             except Blocked as e:
                 return _block(f"Setup cannot continue: {e}")
-            return _block("\n".join(["Applied:", *[f"- {x}" if not x.startswith("  ") else x for x in done], "",
+            return _block("\n".join(["Applied:", "", *done, "",
                                      "Start a new Claude Code session in this folder: the sandbox and the session "
                                      f"checks apply from the next session. To reverse this, type {PREFIX} undo."]))
         if args == ["status"]:

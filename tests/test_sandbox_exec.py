@@ -479,3 +479,95 @@ def test_guard_sees_into_a_directory_the_child_made_unreadable(tmp_path):
     finally:
         os.chmod(tmp_path / "hide", 0o700)
     assert not (tmp_path / "hide" / "CLAUDE.md").exists(), out
+
+
+# --- inside Claude Code's sandbox: the native sandbox cannot nest (spike: sandbox_apply EPERM) ---
+
+
+def _home_with_keys(tmp_path, readable=True):
+    keys = tmp_path / "rh" / ".claude" / "plugins" / "data" / "dynamic-harness-x" / "keys"
+    keys.mkdir(parents=True)
+    (keys / "hmac.key").write_bytes(b"k" * 32)
+    if not readable:
+        os.chmod(keys, 0)
+    return tmp_path / "rh"
+
+
+def test_outer_probe_refuses_when_keys_are_readable(tmp_path, monkeypatch):
+    monkeypatch.setattr(sandbox_exec, "_real_home", lambda: str(_home_with_keys(tmp_path)))
+    reason = sandbox_exec.outer_contained()
+    assert reason and "readable" in reason
+
+
+def test_outer_probe_refuses_without_any_keys_to_check(tmp_path, monkeypatch):
+    (tmp_path / "empty").mkdir()
+    monkeypatch.setattr(sandbox_exec, "_real_home", lambda: str(tmp_path / "empty"))
+    assert "no plugin keys" in sandbox_exec.outer_contained()
+
+
+def test_outer_probe_refuses_when_the_network_is_reachable(tmp_path, monkeypatch):
+    h = _home_with_keys(tmp_path, readable=False)
+    try:
+        monkeypatch.setattr(sandbox_exec, "_real_home", lambda: str(h))
+        monkeypatch.setattr(sandbox_exec, "_net_reachable", lambda: True)
+        monkeypatch.setattr(sandbox_exec, "_data_writable", lambda dirs: [])
+        assert "network" in sandbox_exec.outer_contained()
+    finally:
+        os.chmod(h / ".claude" / "plugins" / "data" / "dynamic-harness-x" / "keys", 0o700)
+
+
+def test_outer_probe_refuses_when_a_data_root_is_writable(tmp_path, monkeypatch):
+    h = _home_with_keys(tmp_path, readable=False)
+    try:
+        monkeypatch.setattr(sandbox_exec, "_real_home", lambda: str(h))
+        monkeypatch.setattr(sandbox_exec, "_net_reachable", lambda: False)
+        assert "writable" in sandbox_exec.outer_contained()  # an unsandboxed chmod 000 cannot fake containment
+    finally:
+        os.chmod(h / ".claude" / "plugins" / "data" / "dynamic-harness-x" / "keys", 0o700)
+
+
+def test_outer_mode_runs_contained_commands_with_a_clean_env(box, monkeypatch):
+    cwd, _ = box
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:secret@localhost:1")
+    code, out, err = py("import os; print(sorted(k for k in os.environ if 'PROXY' in k.upper()))", cwd)
+    assert (code, out.strip()) == (0, b"[]"), err
+
+
+def test_outer_mode_still_quarantines_instruction_files(box, monkeypatch):
+    cwd, _ = box
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    code, _, err = py("open('CLAUDE.md', 'w').write('x')", cwd)
+    assert code == sandbox_exec.INSTRUCTION_CODE and not (cwd / "CLAUDE.md").exists(), err
+
+
+def test_no_native_sandbox_and_no_containment_fails_closed(box, monkeypatch):
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: "keys readable")
+    with pytest.raises(HarnessError, match="keys readable"):
+        py("print(1)", box[0])
+
+
+def test_launcher_outer_mode_needs_no_claude_env(box, monkeypatch, capfdbinary):
+    # live finding: the Bash tool's environment has no CLAUDE_PROJECT_DIR / CLAUDE_PLUGIN_* variables
+    cwd, _ = box
+    mod = _launcher()
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    for k in ("CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(mod.sys, "stdin", None)
+    code = mod.main(["--cwd", str(cwd), "--", PY, "-I", "-c", "print(6*7)"])
+    assert code == 0 and capfdbinary.readouterr().out.strip() == b"42"
+
+
+def test_launcher_outer_mode_refuses_when_containment_fails(box, monkeypatch, capfdbinary):
+    cwd, _ = box
+    mod = _launcher()
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: "the network is reachable")
+    monkeypatch.setattr(mod.sys, "stdin", None)
+    code = mod.main(["--cwd", str(cwd), "--", PY, "-I", "-c", "print(6*7)"])
+    assert code == 2 and b"network is reachable" in capfdbinary.readouterr().err

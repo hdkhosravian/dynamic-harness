@@ -266,3 +266,48 @@ def test_hooks_json_wires_user_prompt_submit(env):
 def test_setup_command_cannot_be_invoked_by_the_model(env):
     text = (env["root"] / "commands" / "setup.md").read_text()
     assert re.search(r"^disable-model-invocation:\s*true\s*$", text, re.M)
+
+
+# --- review of 22c961d ---
+
+
+@pytest.mark.parametrize("scope", ["project", "local"])
+def test_symlinked_workspace_settings_are_refused(ctx, tmp_path, scope):
+    # a cloned repo can plant .claude/settings.local.json -> ~/.bashrc; setup must not write JSON into it
+    victim = tmp_path / "victim"
+    victim.write_text("keep me")
+    files(ctx)[scope].parent.mkdir(exist_ok=True)
+    files(ctx)[scope].symlink_to(victim)
+    out = prompt(ctx, "/dynamic-harness:setup")
+    assert "symlink" in out["reason"] and "confirm" not in out["reason"] and victim.read_text() == "keep me"
+
+
+def test_symlinked_workspace_claude_dir_is_refused(ctx, tmp_path):
+    (tmp_path / "elsewhere").mkdir()
+    (ctx.workspace / ".claude").symlink_to(tmp_path / "elsewhere")
+    out = prompt(ctx, "/dynamic-harness:setup")
+    assert "symlink" in out["reason"] and not list((tmp_path / "elsewhere").iterdir())
+
+
+def test_changed_release_hashes_are_named_as_a_warning(ctx):
+    apply(ctx)
+    (ctx.plugin_root / "planted.py").write_text("x = 1\n")
+    out = prompt(ctx, "/dynamic-harness:setup")
+    assert "changed since the last setup: plugin" in out["reason"] and "did not" in out["reason"]
+
+
+@pytest.mark.parametrize("key, value", [
+    (("sandbox", "enableWeakerNestedSandbox"), True),
+    (("sandbox", "allowNestedUserNamespaces"), True),
+    (("sandbox", "network", "allowAllUnixSockets"), True),
+    (("sandbox", "network", "allowUnixSockets"), ["/var/run/docker.sock"]),
+    (("sandbox", "filesystem", "disabled"), True),
+])
+def test_sandbox_weakening_keys_fail_verify_and_setup_removes_them(ctx, key, value):
+    apply(ctx)
+    u = load(files(ctx)["user"])
+    setup._put(u, key, value)
+    files(ctx)["user"].write_text(json.dumps(u))
+    assert any(".".join(key) in p for p in setup.verify(ctx))
+    apply(ctx)
+    assert setup.verify(ctx) == []

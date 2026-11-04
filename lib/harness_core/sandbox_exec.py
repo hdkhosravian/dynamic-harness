@@ -35,6 +35,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import secrets
@@ -123,6 +124,79 @@ def probe():
     if r.returncode:
         why = r.stderr.decode("utf-8", "replace").strip()[:300]
         return f"bwrap cannot create a sandbox here (are unprivileged user namespaces allowed?): {why}"
+    return None
+
+
+def _real_home() -> str:
+    import pwd
+
+    return pwd.getpwuid(os.getuid()).pw_dir  # not $HOME: the agent controls the environment
+
+
+def _native_ok(b) -> bool:
+    """The native backend can start here. Inside Claude Code's sandbox it cannot: nesting is refused
+    (spike 2026-11-04: ``sandbox-exec: sandbox_apply: Operation not permitted``, exit 71)."""
+    if b == "sandbox-exec":
+        try:
+            r = subprocess.run([SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
+                               capture_output=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return r.returncode == 0
+    return probe() is None
+
+
+def _net_reachable() -> bool:
+    for host in ("1.1.1.1", "8.8.8.8"):
+        try:
+            socket.create_connection((host, 443), timeout=2).close()
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def _data_writable(dirs) -> list:
+    out = []
+    for d in dirs:
+        p = os.path.join(d, f".harness-probe-{secrets.token_hex(8)}")
+        try:
+            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except OSError:
+            continue
+        os.close(fd)
+        os.unlink(p)
+        out.append(d)
+    return out
+
+
+def outer_contained():
+    """None when, seen from inside this process, the surrounding sandbox holds the three properties the
+    harness needs: no plugin ``keys/`` is readable, there is no direct network, and no plugin data root
+    is writable. Otherwise the reason. Properties, not identity: whoever set them up, they hold. Faking
+    them without a sandbox needs writes to the data root, which the PreToolUse classifier denies."""
+    home = _real_home()
+    datas = sorted(d for d in glob.glob(os.path.join(home, ".claude", "plugins", "data", "*")) if not os.path.islink(d))
+    seen = 0
+    for d in datas:
+        k = os.path.join(d, "keys")
+        try:
+            names = os.listdir(k)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            seen += 1  # denied (Seatbelt: EPERM)
+            continue
+        if names:
+            return f"{k} is readable"
+        seen += 1  # an empty view (a read-only tmpfs over it): nothing to read
+    if not seen:
+        return f"no plugin keys found under {home}/.claude/plugins/data to check (run /dynamic-harness:setup)"
+    if _net_reachable():
+        return "the network is reachable"
+    bad = _data_writable(datas)
+    if bad:
+        return f"{bad[0]} is writable"
     return None
 
 
@@ -246,15 +320,21 @@ def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), al
         child_env = {"PATH": SAFE_PATH, "HOME": tmp, "TMPDIR": tmp,
                      "LANG": "en_US.UTF-8" if b == "sandbox-exec" else "C.UTF-8"}
         child_env.update(env or {})
-        if b == "sandbox-exec":
-            cmd = [SANDBOX_EXEC, "-p", profile(cwd, tmp, deny_read, deny_write, allow_write)]
-            before = None
+        if not _native_ok(b):
+            why = outer_contained()
+            if why:
+                raise HarnessError(f"the {b} sandbox cannot start here (inside another sandbox?), and the "
+                                   f"surrounding one does not contain the command: {why}")
+            # outer mode: Claude Code's sandbox contains it; this adds the clean env, the timeout, the
+            # process-group kill and the instruction-file guard (deny_read/deny_write are the outer policy's)
+            cmd, before, run_cwd = [], _guard_before(cwd, deny_write, allow_write), os.fspath(cwd)
+        elif b == "sandbox-exec":
+            cmd, before, run_cwd = [SANDBOX_EXEC, "-p", profile(cwd, tmp, deny_read, deny_write, allow_write)], None, os.fspath(cwd)
         else:
-            cmd = bwrap_args(cwd, tmp, deny_read, deny_write, allow_write)
-            before = _guard_before(cwd, deny_write, allow_write)
+            cmd, before, run_cwd = bwrap_args(cwd, tmp, deny_read, deny_write, allow_write), _guard_before(cwd, deny_write, allow_write), tmp
         p = subprocess.Popen(
             cmd + [os.fspath(a) for a in argv],
-            cwd=os.fspath(cwd) if b == "sandbox-exec" else tmp,
+            cwd=run_cwd,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=child_env, start_new_session=True,
         )

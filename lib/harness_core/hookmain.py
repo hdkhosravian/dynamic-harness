@@ -92,7 +92,7 @@ def _session_ok(status, lcr):
     if isinstance(ts, bool) or not isinstance(ts, (int, float)) or not (0 <= time.time() - ts <= STATUS_MAX_AGE):
         return False, "SessionStart status is stale"
     if not lcr:
-        return False, "loop-contract root unknown: ${LOOP_CONTRACT_ROOT} paths cannot be protected"
+        return False, "not set up (loop-contract location unknown): type /dynamic-harness:setup"
     return True, None
 
 

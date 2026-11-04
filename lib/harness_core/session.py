@@ -146,8 +146,8 @@ def _checks(evt, ctx) -> dict:
         return _block("REFUSED", f"Claude Code {have} < {need}: hooks cannot fail closed (onFailure=block); "
                                  "tasks above T0 are refused", ctx)
     if not ctx.loop_contract_root:
-        return _block("REFUSED", "loop-contract root unknown (config_log loop_contract_root / LOOP_CONTRACT_ROOT): "
-                                 "tasks above T0 are refused", ctx)
+        return _block("REFUSED", "this folder is not set up (loop-contract location unknown): "
+                                 "type /dynamic-harness:setup; tasks above T0 are refused", ctx)
     lv = loop_contract_version(ctx.loop_contract_root)
     if lv is None or lv < MIN_LOOP_CONTRACT:
         need = ".".join(map(str, MIN_LOOP_CONTRACT))
@@ -155,7 +155,7 @@ def _checks(evt, ctx) -> dict:
                                  "tasks above T0 are refused", ctx)
     log_path = Path(ctx.data_root or "/nonexistent") / "config_log.jsonl"
     if not log_path.is_file():
-        return _block("REFUSED", "no config_log.jsonl baseline: run /dynamic-harness:setup; tasks above T0 are refused", ctx)
+        return _block("REFUSED", "this folder is not set up (no release baseline in config_log.jsonl): type /dynamic-harness:setup; tasks above T0 are refused", ctx)
     try:
         recorded = recorded_hashes(log_path)
         current = current_hashes(ctx)

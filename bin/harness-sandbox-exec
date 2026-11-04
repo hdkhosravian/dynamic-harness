@@ -6,6 +6,9 @@ reads of ${CLAUDE_PLUGIN_DATA}/keys|experience, writes only under the working
 directory and a temp dir, never to the workspace's protected paths, and no reads
 or writes anywhere under ${CLAUDE_PLUGIN_DATA} (keys, state, lock files).
 
+Inside Claude Code's sandbox (after /dynamic-harness:setup) the native sandbox cannot nest; then the
+command runs in the surrounding sandbox once run() has verified it from the inside (``_outer``).
+
 Every path is resolved once (``_resolve``: realpath, then lstat of each component)
 and only those resolved paths reach the profile and the child's cwd, so a symlink
 swapped in after the checks cannot move a rule.
@@ -63,6 +66,33 @@ def _job_dirs(project):
     return out
 
 
+def _outer(sandbox_exec, cmd, cwd, timeout):
+    """Inside Claude Code's sandbox the native one cannot nest. The Bash tool's environment has no
+    CLAUDE_* variables (live check), so nothing here depends on them: run() itself verifies, from the
+    inside, that the surrounding sandbox keeps every plugin's keys unreadable, the network off and the
+    data roots unwritable, and refuses otherwise."""
+    from harness_core.errors import HarnessError
+
+    try:
+        real_cwd = _resolve(cwd)
+        claude_home = _resolve(os.path.join(sandbox_exec._real_home(), ".claude"))
+    except ValueError as e:
+        print(f"harness-sandbox-exec: {e}", file=sys.stderr)
+        return 2
+    if _under(real_cwd, claude_home):
+        print(f"harness-sandbox-exec: --cwd {cwd!r} is inside {claude_home}; refusing to run", file=sys.stderr)
+        return 2
+    stdin = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read()
+    try:
+        code, out, err = sandbox_exec.run(cmd, real_cwd, stdin, timeout)
+    except HarnessError as e:
+        print(f"harness-sandbox-exec: {e}", file=sys.stderr)
+        return 2
+    sys.stdout.buffer.write(out)
+    sys.stderr.buffer.write(err)
+    return code
+
+
 def main(argv):
     from harness_core import sandbox_exec
 
@@ -82,6 +112,9 @@ def main(argv):
     if not cmd:
         print(__doc__, file=sys.stderr)
         return 2
+    b = sandbox_exec.backend()
+    if b is not None and not sandbox_exec._native_ok(b):
+        return _outer(sandbox_exec, cmd, cwd, timeout)
     data = os.environ.get("CLAUDE_PLUGIN_DATA")
     if not data:
         # fail closed: without the data root we cannot deny its keys/
