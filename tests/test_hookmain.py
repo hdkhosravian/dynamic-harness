@@ -96,13 +96,13 @@ def test_ctx_loads_registry_and_session_state(henv, tmp_path):
     (data / "sessions" / "s1").mkdir(parents=True)
     (data / "sessions" / "s1.json").write_text(json.dumps({"active_task": "j1"}))
     (data / "sessions" / "s1" / "written.json").write_text(json.dumps(["/x/y.py"]))
-    evt = {"session_id": "s1", "cwd": henv["CLAUDE_PROJECT_DIR"], "agent_type": "harness:web-researcher"}
+    evt = {"session_id": "s1", "cwd": henv["CLAUDE_PROJECT_DIR"], "agent_type": "dynamic-harness:web-researcher"}
     ctx = hookmain.build_ctx(evt, henv)
     assert ctx.connector_registry == {"mcp__gmail__search": "read"}
     assert ctx.protected_terms == ["Acme"]
     assert ctx.job == "j1"
     assert ctx.written_this_task == {"/x/y.py"}
-    assert ctx.agent_type == "harness:web-researcher"
+    assert ctx.agent_type == "dynamic-harness:web-researcher"
     assert str(ctx.workspace) == henv["CLAUDE_PROJECT_DIR"]
     assert ctx.log is not None and ctx.session_ok is False  # no SessionStart status for s1
 

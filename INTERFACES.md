@@ -466,7 +466,7 @@ its last `file_sha`, appends the row, then appends an event carrying
     recording it is a `GRANT` with its sha. `owner_tokens` comes from
     `owner_tokens.json` and `task_started` from `tier.json` `started_ts`.
   - Hook state is read with `safe_open`.
-- The plugin manifest is `.claude-plugin/plugin.json` (`name: harness`);
+- The plugin manifest is `.claude-plugin/plugin.json` (`name: dynamic-harness`; renamed from `harness`, which collides with an unrelated public plugin of that name);
   hooks load from `hooks/hooks.json`.
 
 ## Sandbox exec (`harness_core/sandbox_exec.py`, `bin/harness-sandbox-exec`)

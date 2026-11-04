@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from .errors import Denied
 from .protected import load_control
 
-RESEARCHER = "harness:web-researcher"
+RESEARCHER = "dynamic-harness:web-researcher"
 _BAD = re.compile(r"[\s\\\x00-\x1f\x7f]")
 
 

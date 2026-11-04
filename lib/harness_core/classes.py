@@ -2,7 +2,7 @@
 
 ``classify`` never raises: anything it cannot parse or recognise resolves to the
 ``unknown`` class, which is irreversible. Bash patterns are a best-effort first
-line; the Claude Code sandbox set up by /harness:setup is the hard backstop.
+line; the Claude Code sandbox set up by /dynamic-harness:setup is the hard backstop.
 """
 from __future__ import annotations
 
@@ -1143,7 +1143,7 @@ class _Bash:
             ok = getattr(self.ctx, "nonce_ok", None)
             if ok and ok(name, rest):
                 return self.add("local_reversible", "harness-business with a typed-command nonce")
-            return self.add("protected_path", f"harness-business {sub} needs the typed /harness:business nonce")
+            return self.add("protected_path", f"harness-business {sub} needs the typed /dynamic-harness:business nonce")
         if name == "harness-claims" and sub == "fetch":
             url = rest[1] if len(rest) > 1 else None
             c = classify_url(url, self.ctx)

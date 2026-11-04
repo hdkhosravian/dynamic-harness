@@ -155,7 +155,7 @@ def _checks(evt, ctx) -> dict:
                                  "tasks above T0 are refused", ctx)
     log_path = Path(ctx.data_root or "/nonexistent") / "config_log.jsonl"
     if not log_path.is_file():
-        return _block("REFUSED", "no config_log.jsonl baseline: run /harness:setup; tasks above T0 are refused", ctx)
+        return _block("REFUSED", "no config_log.jsonl baseline: run /dynamic-harness:setup; tasks above T0 are refused", ctx)
     try:
         recorded = recorded_hashes(log_path)
         current = current_hashes(ctx)

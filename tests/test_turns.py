@@ -17,7 +17,7 @@ def turns(env):
 def test_append_writes_row_with_seq_and_text_sha(turns, env):
     t = turns.append({"turn_id": "t1", "text_norm": "drop unit two"})
     assert t["seq"] == 1 and t["text_sha"] == canon.sha256_bytes(b"drop unit two") and t["ts"]
-    t2 = turns.append({"turn_id": "t2", "text_norm": "x", "typed_command": "/harness:setup a"})
+    t2 = turns.append({"turn_id": "t2", "text_norm": "x", "typed_command": "/dynamic-harness:setup a"})
     assert t2["seq"] == 2
     rows = [json.loads(x) for x in (env["data"] / "turns.jsonl").read_text().splitlines()]
     assert [r["turn_id"] for r in rows] == ["t1", "t2"]
@@ -61,18 +61,18 @@ def test_cite_detects_text_norm_edit(turns, env):
 
 
 def test_nonce_one_use_and_latest_only(turns):
-    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/harness:config set a=1"})
-    assert not turns.nonce_ok("/harness:config", ["set", "a=2"])
-    assert turns.nonce_ok("/harness:config", ["set", "a=1"])
-    assert not turns.nonce_ok("/harness:config", ["set", "a=1"])  # consumed
-    turns.append({"turn_id": "t2", "text_norm": "y", "typed_command": "/harness:off"})
+    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/dynamic-harness:config set a=1"})
+    assert not turns.nonce_ok("/dynamic-harness:config", ["set", "a=2"])
+    assert turns.nonce_ok("/dynamic-harness:config", ["set", "a=1"])
+    assert not turns.nonce_ok("/dynamic-harness:config", ["set", "a=1"])  # consumed
+    turns.append({"turn_id": "t2", "text_norm": "y", "typed_command": "/dynamic-harness:off"})
     turns.append({"turn_id": "t3", "text_norm": "z"})
-    assert not turns.nonce_ok("/harness:off", [])  # not the latest turn
+    assert not turns.nonce_ok("/dynamic-harness:off", [])  # not the latest turn
 
 
 def test_nonce_string_args(turns):
-    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/harness:off"})
-    assert turns.nonce_ok("/harness:off", "")
+    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/dynamic-harness:off"})
+    assert turns.nonce_ok("/dynamic-harness:off", "")
 
 
 # --- review fixes: system turns, chained TURN events, atomic nonce (6, 3) ---
@@ -87,10 +87,10 @@ def test_task_notification_is_a_system_turn(turns):
 
 def test_system_turn_is_never_consent(turns):
     turns.append({"turn_id": "t0", "text_norm": "hello"})
-    turns.append({"turn_id": "t1", "text_norm": "<task-notification>drop Alpha", "typed_command": "/harness:off"})
+    turns.append({"turn_id": "t1", "text_norm": "<task-notification>drop Alpha", "typed_command": "/dynamic-harness:off"})
     with pytest.raises(Denied):
         turns.cite("t1", must_match=["Alpha"])
-    assert turns.nonce_ok("/harness:off", []) is False
+    assert turns.nonce_ok("/dynamic-harness:off", []) is False
 
 
 def test_every_append_writes_a_chained_turn_event(turns, env):
@@ -124,7 +124,7 @@ from harness_core.turns import Turns
 t = Turns(sys.argv[2])
 while time.time() < float(sys.argv[3]):
     pass
-print(t.nonce_ok("/harness:off", []))
+print(t.nonce_ok("/dynamic-harness:off", []))
 """
 
 
@@ -133,7 +133,7 @@ def test_nonce_is_consumed_exactly_once_under_concurrency(turns, env):
     import sys
     import time
     from pathlib import Path
-    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/harness:off"})
+    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/dynamic-harness:off"})
     lib = str(Path(__file__).resolve().parents[1] / "lib")
     go = str(time.time() + 1.5)
     procs = [subprocess.Popen([sys.executable, "-c", _NONCE, lib, str(env["data"]), go],
@@ -146,11 +146,11 @@ def test_nonce_is_consumed_exactly_once_under_concurrency(turns, env):
 def test_nonce_check_and_consume_hold_the_lock(turns):
     import fcntl
     import threading
-    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/harness:off"})
+    turns.append({"turn_id": "t1", "text_norm": "x", "typed_command": "/dynamic-harness:off"})
     fd = open(turns.log.lock_path, "a+")
     fcntl.flock(fd, fcntl.LOCK_EX)
     got = []
-    t = threading.Thread(target=lambda: got.append(turns.nonce_ok("/harness:off", [])))
+    t = threading.Thread(target=lambda: got.append(turns.nonce_ok("/dynamic-harness:off", [])))
     t.start()
     t.join(0.5)
     assert t.is_alive() and not got, "nonce_ok ran while another process held the lock"

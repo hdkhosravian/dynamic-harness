@@ -136,7 +136,7 @@ render. On the CLI they are plain numbered lists.
 
 | Actor | Who | Can change | Safe default if absent |
 | --- | --- | --- | --- |
-| Owner | Business owner | Business layer (profile, roles, approval matrix, policies, metric dictionary, sources); approves cards; edits memory with `/harness:memory` | — (required) |
+| Owner | Business owner | Business layer (profile, roles, approval matrix, policies, metric dictionary, sources); approves cards; edits memory with `/dynamic-harness:memory` | — (required) |
 | Staff | Employee such as an accountant or salesperson | Requests tasks; approves only within the delegated limits in the approval matrix | Only the owner approves |
 | Operator (was "maintainer") | IT contractor, managed-service provider, or a tech-savvy owner | Control layer, domain packs, lesson approval, setup | Setup not done → only T0 runs. Unapproved lessons → not applied. No shadow review → components stay in shadow |
 | Professional | External accountant or lawyer | Read-only access and export; signs off regulated outputs | Regulated outputs stay "prepared, not final" |
@@ -172,9 +172,9 @@ needs Mr. Karimi's approval. It waits until he approves."
 
 | Layer | Contents | Location | Who changes it |
 | --- | --- | --- | --- |
-| Control | Permissions template, budgets, irreversible-class table, egress allowlist, gate flags, thresholds | `${CLAUDE_PLUGIN_DATA}/control/`, outside the workspace | Operator only, through `/harness:config` with a hash recorded |
-| Business | Business profile (currency and display unit, calendar, fiscal-year start, work week and holidays, jurisdiction, language), roles and approval matrix, hard policies (discount caps, do-not-contact list, send windows, required footers), metric dictionary, source registry, connector registry, standing approvals, automation and model registries, cost caps in money, risk / spend / decision-card thresholds, protected terms (names the query guard blocks), consents, style exemplars | `${CLAUDE_PLUGIN_DATA}/business/` | Owner, through `/harness:business` → `harness-business set` (written by a hook, with a rendered confirmation sentence). Never written by memory or by the agent. Tightening (e.g. "never email X again") can start from chat and needs one confirm. Loosening needs the owner's approval (V3) |
-| User memory | Soft preferences only: tone, format, report style, rounding | `${CLAUDE_PLUGIN_DATA}/memory.jsonl` | PostToolUse hook only (R-9); the user through `/harness:memory`. Assumptions, definitions and policies are never stored here |
+| Control | Permissions template, budgets, irreversible-class table, egress allowlist, gate flags, thresholds | `${CLAUDE_PLUGIN_DATA}/control/`, outside the workspace | Operator only, through `/dynamic-harness:config` with a hash recorded |
+| Business | Business profile (currency and display unit, calendar, fiscal-year start, work week and holidays, jurisdiction, language), roles and approval matrix, hard policies (discount caps, do-not-contact list, send windows, required footers), metric dictionary, source registry, connector registry, standing approvals, automation and model registries, cost caps in money, risk / spend / decision-card thresholds, protected terms (names the query guard blocks), consents, style exemplars | `${CLAUDE_PLUGIN_DATA}/business/` | Owner, through `/dynamic-harness:business` → `harness-business set` (written by a hook, with a rendered confirmation sentence). Never written by memory or by the agent. Tightening (e.g. "never email X again") can start from chat and needs one confirm. Loosening needs the owner's approval (V3) |
+| User memory | Soft preferences only: tone, format, report style, rounding | `${CLAUDE_PLUGIN_DATA}/memory.jsonl` | PostToolUse hook only (R-9); the user through `/dynamic-harness:memory`. Assumptions, definitions and policies are never stored here |
 | Core | loop-contract, hooks, tier selector, compiler, card validator | Plugin directory (versioned) | Plugin release |
 | Run state | Card, tier, ledger, scope, outbox, journal, PROGRESS.md, metrics | `${CLAUDE_PLUGIN_DATA}/runs/<job>/`. The workspace holds only `.claude/loops/<job>/{requests,work}/` | The agent only requests changes through `bin/harness-*`. Hooks write the protected files (§Trust boundaries and protected writes) |
 | Experience store (v2) | Lesson candidates, replays | `${CLAUDE_PLUGIN_DATA}/experience/` | Offline loop. The executor is denied reads |
@@ -196,7 +196,7 @@ small, focused skills outperform large bundles.
 | 5 | Tier selection and compile | Card → `tier.json` + run directory + scope freeze | Script | `bin/harness-compile`; PostToolUse records the tier |
 | 6 | Execute | Units → ledger rows, outbox entries | Model | Hooks guard every tool call |
 | 7 | Gate | Ledger + scope + oracle → HMAC receipt or failure | Gate hook, run on `harness-gate request` | PostToolUse hook; Stop verifies |
-| 8 | Report and approval | Outbox, ledger → approval card, final report | The model writes `report.md` (narrative) *before* step 7, and the gate lints it; step 8 only renders deterministic sections | Stop hook; **[v2]** `/harness:approve` |
+| 8 | Report and approval | Outbox, ledger → approval card, final report | The model writes `report.md` (narrative) *before* step 7, and the gate lints it; step 8 only renders deterministic sections | Stop hook; **[v2]** `/dynamic-harness:approve` |
 
 Offline loop (outside the run): the transcript, corrections and verdicts
 become a lesson candidate. The editor drafts a procedure diff, replay runs in
@@ -343,7 +343,7 @@ strong* the oracle is. Inside V2 the unit uses the highest rung available
 | Assumptions (`assumptions.yaml`) | The canonical store: `{id, value, unit, period, source, as_of, owner_confirmed, confirmed_turn_id?, sensitivity_rank, expires_at, dependents[]}`. Written only through `harness-model assume`. `owner_confirmed` is set only from a user turn (`confirmed_turn_id`). The card holds IDs only |
 | Outbox item (`outbox.jsonl`) | `{item_id, lane: A\|B, tool, input, sha256, class, produced_ids[], depends_on[], verification_status, precondition_snapshot, idempotency_key, group, status: PENDING\|APPROVED\|REJECTED_BY_USER\|EXECUTED\|FAILED\|EXPIRED, expires_at}` |
 | Execution journal (`journal.jsonl`) | `INTENT(item_id, key)` → `DONE(item_id, external_id)` \| `FAILED(item_id, error)` |
-| User memory record | `{id, scope: global\|person\|project\|task, person_id, key (closed schema), verbatim, ts, source_task, expires_at?}`. Allowed keys and closed value enums: tone ∈ {formal, neutral, warm}; format ∈ {short, detailed}; report_style ∈ {summary_first, table_first}; rounding ∈ {none, thousands, millions}; default_choices is stored only as a `question_id → option_id` map. Language lives in the business profile. Values containing URLs or emails, or longer than 40 characters, are rejected. Free text is stored only after the owner confirms it in `/harness:memory`. Forbidden: recipients, approval waivers, permissions, budgets, and anything the business layer owns (currency, calendar, definitions, policies). The hook stores only answers to questions tagged with an allowed key. Within one person, the newest record wins. Conflicts across people are shown to the user, never resolved silently |
+| User memory record | `{id, scope: global\|person\|project\|task, person_id, key (closed schema), verbatim, ts, source_task, expires_at?}`. Allowed keys and closed value enums: tone ∈ {formal, neutral, warm}; format ∈ {short, detailed}; report_style ∈ {summary_first, table_first}; rounding ∈ {none, thousands, millions}; default_choices is stored only as a `question_id → option_id` map. Language lives in the business profile. Values containing URLs or emails, or longer than 40 characters, are rejected. Free text is stored only after the owner confirms it in `/dynamic-harness:memory`. Forbidden: recipients, approval waivers, permissions, budgets, and anything the business layer owns (currency, calendar, definitions, policies). The hook stores only answers to questions tagged with an allowed key. Within one person, the newest record wins. Conflicts across people are shown to the user, never resolved silently |
 | Lesson candidate | `{id, evidence_refs, target_skill, diff, lint_result, replay_result, external_content: bool, approver?, approved_hash?}` |
 | Compiler output | `state.json`, `tier.json`, `scope.jsonl` (always; one row for a single-unit task), `pins/<job>.json`, `opening.txt`, `card` link, `budget.json`, `active_task` pointer, required-pack list, contact counter. Hooks themselves are static; they read these files |
 
@@ -380,7 +380,7 @@ human-owned table `control/classes.yaml`:
 - **Fail closed:** shell `case` statements, function definitions, parse errors and deep nesting are denied.
 - **Measured:** the 401-row training corpus gives 100% recall with 0 false denies. The independent 178-row red-team corpus scored 94.1% before the fixes and 98.5% after, with 0 false denies. The two remaining misses are homoglyph paths, pending `protected._norm`. The red-team figure is no longer fully held out, because its misses were fixed; a fresh red-team corpus is needed per release.
 
-**v1 action** (`v1_action` in `classes.yaml`). Every class above except `local_reversible` and `draft_create` is **denied** in v1. **Exception:** inside the `harness:web-researcher` lane with an active per-job research grant, GETs to granted domains and fetches/queries that pass the query guard are allowed. The native `ask` prompt is never used for these classes in v1: it would show the owner a raw command, and an injected agent could count on a rubber stamp.
+**v1 action** (`v1_action` in `classes.yaml`). Every class above except `local_reversible` and `draft_create` is **denied** in v1. **Exception:** inside the `dynamic-harness:web-researcher` lane with an active per-job research grant, GETs to granted domains and fetches/queries that pass the query guard are allowed. The native `ask` prompt is never used for these classes in v1: it would show the owner a raw command, and an injected agent could count on a rubber stamp.
 
 Every approval card states, for each group, the fix if the action turns out
 wrong and what that fix costs ("If wrong: send a correction email to 37
@@ -493,15 +493,15 @@ amount, or the assumption.
 | Ledger, verdict and scope rows; decision and contradiction rows | PostToolUse on `harness-ledger append --kind unit\|verdict\|decision\|contradiction` | The row must be schema-valid. PASS is accepted only when the row cites at least one recorded output, and every cited output has `exit_code = 0`, `result = pass`, and the unit's registered `check_id`. SUPPORTED and REFUTED are accepted only when the row cites a recorded `harness-run research.check` output for that unit with exit 0. That check verifies three things: the cited claim rows are load-bearing for the hypothesis, they pass `check_claims`, and a `harness-critic` verdict is recorded. Otherwise the hook rejects the row or records it as FAIL |
 | `outputs/outputs.jsonl` (recorded outputs) | PostToolUse on `harness-run <check_id>` | The hook runs the registered entrypoint as a sandboxed child. **Inputs** come only from source-registry paths, which the hook snapshots (sha256 plus `as_of`), or from earlier recorded outputs. A `work/` file may be used only as the deliverable under test, never as source data. It records `{check_id, unit, attempt, exit_code, result, values, sha256}`. Output from a script the agent wrote is stored as evidence only, and caps the state at "Done, not fully checked" |
 | `answer_header.md` | PostToolUse on `harness-answer header` | The hook re-runs the compute as a registered entrypoint and renders the header from those recorded values |
-| `claims.jsonl` | SubagentStop for `harness:web-researcher` | Rows come only from validated researcher output. Code derives `source_class` from the source registry, and `load_bearing` from the plan |
+| `claims.jsonl` | SubagentStop for `dynamic-harness:web-researcher` | Rows come only from validated researcher output. Code derives `source_class` from the source registry, and `load_bearing` from the plan |
 | `search_log.jsonl` | PostToolUse on WebSearch / WebFetch in the researcher lane | Records each query and its result URLs |
 | Card, `opening.txt`, tier, scope v(n), pins, budget, contacts, egress grant, `plan.json` | `compile.apply`, `budget.apply`, `contact.apply` | **compile.apply on success:** sets the session's `active_task = <job>` and `prompt_scope = active_task`, and clears `pending_card`. It checks that a gate profile exists for the tier and task type; if none does, it refuses the card. **On REFUSE:** writes the card and a `REFUSED` stop record. **`harness-contact plan --accept <turn_id>`:** checks that the turn answers the latest `plan` contact, then calls `compile.apply` in-process with units = `plan.hypotheses` (scope v(n+1), re-pin, tier only goes up), and writes the grant `{plan_sha, domains, page_budget}`. **budget.apply on STOPPED_COST or STOPPED_BUDGET:** also writes a `cost` contact `{contact_id, amount, calls}`. If another job is open and the compiled tier is ≥ T1, it appends `PAUSED(handoff)` to that job. Scenario and import writers call `compile.apply` in-process; nothing else builds a card. **contact.apply for `plan`:** writes the protected `plan.json` (schema `research_plan`: `{plan_sha, hypotheses[], queries[], urls[], domains[], page_budget, languages, stop_rule, load_bearing[]}`). The lanes hook, the grant and the claims writer read only this file. DESCOPE, accepted leads and RE_UNDERSTAND each cite a turn that comes after the latest freeze. `harness-compile --descope` needs a cited turn whose text matches at least 1 unit label or ordinal; the rework notice then lists the resolved unit ids. The egress grant needs a cited turn that answers the `plan` contact |
-| Cost or budget increment | PostToolUse on `harness-contact cost --accept <turn_id>` | The cited turn must answer the latest `cost` contact, and it binds that contact's amount. The writer appends `APPROVAL{cost_increment}` and then `RESUMED`. One contact type covers both STOPPED_COST (money) and STOPPED_BUDGET (calls). It is exempt from the cap. The writer reads the money caps from the *live* business layer, so raising a cap (by typed `/harness:business`) is exempt from the task's `business_hash` pin. If the owner does not want to continue, `/harness:status --abandon <job>` (typed) writes the terminal state `ABANDONED` |
+| Cost or budget increment | PostToolUse on `harness-contact cost --accept <turn_id>` | The cited turn must answer the latest `cost` contact, and it binds that contact's amount. The writer appends `APPROVAL{cost_increment}` and then `RESUMED`. One contact type covers both STOPPED_COST (money) and STOPPED_BUDGET (calls). It is exempt from the cap. The writer reads the money caps from the *live* business layer, so raising a cap (by typed `/dynamic-harness:business`) is exempt from the task's `business_hash` pin. If the owner does not want to continue, `/dynamic-harness:status --abandon <job>` (typed) writes the terminal state `ABANDONED` |
 | Assumptions | PostToolUse on `harness-model assume` | `owner_confirmed` is set only with a cited turn. Values the owner stated in a turn are recorded the same way |
-| Business layer | PostToolUse on `harness-business set` | PreToolUse denies `set` and `register-source` unless one of these holds: **(a)** the latest `turns.jsonl` row has `typed_command = /harness:business` with the same arguments (a one-use nonce bound to the payload hash); or **(b)** for a *tightening* change or a `definition_confirm` dictionary entry, a cited turn answers a contact whose rendered-sentence hash equals the payload hash. Loosening always needs (a) and the owner role, and applies from the next task. Code classifies the diff. *Tightening* is only these changes: adding a protected term, adding a do-not-contact entry, lowering a cap or threshold, or adding a required footer. **Every other change is loosening.** Each change appends its expected hash to `config_log.jsonl` |
-| Control layer, `enforcement.yaml`, settings, memory edits, repair, export | PostToolUse on `harness-admin <cmd>` (behind `/harness:setup`, `config`, `off`, `memory`, `status`, `export`) | Denied unless the latest `turns.jsonl` row has `typed_command` equal to that command with the same arguments (one-use nonce). Repair first shows the scope and pin diff, then needs a second typed confirmation |
+| Business layer | PostToolUse on `harness-business set` | PreToolUse denies `set` and `register-source` unless one of these holds: **(a)** the latest `turns.jsonl` row has `typed_command = /dynamic-harness:business` with the same arguments (a one-use nonce bound to the payload hash); or **(b)** for a *tightening* change or a `definition_confirm` dictionary entry, a cited turn answers a contact whose rendered-sentence hash equals the payload hash. Loosening always needs (a) and the owner role, and applies from the next task. Code classifies the diff. *Tightening* is only these changes: adding a protected term, adding a do-not-contact entry, lowering a cap or threshold, or adding a required footer. **Every other change is loosening.** Each change appends its expected hash to `config_log.jsonl` |
+| Control layer, `enforcement.yaml`, settings, memory edits, repair, export | PostToolUse on `harness-admin <cmd>` (behind `/dynamic-harness:setup`, `config`, `off`, `memory`, `status`, `export`) | Denied unless the latest `turns.jsonl` row has `typed_command` equal to that command with the same arguments (one-use nonce). Repair first shows the scope and pin diff, then needs a second typed confirmation |
 | User memory | PostToolUse on `AskUserQuestion` (R-9) | Allowed keys and closed value enums only |
-| Snapshots and fetch log | PostToolUse on `harness-claims fetch` (own matcher, 60 s timeout) | Before fetching, the hook re-checks, and does not trust PreToolUse: `agent_type = harness:web-researcher` from the hook input, an active grant for this job, an exact URL match against the plan or frozen-query results, and the query guard on the full URL. GET only. A URL already in the fetch log returns its `snapshot_sha` without a new download or a budget charge, and `harness-research render` lists the URLs already fetched (crash-safe). Each redirect hop is re-checked, and an off-grant hop is not followed. Each fetch counts against the page budget. The hook downloads the raw page and logs `(url, snapshot_sha, ts)`. A failed check gives a `FETCH_DENIED` event; a timeout gives `status = UNREACHABLE` |
+| Snapshots and fetch log | PostToolUse on `harness-claims fetch` (own matcher, 60 s timeout) | Before fetching, the hook re-checks, and does not trust PreToolUse: `agent_type = dynamic-harness:web-researcher` from the hook input, an active grant for this job, an exact URL match against the plan or frozen-query results, and the query guard on the full URL. GET only. A URL already in the fetch log returns its `snapshot_sha` without a new download or a budget charge, and `harness-research render` lists the URLs already fetched (crash-safe). Each redirect hop is re-checked, and an off-grant hop is not followed. Each fetch counts against the page budget. The hook downloads the raw page and logs `(url, snapshot_sha, ts)`. A failed check gives a `FETCH_DENIED` event; a timeout gives `status = UNREACHABLE` |
 | Model registry | PostToolUse on `harness-model register` | Only with a verified DONE receipt |
 | Gate output and receipt | PostToolUse on `harness-gate request` (its own matcher, fixed 1800 s timeout) | See §Gate adapter |
 | Decision record | Stop hook (`record.write`) | At a terminal state |
@@ -557,7 +557,7 @@ invoke them. Their writes also go through the nonce-checked writers. PreToolUse 
 
 A card that exists with no `tier.json` is `STOPPED_TAMPER`, never T0.
 
-**Tamper recovery.** The operator runs `/harness:status --repair`. It
+**Tamper recovery.** The operator runs `/dynamic-harness:status --repair`. It
 restores every protected file to the bytes recorded at the last verified
 `seq`, and moves the tampered copies to `tamper/`. It pins only those
 restored bytes, never what is currently on disk, then resumes the task.
@@ -597,7 +597,7 @@ The thread rule applies only when the matched job is terminal.
 | --- | --- | --- |
 | `UserPromptSubmit` | all (explicit timeout; default is 30 s) | Appends to `turns.jsonl`, recording `<task-notification>` prompts as system turns. Runs the probe and the pre-filter. Sets `prompt_scope` ∈ {`active_task`, `inline_t0`, `new`}. Writes `pending_card` when the result is `card-needed`. If the prompt resolves to a job whose latest record is a resumable stop, appends `RESUMED{job, turn_id}`. The cost stops are the exception: they resume through `harness-contact cost --accept`. Refreshes the lease heartbeat. On a lease takeover, runs `fold.project()`, then `--remaining`, then the takeover, all inside the hook. Gives the probe the thread context |
 | `PreToolUse` safety (always `enforce`) | **all tiers** | After a `STOPPED_COST` or `STOPPED_BUDGET` record with no `RESUMED` after it, denies every call except reads and `harness-contact`. Classifies the call (§Irreversible-action control); in v1 every irreversible class is denied except under the research grant. Denies writes to protected paths, `osascript`/`open`/`shortcuts`/`automator`, execution of any file written in this task except through `harness-sandbox-exec`, MCP servers missing from the connector registry, and direct calls to `fold_ledger.py`. Denies `harness-business set|register-source` without the nonce. While `pending_card` is set, denies every non-read call except `harness-card`, `harness-compile`, and `harness-model scenario|import`. That exception applies only when three things hold: the probe marked the prompt as a follow-up to that model's job, the parent job has a registry entry, and the probe found no write targets, no action verbs and no new files other than one `.xlsx` for `import`. Rejects any decrease of the tier. Each module has a 4 s deadline and returns `deny` when it expires (fails closed) |
-| `PreToolUse` lanes | T1, T2 (researcher rules only when `task_type = investigation`) | Web and browser tools are allowed only when `agent_type = harness:web-researcher`. That agent may run exactly one Bash form, `harness-claims fetch <url>`, and is denied Read, Grep, Glob, other Bash, and data MCP tools. A researcher spawn is allowed only when its prompt equals `harness-research render <plan_sha>` (the hash is recorded). Continuing or messaging a running researcher (SendMessage) is denied. A fetch URL must exactly match either a URL in the approved plan or one that a frozen query returned (as recorded in `search_log.jsonl`). The grant's domains are derived from those URLs. Plan domains must be in the source registry or typed by the owner. The query guard runs on the full URL. It percent-decodes each path and query segment first, then rejects any segment longer than 64 characters or with entropy above 4.0 bits per character. The entropy is measured on the decoded text, so Persian URLs pass. Verifier spawns must carry the prompt produced by `harness-critic render`. Spawns of non-harness agent types are denied |
+| `PreToolUse` lanes | T1, T2 (researcher rules only when `task_type = investigation`) | Web and browser tools are allowed only when `agent_type = dynamic-harness:web-researcher`. That agent may run exactly one Bash form, `harness-claims fetch <url>`, and is denied Read, Grep, Glob, other Bash, and data MCP tools. A researcher spawn is allowed only when its prompt equals `harness-research render <plan_sha>` (the hash is recorded). Continuing or messaging a running researcher (SendMessage) is denied. A fetch URL must exactly match either a URL in the approved plan or one that a frozen query returned (as recorded in `search_log.jsonl`). The grant's domains are derived from those URLs. Plan domains must be in the source registry or typed by the owner. The query guard runs on the full URL. It percent-decodes each path and query segment first, then rejects any segment longer than 64 characters or with entropy above 4.0 bits per character. The entropy is measured on the decoded text, so Persian URLs pass. Verifier spawns must carry the prompt produced by `harness-critic render`. Spawns of non-harness agent types are denied |
 | `PreToolUse` contacts | T1, T2 | Counts `AskUserQuestion` and `harness-contact`. Denies them above the cap, and after 50% progress except for exempt types (R-7, R-8) |
 | `PostToolUse` writers | all | The trusted writers listed in §Trust boundaries |
 | `PostToolUse` budget | all (scope-aware) | Charges `budget.json`, or the session T0 counter. Writes `STOPPED_BUDGET`, `STOPPED_COST` or `STOPPED_STALL` (§Budget and failure handling) |
@@ -605,7 +605,7 @@ The thread rule applies only when the matched job is terminal.
 | `SessionStart` | all | Runs the session checks. Lists non-terminal jobs with a stale lease from `jobs/index.json`. Refuses `bypassPermissions` |
 | `ConfigChange` | all | Blocks `disableAllHooks`, disabling the plugin, and loosening permissions during a task |
 | `Stop` | all | §Gate and Stop semantics |
-| `SubagentStop` | T1, T2 (matchers use the full anchored name, `^harness:<agent>$`) | Records `{agent_type, agent_id, prompt_sha, verdict_sha}` for verifiers. SubagentStop carries no spawn prompt, so `prompt_sha` comes from the lanes hook, which records it at the Agent call and links it to `agent_id`. Researcher output is accepted only as schema-valid rows `{claim, quote ≤ 300 chars, date, url, snapshot_sha}`. Free text is dropped. Quotes are checked against the hook-fetched snapshots before the main agent sees them. Never requires the gate |
+| `SubagentStop` | T1, T2 (matchers use the full anchored name, `^dynamic-harness:<agent>$`) | Records `{agent_type, agent_id, prompt_sha, verdict_sha}` for verifiers. SubagentStop carries no spawn prompt, so `prompt_sha` comes from the lanes hook, which records it at the Agent call and links it to `agent_id`. Researcher output is accepted only as schema-valid rows `{claim, quote ≤ 300 chars, date, url, snapshot_sha}`. Free text is dropped. Quotes are checked against the hook-fetched snapshots before the main agent sees them. Never requires the gate |
 
 Hooks find the tier this way: session file → `prompt_scope` (`active_task`
 only) → `tier.json`. If no tier is found, the safety hooks still apply, and
@@ -938,7 +938,7 @@ together with write connectors.
 - **Lane B (outbox).** Independent leaf actions, such as N reminder emails.
   1. PreToolUse **denies** the call and records the item.
   2. At the end, a single card covers all items, grouped by action type.
-  3. On approval, `/harness:approve` writes the approved hashes.
+  3. On approval, `/dynamic-harness:approve` writes the approved hashes.
   4. Replay depends on the connector:
      - **script connectors:** `bin/harness-outbox exec` runs the approved
        items with its own write credentials;
@@ -1024,7 +1024,7 @@ together with write connectors.
     format: short report.") and, separately, the business settings in use
     ("Amounts in Toman, Jalali dates.").
   - The final report lists new or changed preferences.
-  - `/harness:memory` lets the user view, edit or delete them.
+  - `/dynamic-harness:memory` lets the user view, edit or delete them.
   - On conflict, the newest record wins. Task-scoped records never carry
     over to other tasks.
 - **Language.** The user never sees technical terms. Every user-facing string
@@ -1049,7 +1049,7 @@ NEW → UNDERSTANDING → EXECUTING(phase k)
 
 Business states:
 DONE + model registry entry ("MODEL_READY"): scenario runs allowed, each writes its own receipt (§Business simulations)
-ABANDONED         owner abandoned the job with `/harness:status --abandon <job>` (typed); terminal; decision record
+ABANDONED         owner abandoned the job with `/dynamic-harness:status --abandon <job>` (typed); terminal; decision record
 REFUSED           decision class with policy `refuse`; terminal; decision record; template "I can't help with this kind of decision. Please ask a qualified professional."
 STOPPED_COST      money cap reached (§Budget and failure handling)
 STOPPED_TAMPER    hash mismatch (§Gate and Stop semantics)
@@ -1188,7 +1188,7 @@ owner's currency and shown before a long task begins.
 | Tampering with control, ledger or gate through Bash | §Trust boundaries and protected writes: hooks are the only writers; protected paths; sandbox `denyWrite`; HMAC receipt; hash chain verified after every append; config log; fail closed | Same OS user: tampering is *detected*, not always prevented |
 | Hooks disabled | `ConfigChange` hook; `disableBypassPermissionsMode`; harness hooks installed in managed settings before `allowManagedHooksOnly` is set; SessionStart canary round-trip; `allowUnsandboxedCommands: false` | A local admin can still uninstall |
 | Approval spoofing or TOCTOU | Deterministic card; payload hash binding; outbox lock; expiry | A user who approves without reading → own confirmation line for money and new recipients |
-| Memory poisoning | Hook-only writes; closed key and value enums; values with URLs, emails or > 40 characters rejected; free text only after `/harness:memory` confirmation | An owner picking a misleading option can still store a wrong style preference |
+| Memory poisoning | Hook-only writes; closed key and value enums; values with URLs, emails or > 40 characters rejected; free text only after `/dynamic-harness:memory` confirmation | An owner picking a misleading option can still store a wrong style preference |
 | Irreversible action with no network traffic (Mail.app via `osascript`, `open mailto:`, Shortcuts) | Those commands are denied; files the agent wrote run only through `harness-sandbox-exec`; MCP servers not in the registry are denied | Unknown local automation paths, so the bypass corpus is extended |
 | Exfiltration during research | Lanes enforced by `agent_type`; query list frozen from the plan; query guard; researcher output schema-validated at SubagentStop | Covert channels in allowed queries |
 | MCP servers and hooks run outside the sandbox (OQ-4 spike) | MCP servers not in the connector registry are denied; registered servers are trusted connectors; hooks are the trusted writers | A registered MCP server that is malicious is not contained |
@@ -1198,7 +1198,7 @@ owner's currency and shown before a long task begins.
 | Secrets in logs | Redaction scanner at write time; shape-only logging | Unknown secret formats |
 
 **Setup.** A plugin cannot ship permissions or a sandbox, so
-`/harness:setup` writes them into user or managed settings, with consent:
+`/dynamic-harness:setup` writes them into user or managed settings, with consent:
 - the deny list, including Read/Grep/Glob denies for `keys/` and `experience/`;
 - sandbox `denyWrite` for every protected path (§Trust boundaries and protected writes);
 - sandbox `denyRead` for `${CLAUDE_PLUGIN_DATA}/keys/` and `${CLAUDE_PLUGIN_DATA}/experience/` (R-5);
@@ -1598,9 +1598,9 @@ In v1, `automation_create` is denied.
   - the cost.
 
   It stores references and hashes, never personal data values. In v2,
-  `/harness:forget` also redacts subject tokens in the record. Retention is set in
+  `/dynamic-harness:forget` also redacts subject tokens in the record. Retention is set in
   the business profile, defaulting to 7 years to match bookkeeping periods
-  (OQ-8). `/harness:export --task|--period` produces CSV in v1, and a
+  (OQ-8). `/dynamic-harness:export --task|--period` produces CSV in v1, and a
   plain-language PDF in v2.
 - **Decision classes.** `decision_class ∈ {none, financial, tax, legal,
   employment, medical, safety}`. Policy per class:
@@ -1633,7 +1633,7 @@ In v1, `automation_create` is denied.
     confirms once per dataset, with a purpose.
   - **[v2]** Each task keeps a data map of which files and tools received
     personal data.
-  - **[v2]** `/harness:forget <subject>` purges task artefacts and redacts
+  - **[v2]** `/dynamic-harness:forget <subject>` purges task artefacts and redacts
     the subject in decision records.
   - In v1, personal data is tagged and the lethal-trifecta check applies.
   - Setup writes `cleanupPeriodDays` for transcript retention.
@@ -1734,8 +1734,8 @@ English, never machine-translated. The English versions:
 
 ### Onboarding
 
-1. **`/harness:setup`:** permissions, sandbox and transcript retention.
-2. **`/harness:business`:** currency and unit, calendar and fiscal year, work
+1. **`/dynamic-harness:setup`:** permissions, sandbox and transcript retention.
+2. **`/dynamic-harness:business`:** currency and unit, calendar and fiscal year, work
    week, jurisdiction, roles and limits, money caps, do-not-contact list,
    required footers.
 3. **Connect read-only sources** (v1: CSV/Excel, Google Sheets, one
@@ -1796,7 +1796,7 @@ English, never machine-translated. The English versions:
      shadow criterion is met (§Evaluation plan).
   3. **Default.**
 
-  Kill switch: `/harness:off` sets the `enforcement.yaml` keys to shadow.
+  Kill switch: `/dynamic-harness:off` sets the `enforcement.yaml` keys to shadow.
   The safety hooks, lanes, protected paths, egress, query guard, trusted
   writers and the receipt check always stay enforced; shadow mode applies
   only to `enforcement.yaml` keys. The core and the packs are semver-versioned. Ledger schema
@@ -1984,7 +1984,7 @@ mode it logs what it would have done without blocking anything.
     *   **[v2]** `harness-outbox`, `harness-approve`.
 
 #### 5. `harness/control/defaults/` (Create)
-*   **Type / Scope:** Default control layer. `/harness:setup` copies it to
+*   **Type / Scope:** Default control layer. `/dynamic-harness:setup` copies it to
     `${CLAUDE_PLUGIN_DATA}/control/`.
 *   **Proposed Changes:**
     *   `classes.yaml`, including `v1_action`. In v1 every irreversible
@@ -2050,14 +2050,14 @@ mode it logs what it would have done without blocking anything.
 
 | Command | Arguments | Writes | Confirmation |
 | --- | --- | --- | --- |
-| `/harness:setup` | — | `~/.claude/settings.json`: `permissions.deny`; `sandbox.enabled`, `sandbox.allowUnsandboxedCommands: false`, `sandbox.excludedCommands: []`, `sandbox.network.allowedDomains: []`, `sandbox.network.strictAllowlist: true`, `sandbox.failIfUnavailable: true`; `sandbox.filesystem.denyWrite` for protected paths; `sandbox.filesystem.denyRead` for `keys/` and `experience/` (plus `permissions.deny` Read/Grep/Glob rules for both); `disableBypassPermissionsMode`; `cleanupPeriodDays`. Records `loop_contract_root` and the release hashes in `config_log.jsonl`. Where managed settings are used, it installs the harness hooks there before setting `allowManagedHooksOnly`. It checks `openpyxl` and `formulas` | A plain summary of each change |
-| `/harness:business` | `set <object> <field>` / `show` | Through `harness-business set` | A rendered sentence |
-| `/harness:config` | `<file> <key> <value>` | Control layer and config log | Operator only |
-| `/harness:memory` | `show` / `edit` / `forget` | Through the memory writer | Per item |
-| `/harness:export` | `--task` / `--period` | CSV export of records (`harness-admin export` → `export.py`) | Typed by the user |
-| `/harness:status` | `[--repair]` | Repair is operator only | — |
-| `/harness:off` | — | `enforcement.yaml` → shadow; safety hooks stay on | Operator only |
-| **[v2]** `/harness:approve`, `/harness:forget` | — | — | — |
+| `/dynamic-harness:setup` | — | `~/.claude/settings.json`: `permissions.deny`; `sandbox.enabled`, `sandbox.allowUnsandboxedCommands: false`, `sandbox.excludedCommands: []`, `sandbox.network.allowedDomains: []`, `sandbox.network.strictAllowlist: true`, `sandbox.failIfUnavailable: true`; `sandbox.filesystem.denyWrite` for protected paths; `sandbox.filesystem.denyRead` for `keys/` and `experience/` (plus `permissions.deny` Read/Grep/Glob rules for both); `disableBypassPermissionsMode`; `cleanupPeriodDays`. Records `loop_contract_root` and the release hashes in `config_log.jsonl`. Where managed settings are used, it installs the harness hooks there before setting `allowManagedHooksOnly`. It checks `openpyxl` and `formulas` | A plain summary of each change |
+| `/dynamic-harness:business` | `set <object> <field>` / `show` | Through `harness-business set` | A rendered sentence |
+| `/dynamic-harness:config` | `<file> <key> <value>` | Control layer and config log | Operator only |
+| `/dynamic-harness:memory` | `show` / `edit` / `forget` | Through the memory writer | Per item |
+| `/dynamic-harness:export` | `--task` / `--period` | CSV export of records (`harness-admin export` → `export.py`) | Typed by the user |
+| `/dynamic-harness:status` | `[--repair]` | Repair is operator only | — |
+| `/dynamic-harness:off` | — | `enforcement.yaml` → shadow; safety hooks stay on | Operator only |
+| **[v2]** `/dynamic-harness:approve`, `/dynamic-harness:forget` | — | — | — |
 
 #### 10. `loop-contract-skill/skills/loop-contract/scripts/fold_ledger.py` (Modify; release loop-contract 1.1.0)
 *   **Type / Scope:** The gate. Stdlib only, as today.

@@ -7,7 +7,7 @@ deleting both the log and the head afterwards is detected.
 Crash windows (append writes the line, then the head; ledger writers append the
 row file, then the event): both writes are fsynced, and a crash between them
 leaves a chain that fails closed with ``TamperError``. There is no silent
-tolerance: the recovery path is operator repair (``/harness:status --repair``)."""
+tolerance: the recovery path is operator repair (``/dynamic-harness:status --repair``)."""
 from __future__ import annotations
 
 import fcntl

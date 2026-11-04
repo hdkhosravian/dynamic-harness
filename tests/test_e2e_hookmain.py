@@ -2,7 +2,7 @@
 
 No hook-state file is written by hand: status.json, written.json, tracked.json,
 settings_baseline.json and the session event log all come from the hooks. The
-only setup artefact is ``config_log.jsonl``, which /harness:setup writes.
+only setup artefact is ``config_log.jsonl``, which /dynamic-harness:setup writes.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def h(tmp_path):
 
 
 def _setup(h):
-    """What /harness:setup leaves behind: the release hashes and the loop-contract root."""
+    """What /dynamic-harness:setup leaves behind: the release hashes and the loop-contract root."""
     ctx = hookmain.build_ctx({}, {**h["env"], "LOOP_CONTRACT_ROOT": str(h["lc"])})
     row = {"ts": "2026-11-04T00:00:00Z", "hashes": session.current_hashes(ctx), "loop_contract_root": str(h["lc"])}
     (h["data"] / "config_log.jsonl").write_text(json.dumps(row) + "\n")
