@@ -63,6 +63,9 @@ def _context(msg):
 
 def _say(tool, res):
     if tool == "compile":
+        if res.get("reunderstood"):
+            return (f"harness: {res['job_id']} re-understood (card v{res['version']}, {res['tier']}). Tell the owner "
+                    f"exactly: {res['notice']}")
         if res.get("state") == "REFUSED":
             return f"harness: task refused ({res['job_id']}). Tell the owner exactly: {res['message']}"
         return (f"harness: compiled {res['job_id']} at {res['tier']}. Print this opening line verbatim, then work "

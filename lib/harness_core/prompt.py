@@ -136,9 +136,12 @@ def on_prompt(evt, ctx) -> dict:
     else:
         reason = "probe"
     if open_job and reason == "probe" and _matches_open_task(ctx, job, text, pr):
+        sessionstate.update(ctx, sid, prompt_scope="active_task", request_turn=turn_id)
         if not pr.get("continuation"):
             corrections.log(ctx, job, turn_id)
-        sessionstate.update(ctx, sid, prompt_scope="active_task", request_turn=turn_id)
+            return _context(f"harness: this is a correction to task {job} (turn {turn_id}). If it changes the "
+                            "units, deliverable or oracle, re-draft the card and run harness-compile --card <file> "
+                            f"--reunderstand {turn_id}; otherwise carry on.")
         return {}
     scope = "inline_t0" if open_job else "new"
     if verdict == "T0-fast":

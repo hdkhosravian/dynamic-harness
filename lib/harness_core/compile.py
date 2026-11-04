@@ -16,7 +16,7 @@ model wrote is re-validated; everything code owns is recomputed here:
    sets ``active_task``, ``prompt_scope = active_task`` and clears ``pending_card``; adds the job to the
    jobs index. A second draft is logged in shadow mode.
 
-Re-compiling an existing job (RE_UNDERSTAND, a new card version) belongs to the state machine (P4).
+Re-compiling the open job (``reunderstand``: a new card version) is ``reunderstand.apply``.
 """
 from __future__ import annotations
 
@@ -88,13 +88,16 @@ def apply(req, ctx, evt) -> dict:
     p, turn_id = st.get("probe"), st.get("request_turn")
     if not isinstance(p, dict) or not turn_id:
         raise Denied("compile refuses: no owner prompt is recorded for this session")
+    if req.get("reunderstand"):
+        from . import reunderstand
+        return reunderstand.apply(req, ctx, evt, _budget)
     if turn_id in (st.get("compiled_turns") or []):
         raise Denied("this prompt was already compiled into a job; one owner prompt makes one job")
     open_job = st.get("active_task")
     open_row = sessionstate.jobs(ctx).get(open_job, {}) if open_job else {}
     if open_job and not open_row.get("terminal") and st.get("prompt_scope") == "active_task":
         raise Denied(f"this prompt belongs to the open task {open_job}; changing that task's card is "
-                     "re-understanding (state machine, P4)")
+                     "re-understanding: harness-compile --card FILE --reunderstand <correction turn>")
     turn = Turns(ctx.data_root).cite(turn_id)
     draft = req.get("card")
     c = cardmod.normalize(draft, p, ctx, request=turn["text_norm"])
