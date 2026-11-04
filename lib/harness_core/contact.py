@@ -55,6 +55,8 @@ def _plan_text(plan) -> str:
     # free-text fields are quoted, so a hypothesis cannot pose as another line of the plan
     return "\n".join([f"Research plan {plan['plan_sha'][:12]}",
                       f"- Hypotheses: {json.dumps(plan['hypotheses'], ensure_ascii=False)}",
+                      f"- Searches: {json.dumps(plan['queries'], ensure_ascii=False)}",
+                      f"- Pages: {json.dumps(plan['urls'], ensure_ascii=False)}",
                       f"- Sources (domains): {', '.join(plan['domains'])}",
                       f"- Up to {plan['page_budget']} pages",
                       f"- Stop when: {json.dumps(plan['stop_rule'], ensure_ascii=False)}",

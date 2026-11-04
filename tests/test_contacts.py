@@ -255,3 +255,8 @@ def test_only_a_reply_that_is_an_approval_accepts_the_plan(ctx, text, ok):
     else:
         with pytest.raises(Denied):
             C(ctx, "plan", accept="r")
+
+
+def test_the_plan_the_owner_sees_lists_every_query_and_url(ctx):
+    row = C(ctx, "plan", text="x", plan=dict(PLAN, queries=["acme price list 2026"]))
+    assert "acme price list 2026" in row["text"] and "https://news.example.ir/a" in row["text"]
