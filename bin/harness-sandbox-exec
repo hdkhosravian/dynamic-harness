@@ -66,25 +66,57 @@ def _job_dirs(project):
     return out
 
 
-def _outer(sandbox_exec, cmd, cwd, timeout):
+# protected names inside the project that Claude Code's sandbox (built in, plus setup's CLAUDE*.md
+# denyWrite) keeps unwritable; run() verifies each existing one and the guard watches for new ones
+OUTER_DENY_WRITE = (".claude/settings.json", ".claude/settings.local.json", ".claude/hooks", ".claude/commands",
+                    ".claude/agents", ".claude/skills", ".mcp.json", ".git/hooks", ".git/config",
+                    "CLAUDE.md", "CLAUDE.local.md")
+
+
+def _project_of(real_cwd):
+    """CLAUDE_PROJECT_DIR when set, else the nearest ancestor with .git or .claude, else the cwd."""
+    env = os.environ.get("CLAUDE_PROJECT_DIR")
+    if env:
+        return _resolve(env)
+    d = real_cwd
+    while True:
+        if any(os.path.lexists(os.path.join(d, n)) for n in (".git", ".claude")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return real_cwd
+        d = parent
+
+
+def _outer(sandbox_exec, cmd, cwd, deny_read, timeout):
     """Inside Claude Code's sandbox the native one cannot nest. The Bash tool's environment has no
-    CLAUDE_* variables (live check), so nothing here depends on them: run() itself verifies, from the
-    inside, that the surrounding sandbox keeps every plugin's keys unreadable, the network off and the
-    data roots unwritable, and refuses otherwise."""
+    CLAUDE_* variables (live check), so the project comes from CLAUDE_PROJECT_DIR or the nearest .git /
+    .claude ancestor. run() itself verifies, from the inside, that the surrounding sandbox keeps every
+    plugin's keys unreadable, the network off, the data roots and the protected names unwritable, and
+    every --deny-read unreadable; it refuses otherwise."""
     from harness_core.errors import HarnessError
 
     try:
         real_cwd = _resolve(cwd)
         claude_home = _resolve(os.path.join(sandbox_exec._real_home(), ".claude"))
+        project = _project_of(real_cwd)
+        jobs = _job_dirs(project)
     except ValueError as e:
         print(f"harness-sandbox-exec: {e}", file=sys.stderr)
         return 2
     if _under(real_cwd, claude_home):
         print(f"harness-sandbox-exec: --cwd {cwd!r} is inside {claude_home}; refusing to run", file=sys.stderr)
         return 2
+    protected = [os.path.join(project, n) for n in PROTECTED]
+    if any(_under(real_cwd, p) for p in protected) and not any(_under(real_cwd, j) for j in jobs):
+        print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected workspace path; refusing to run", file=sys.stderr)
+        return 2
+    deny_write = [os.path.join(project, n) for n in OUTER_DENY_WRITE]
+    deny_write += glob.glob(os.path.join(project, "**", "CLAUDE*.md"), recursive=True)
     stdin = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read()
     try:
-        code, out, err = sandbox_exec.run(cmd, real_cwd, stdin, timeout)
+        code, out, err = sandbox_exec.run(cmd, real_cwd, stdin, timeout, deny_read=[_resolve(d) for d in deny_read],
+                                          deny_write=deny_write, watch=[project])
     except HarnessError as e:
         print(f"harness-sandbox-exec: {e}", file=sys.stderr)
         return 2
@@ -113,8 +145,8 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     b = sandbox_exec.backend()
-    if b is not None and not sandbox_exec._native_ok(b):
-        return _outer(sandbox_exec, cmd, cwd, timeout)
+    if b is not None and sandbox_exec._native_ok(b) == "nested":
+        return _outer(sandbox_exec, cmd, cwd, deny_read, timeout)
     data = os.environ.get("CLAUDE_PLUGIN_DATA")
     if not data:
         # fail closed: without the data root we cannot deny its keys/

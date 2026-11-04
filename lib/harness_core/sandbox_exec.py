@@ -133,17 +133,23 @@ def _real_home() -> str:
     return pwd.getpwuid(os.getuid()).pw_dir  # not $HOME: the agent controls the environment
 
 
-def _native_ok(b) -> bool:
-    """The native backend can start here. Inside Claude Code's sandbox it cannot: nesting is refused
-    (spike 2026-11-04: ``sandbox-exec: sandbox_apply: Operation not permitted``, exit 71)."""
+def _native_ok(b) -> str:
+    """``"ok"``, ``"nested"`` (inside another sandbox, which refuses nesting) or ``"broken"``. Decided once
+    per run. On macOS only the exact nesting error counts as nested (spike 2026-11-04: exit 71,
+    ``sandbox_apply: Operation not permitted``); anything else fails closed. On Linux a failed bwrap probe
+    is treated as nested, and ``outer_contained`` then has to prove containment from the inside."""
     if b == "sandbox-exec":
         try:
             r = subprocess.run([SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
                                capture_output=True, timeout=10)
         except (OSError, subprocess.TimeoutExpired):
-            return False
-        return r.returncode == 0
-    return probe() is None
+            return "broken"
+        if r.returncode == 0:
+            return "ok"
+        if r.returncode == 71 and b"sandbox_apply: Operation not permitted" in (r.stderr or b""):
+            return "nested"
+        return "broken"
+    return "ok" if probe() is None else "nested"
 
 
 def _net_reachable() -> bool:
@@ -153,6 +159,36 @@ def _net_reachable() -> bool:
             return True
         except OSError:
             continue
+    return False
+
+
+def _proxy_tunnels() -> bool:
+    """True when a proxy named in this environment opens a tunnel to the internet. Claude Code's sandbox
+    proxy must refuse it (empty allowedDomains, strictAllowlist). The child never gets these variables."""
+    import base64
+    from urllib.parse import unquote, urlsplit
+
+    urls = dict.fromkeys(os.environ.get(v) for v in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+                                                     "ALL_PROXY", "all_proxy"))
+    for url in urls:  # each distinct proxy once (the sandbox logs every refused CONNECT)
+        if not url:
+            continue
+        try:
+            u = urlsplit(url if "://" in url else "http://" + url)
+            if not u.hostname or not u.port:
+                continue
+            req = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n"
+            if u.username:
+                cred = f"{unquote(u.username)}:{unquote(u.password or '')}".encode()
+                req += b"Proxy-Authorization: Basic " + base64.b64encode(cred) + b"\r\n"
+            with socket.create_connection((u.hostname, u.port), timeout=3) as c:
+                c.settimeout(5)
+                c.sendall(req + b"\r\n")
+                status = c.recv(128).split(b"\r\n", 1)[0]
+        except (OSError, ValueError):
+            continue
+        if status.split()[1:2] == [b"200"]:
+            return True
     return False
 
 
@@ -179,24 +215,61 @@ def outer_contained():
     datas = sorted(d for d in glob.glob(os.path.join(home, ".claude", "plugins", "data", "*")) if not os.path.islink(d))
     seen = 0
     for d in datas:
-        k = os.path.join(d, "keys")
-        try:
-            names = os.listdir(k)
-        except FileNotFoundError:
-            continue
-        except OSError:
-            seen += 1  # denied (Seatbelt: EPERM)
-            continue
-        if names:
-            return f"{k} is readable"
-        seen += 1  # an empty view (a read-only tmpfs over it): nothing to read
+        for sub in ("keys", "experience"):
+            k = os.path.join(d, sub)
+            try:
+                names = os.listdir(k)
+            except FileNotFoundError:
+                continue
+            except OSError:
+                seen += sub == "keys"  # denied (Seatbelt: EPERM)
+                continue
+            if names:
+                return f"{k} is readable"
+            if sub == "keys":  # an empty view: the file itself must not open either
+                try:
+                    with open(os.path.join(k, "hmac.key"), "rb") as fh:
+                        if fh.read(1):
+                            return f"{k}/hmac.key is readable"
+                except OSError:
+                    pass
+                seen += 1
     if not seen:
         return f"no plugin keys found under {home}/.claude/plugins/data to check (run /dynamic-harness:setup)"
-    if _net_reachable():
+    if _net_reachable() or _proxy_tunnels():
         return "the network is reachable"
     bad = _data_writable(datas)
     if bad:
         return f"{bad[0]} is writable"
+    return None
+
+
+def _verify_outer(deny_read, deny_write):
+    """Outer mode cannot enforce deny lists itself: each one must already hold, seen from here, or None."""
+    for p in map(os.fspath, deny_read):
+        try:
+            if os.path.isdir(p):
+                if os.listdir(p):
+                    return f"{p} is readable"
+            else:
+                with open(p, "rb") as fh:
+                    fh.read(1)
+                return f"{p} is readable"
+        except OSError:
+            continue
+    for p in map(os.fspath, deny_write):
+        if os.path.islink(p) or not os.path.lexists(p):
+            continue  # a new path is caught by the guard after the run
+        if os.path.isdir(p):
+            if _data_writable([p]):
+                return f"{p} is writable"
+            continue
+        try:
+            fd = os.open(p, os.O_WRONLY | os.O_APPEND)  # opened, never written
+        except OSError:
+            continue
+        os.close(fd)
+        return f"{p} is writable"
     return None
 
 
@@ -308,7 +381,7 @@ def _killpg(pgid) -> None:
         pass
 
 
-def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), allow_write=(), env=None):
+def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), allow_write=(), env=None, watch=()):
     """Returns ``(code, stdout_bytes, stderr_bytes)``; a timeout gives code 124."""
     b = backend()
     if b is None:
@@ -320,14 +393,18 @@ def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), al
         child_env = {"PATH": SAFE_PATH, "HOME": tmp, "TMPDIR": tmp,
                      "LANG": "en_US.UTF-8" if b == "sandbox-exec" else "C.UTF-8"}
         child_env.update(env or {})
-        if not _native_ok(b):
-            why = outer_contained()
+        mode = _native_ok(b)
+        if mode == "broken":
+            raise HarnessError(f"the {b} sandbox cannot start here: refusing to run unsandboxed")
+        if mode == "nested":
+            why = outer_contained() or _verify_outer(deny_read, deny_write)
             if why:
-                raise HarnessError(f"the {b} sandbox cannot start here (inside another sandbox?), and the "
-                                   f"surrounding one does not contain the command: {why}")
-            # outer mode: Claude Code's sandbox contains it; this adds the clean env, the timeout, the
-            # process-group kill and the instruction-file guard (deny_read/deny_write are the outer policy's)
-            cmd, before, run_cwd = [], _guard_before(cwd, deny_write, allow_write), os.fspath(cwd)
+                raise HarnessError(f"the {b} sandbox cannot nest inside the surrounding sandbox, and that one "
+                                   f"does not contain the command: {why}")
+            # outer mode: the surrounding sandbox enforces every property checked above; this adds the
+            # clean env, the timeout, the process-group kill and the guard over cwd, allow_write and watch
+            cmd, run_cwd = [], os.fspath(cwd)
+            before = _guard_before(cwd, deny_write, [*allow_write, *watch])
         elif b == "sandbox-exec":
             cmd, before, run_cwd = [SANDBOX_EXEC, "-p", profile(cwd, tmp, deny_read, deny_write, allow_write)], None, os.fspath(cwd)
         else:

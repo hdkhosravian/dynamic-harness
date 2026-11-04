@@ -528,7 +528,7 @@ def test_outer_probe_refuses_when_a_data_root_is_writable(tmp_path, monkeypatch)
 
 def test_outer_mode_runs_contained_commands_with_a_clean_env(box, monkeypatch):
     cwd, _ = box
-    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
     monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
     monkeypatch.setenv("HTTPS_PROXY", "http://user:secret@localhost:1")
     code, out, err = py("import os; print(sorted(k for k in os.environ if 'PROXY' in k.upper()))", cwd)
@@ -537,14 +537,14 @@ def test_outer_mode_runs_contained_commands_with_a_clean_env(box, monkeypatch):
 
 def test_outer_mode_still_quarantines_instruction_files(box, monkeypatch):
     cwd, _ = box
-    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
     monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
     code, _, err = py("open('CLAUDE.md', 'w').write('x')", cwd)
     assert code == sandbox_exec.INSTRUCTION_CODE and not (cwd / "CLAUDE.md").exists(), err
 
 
 def test_no_native_sandbox_and_no_containment_fails_closed(box, monkeypatch):
-    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
     monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: "keys readable")
     with pytest.raises(HarnessError, match="keys readable"):
         py("print(1)", box[0])
@@ -554,7 +554,7 @@ def test_launcher_outer_mode_needs_no_claude_env(box, monkeypatch, capfdbinary):
     # live finding: the Bash tool's environment has no CLAUDE_PROJECT_DIR / CLAUDE_PLUGIN_* variables
     cwd, _ = box
     mod = _launcher()
-    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
     monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
     for k in ("CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR"):
         monkeypatch.delenv(k, raising=False)
@@ -566,8 +566,92 @@ def test_launcher_outer_mode_needs_no_claude_env(box, monkeypatch, capfdbinary):
 def test_launcher_outer_mode_refuses_when_containment_fails(box, monkeypatch, capfdbinary):
     cwd, _ = box
     mod = _launcher()
-    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: False)
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
     monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: "the network is reachable")
     monkeypatch.setattr(mod.sys, "stdin", None)
     code = mod.main(["--cwd", str(cwd), "--", PY, "-I", "-c", "print(6*7)"])
     assert code == 2 and b"network is reachable" in capfdbinary.readouterr().err
+
+
+# --- review of a7e77b6: decide the mode once, never drop deny lists, a stronger probe ---
+
+
+def _rc(code, err=b""):
+    return subprocess.CompletedProcess([], code, b"", err)
+
+
+@pytest.mark.skipif(sandbox_exec.backend() != "sandbox-exec", reason="macOS nesting error")
+def test_only_the_nesting_error_means_inside_another_sandbox(monkeypatch):
+    monkeypatch.setattr(sandbox_exec.subprocess, "run", lambda *a, **k: _rc(71, b"sandbox-exec: sandbox_apply: Operation not permitted\n"))
+    assert sandbox_exec._native_ok("sandbox-exec") == "nested"
+    monkeypatch.setattr(sandbox_exec.subprocess, "run", lambda *a, **k: _rc(1, b"something else"))
+    assert sandbox_exec._native_ok("sandbox-exec") == "broken"
+
+
+def test_a_broken_native_sandbox_fails_closed_even_when_contained(box, monkeypatch):
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "broken")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    with pytest.raises(HarnessError, match="cannot start"):
+        py("print(1)", box[0])
+
+
+def test_outer_mode_refuses_a_deny_read_it_cannot_see_enforced(box, monkeypatch):
+    cwd, keys = box  # keys/ is readable here: the outer sandbox does not cover it
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    with pytest.raises(HarnessError, match="readable"):
+        py("print(1)", cwd, deny_read=[keys])
+
+
+def test_outer_mode_refuses_a_deny_write_it_cannot_see_enforced(box, monkeypatch):
+    cwd, _ = box
+    (cwd / ".git").mkdir()
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    with pytest.raises(HarnessError, match="writable"):
+        py("print(1)", cwd, deny_write=[cwd / ".git"])
+
+
+def test_outer_probe_opens_the_key_by_name(tmp_path, monkeypatch):
+    # a listing can be hidden while the file itself still opens
+    h = _home_with_keys(tmp_path)
+    real_listdir = os.listdir
+    monkeypatch.setattr(sandbox_exec, "_real_home", lambda: str(h))
+    monkeypatch.setattr(sandbox_exec.os, "listdir", lambda p: [] if str(p).endswith("/keys") else real_listdir(p))
+    assert "readable" in sandbox_exec.outer_contained()
+
+
+def _fake_proxy(status):
+    import socket as s
+    import threading
+    srv = s.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def serve():
+        c, _ = srv.accept()
+        c.recv(4096)
+        c.sendall(f"HTTP/1.1 {status}\r\n\r\n".encode())
+        c.close()
+        srv.close()
+    threading.Thread(target=serve, daemon=True).start()
+    return f"http://u:p@127.0.0.1:{srv.getsockname()[1]}"
+
+
+@pytest.mark.parametrize("status, open_", [("200 Connection established", True), ("403 Forbidden", False)])
+def test_proxy_that_tunnels_counts_as_network(monkeypatch, status, open_):
+    monkeypatch.setenv("HTTPS_PROXY", _fake_proxy(status))
+    assert sandbox_exec._proxy_tunnels() is open_
+
+
+def test_launcher_outer_mode_keeps_the_workspace_checks(box, monkeypatch, capfdbinary):
+    cwd, _ = box
+    (cwd / ".git" / "hooks").mkdir(parents=True)
+    mod = _launcher()
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    for k in ("CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(mod.sys, "stdin", None)
+    code = mod.main(["--cwd", str(cwd / ".git" / "hooks"), "--", PY, "-I", "-c", "print(1)"])
+    assert code == 2 and b"protected" in capfdbinary.readouterr().err

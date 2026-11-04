@@ -52,7 +52,8 @@ def visible_dir(tmp_path):
     if sandbox_exec.backend() != "bwrap" or not str(tmp_path).startswith("/tmp/"):
         yield tmp_path
         return
-    d = Path(tempfile.mkdtemp(prefix="harness-test-", dir=os.path.expanduser("~")))
+    import pwd  # the account's home, not $HOME (conftest points $HOME at a temp dir under /tmp)
+    d = Path(tempfile.mkdtemp(prefix="harness-test-", dir=pwd.getpwuid(os.getuid()).pw_dir))
     try:
         yield d
     finally:
