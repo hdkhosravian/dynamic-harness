@@ -496,8 +496,10 @@ its last `file_sha`, appends the row, then appends an event carrying
     1. `--die-with-parent --new-session --unshare-all`, `/` read-only, fresh
        `/dev` and `/proc`, and `/tmp`, `/var/tmp`, `/run` as empty tmpfs;
     2. bind the temp dir and the cwd read-write;
-    3. `deny_write` read-only (symlinks skipped: callers list their targets),
-       then `allow_write` read-write;
+    3. `deny_write` read-only and `allow_write` read-write, shallow paths
+       first and deny after allow on the same path, so the most specific rule
+       wins (`_write_rules`; the SBPL profile uses the same order); symlinks
+       skipped, as callers list their targets;
     4. every existing `CLAUDE*.md`/`.mcp.json` under the cwd and `allow_write`
        read-only (`.git` not walked);
     5. each `deny_read` directory as an empty mode-000 read-only tmpfs, a file
@@ -506,7 +508,8 @@ its last `file_sha`, appends the row, then appends an event carrying
     The child env uses `LANG=C.UTF-8`. After the child exits, any new or
     replaced `CLAUDE*.md`/`.mcp.json` (compared by `(st_dev, st_ino)`) and any
     `deny_write` path that did not exist before is renamed to
-    `<path>.harness-quarantine-<time>`; the call returns `126`
+    `<path>.harness-quarantine-<random>` (removed if it cannot be moved; raises
+    if neither works); the call returns `126`
     (`INSTRUCTION_CODE`) with the paths, and any moved original, on stderr.
   - `backend() -> "sandbox-exec" | "bwrap" | None` by platform;
     `probe() -> None | reason` (bwrap: runs `/bin/true` in a sandbox).

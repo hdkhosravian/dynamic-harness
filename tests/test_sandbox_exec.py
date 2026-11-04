@@ -426,3 +426,56 @@ def test_linux_new_instruction_file_inside_a_writable_git_dir_is_caught(box):
     cwd, _ = box
     code, _, err = py("import os; os.makedirs('.git'); open('.git/CLAUDE.md', 'w').write('x')", cwd)
     assert code == sandbox_exec.INSTRUCTION_CODE and not (cwd / ".git" / "CLAUDE.md").exists(), err
+
+
+def _guard(cwd, **kw):
+    return sandbox_exec._guard_before(cwd, kw.get("deny_write", ()), kw.get("allow_write", ()))
+
+
+def test_guard_quarantine_name_is_not_predictable(tmp_path):
+    st = _guard(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("evil")
+    out = sandbox_exec._guard_after(st)
+    q = [p for p in tmp_path.iterdir() if p.name.startswith("CLAUDE.md.harness-quarantine-")]
+    assert len(q) == 1 and len(q[0].name.rsplit("-", 1)[1]) >= 16 and not (tmp_path / "CLAUDE.md").exists(), out
+
+
+def test_guard_falls_back_to_removal_when_rename_fails(tmp_path, monkeypatch):
+    st = _guard(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("evil")
+    monkeypatch.setattr(sandbox_exec.os, "rename", lambda *a: (_ for _ in ()).throw(OSError("blocked")))
+    sandbox_exec._guard_after(st)
+    assert not (tmp_path / "CLAUDE.md").exists()
+
+
+def test_guard_raises_when_the_path_cannot_be_removed(tmp_path, monkeypatch):
+    st = _guard(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("evil")
+    boom = lambda *a, **k: (_ for _ in ()).throw(OSError("blocked"))
+    monkeypatch.setattr(sandbox_exec.os, "rename", boom)
+    monkeypatch.setattr(sandbox_exec.os, "unlink", boom)
+    with pytest.raises(HarnessError):
+        sandbox_exec._guard_after(st)
+
+
+def test_deny_write_inside_allow_write_stays_read_only(box):
+    # most specific path wins, both ways: work/ inside .claude is writable, prot/ inside work/ is not
+    cwd, _ = box
+    work = cwd / ".claude" / "loops" / "j1" / "work"
+    (work / "prot").mkdir(parents=True)
+    kw = dict(deny_write=[cwd / ".claude", work / "prot"], allow_write=[work])
+    assert py("open('.claude/loops/j1/work/ok.md','w').write('x')", cwd, **kw)[0] == 0
+    assert py("open('.claude/loops/j1/work/prot/f','w').write('x')", cwd, **kw)[0] != 0
+    assert not (work / "prot" / "f").exists()
+
+
+def test_guard_sees_into_a_directory_the_child_made_unreadable(tmp_path):
+    st = _guard(tmp_path)
+    (tmp_path / "hide").mkdir()
+    (tmp_path / "hide" / "CLAUDE.md").write_text("evil")
+    os.chmod(tmp_path / "hide", 0)
+    try:
+        out = sandbox_exec._guard_after(st)
+    finally:
+        os.chmod(tmp_path / "hide", 0o700)
+    assert not (tmp_path / "hide" / "CLAUDE.md").exists(), out
