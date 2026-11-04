@@ -279,7 +279,10 @@ NET_TOOLS = {
     "s3cmd", "axel", "npx", "pnpx", "bunx", "uvx", "pipx", "networksetup", "scutil", "curlie", "grpcurl",
 }
 APP_AUTOMATION = {"osascript", "open", "shortcuts", "automator", "xdg-open", "osacompile", "screencapture",
-                  "qlmanage", "lpr", "lp", "say"}
+                  "qlmanage", "lpr", "lp", "say",
+                  # Linux desktops: synthetic input (X11/Wayland) and D-Bus calls into running apps
+                  "xdotool", "ydotool", "wtype", "dbus-send", "gdbus", "qdbus", "busctl", "gio", "notify-send"}
+CLIPBOARD = {"pbcopy", "xclip", "xsel", "wl-copy"}
 AUTOMATION = {"crontab", "launchctl", "at", "batch", "atq", "systemctl", "systemd-run", "schtasks", "pmset"}
 MESSAGE = {"mail", "mailx", "sendmail", "mutt", "msmtp", "swaks", "ssmtp", "twilio", "slack", "telegram-send"}
 CLOUD = {"aws", "gcloud", "gsutil", "az", "kubectl", "helm", "terraform", "tofu", "pulumi", "heroku", "vercel",
@@ -353,9 +356,14 @@ def _split_opts(args, opt_args=()):
 
 
 def _is_fd(p) -> bool:
-    """A process-substitution / fd path: ``/dev/fd/N`` on macOS, ``/proc/<pid>/fd/N`` once Linux realpaths it."""
+    """Narrow, for allowing a write target: a process-substitution / fd path: ``/dev/fd/N`` on macOS, ``/proc/<pid>/fd/N`` once Linux realpaths it."""
     # a bare entry only, and only this process's (another pid's fd can be a secret it holds open)
     return re.fullmatch(rf"/dev/fd/\d+|/proc/(self|thread-self|{os.getpid()})/fd/\d+", p) is not None
+
+
+def _fd_like(p) -> bool:
+    """Broad, for denying exec: any fd, stdin or /proc/<any>/fd path, whatever follows (pipe:[N] realpaths)."""
+    return p.startswith(("/dev/fd/", "/dev/stdin")) or re.match(r"/proc/[^/]+/fd(/|$)", p) is not None
 
 
 def _grep_recursive(args):
@@ -846,7 +854,7 @@ class _Bash:
         cands = self.candidates(w)
         if cands is None:
             return self.add("unknown", f"{what} a file whose path cannot be resolved")
-        if any(_is_fd(p) for p in cands):
+        if _fd_like(w) or any(_fd_like(p) for p in cands):
             return self.add("self_written_exec", f"{what} code from a process substitution")
         if any(self.is_written(p) for p in cands):
             return self.add("self_written_exec", f"{what} a file written this task; use harness-sandbox-exec")
@@ -915,8 +923,9 @@ class _Bash:
         """R3: a recursive grep reads its whole tree. No option narrows it (``--exclude-dir`` parsing
         kept losing to getopt differentials). Every word and the cwd are checked as search roots."""
         # every word may be a path (option arity differs between grep, ugrep, rg, ag, ack): check them all
+        # no "-" filter: after -- a root may start with "-"; an option checked as a path is harmless
         words = [a.split("=", 1)[1] if a.startswith("--") and "=" in a else a for a in rest]
-        self.recursive_read([w for w in words if w and not w.startswith("-")] + ["."])
+        self.recursive_read([w for w in words if w and w != "--"] + ["."])
 
     def dispatch(self, name, args, stdin_code, stdin_file, dynamic):
         """Classify a known command; return False when ``name`` is unknown."""
@@ -944,8 +953,8 @@ class _Bash:
             if not self.harness_trusted(name, args[0]):
                 return self.add("unknown", f"{name} is not a harness CLI under the plugin's bin/; runs an unknown program") or True
             return self.harness(name, rest, dynamic) or True
-        if name == "pbcopy":
-            return self.add("egress_with_data", "pbcopy hands data to every app through the clipboard") or True
+        if name in CLIPBOARD:
+            return self.add("egress_with_data", f"{name} hands data to every app through the clipboard") or True
         if name in WRAPPERS:
             return self.wrapper(name, rest, stdin_code, stdin_file, dynamic) or True
         if name in SHELLS:

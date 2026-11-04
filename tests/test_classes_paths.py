@@ -559,3 +559,13 @@ def test_hook_own_pid_fd_is_an_fd_path():
 ])
 def test_every_word_of_a_recursive_grep_is_checked(ctx, cmd):
     assert B(ctx, cmd).cls == "protected_path"
+
+
+def test_grep_words_after_double_dash_are_roots(ctx):
+    (ctx.workspace / "-x").mkdir()
+    assert B(ctx, "grep -r k -- -x/../../data").cls == "protected_path"  # ws/-x/../../data is the data root
+
+
+@pytest.mark.parametrize("p", ["/dev/fd/3/x", "/dev/stdin", "/proc/1/fd/0", "/proc/123/fd/pipe:[456]", "/proc/self/fd/9"])
+def test_exec_from_any_fd_like_path_is_inline_code(ctx, p):
+    assert B(ctx, f"bash {p}").cls == "self_written_exec"

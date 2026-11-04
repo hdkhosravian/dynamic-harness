@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -43,10 +45,23 @@ def fold_ledger_problem(path=FOLD):
     return f"fold_ledger at {path} lacks 1.1.0 flags {missing}" if r.returncode or missing else None
 
 
+@pytest.fixture
+def visible_dir(tmp_path):
+    """A directory the gate child can read. The Linux sandbox hides the host /tmp (X11, ssh-agent
+    sockets), and pytest's tmp_path lives there; production oracles live in the project."""
+    if sandbox_exec.backend() != "bwrap" or not str(tmp_path).startswith("/tmp/"):
+        yield tmp_path
+        return
+    d = Path(tempfile.mkdtemp(prefix="harness-test-", dir=os.path.expanduser("~")))
+    try:
+        yield d
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 PROBLEM = fold_ledger_problem()
 need_fold = pytest.mark.skipif(PROBLEM is not None and not REQUIRE, reason=str(PROBLEM))
-need_sandbox = pytest.mark.skipif(not (os.path.exists(sandbox_exec.SANDBOX_EXEC) or shutil.which("sandbox-exec")),
-                                  reason="sandbox-exec absent")
+need_sandbox = pytest.mark.skipif(sandbox_exec.probe() is not None, reason="no working OS sandbox")
 pytestmark = need_fold
 
 
@@ -301,12 +316,12 @@ print("wrote", hits)
 
 @need_sandbox
 @pytest.mark.parametrize("where", ["run", "copy"])
-def test_oracle_cannot_launder_the_gate(job, tmp_path, where):
+def test_oracle_cannot_launder_the_gate(job, tmp_path, where, visible_dir):
     h = job(units=(U1, U2))
     _pass(h)
     h["led"].append_row("unit", {"id": "u2", "attempt": 1, "verdict": "BLOCKED", "reason": "no data access"})
     _report(h)
-    evil = tmp_path / "evil.py"
+    evil = visible_dir / "evil.py"
     evil.write_text(EVIL)
     run = h["p"].run
     res = _gate(h, profile=dict(PROFILE, oracle_cmd=f"/usr/bin/python3 -I {evil} {run} {where}"))

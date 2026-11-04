@@ -12,7 +12,10 @@ from harness_core.errors import HarnessError
 
 PY = "/usr/bin/python3"
 ROOT = Path(__file__).resolve().parents[1]
-pytestmark = pytest.mark.skipif(not os.path.exists(sandbox_exec.SANDBOX_EXEC), reason="macOS sandbox-exec only")
+PROBLEM = sandbox_exec.probe()
+pytestmark = pytest.mark.skipif(PROBLEM is not None, reason=str(PROBLEM))
+mac = pytest.mark.skipif(sandbox_exec.backend() != "sandbox-exec", reason="macOS sandbox-exec profile")
+linux = pytest.mark.skipif(sandbox_exec.backend() != "bwrap", reason="Linux bubblewrap")
 
 
 @pytest.fixture
@@ -51,7 +54,8 @@ def test_network_blocked(box):
     code, out, err = py(_CONNECT, cwd)
     assert b"CONNECTED" not in out, (out, err)
     words = out.split()
-    assert words[0] == b"blocked" and int(words[1]) in (errno.EPERM, errno.EACCES), (out, err)  # the sandbox, not the net
+    # the sandbox, not the net: Seatbelt refuses (EPERM/EACCES); an empty Linux network namespace has no route
+    assert words[0] == b"blocked" and int(words[1]) in (errno.EPERM, errno.EACCES, errno.ENETUNREACH), (out, err)
 
 
 def test_network_positive_control_unsandboxed(box):
@@ -65,7 +69,7 @@ def test_keys_read_blocked(box):
     cwd, keys = box
     code, out, err = py(f"print(open({str(keys / 'hmac.key')!r}).read())", cwd, deny_read=[keys])
     assert code != 0 and b"s3cret" not in out
-    assert b"Operation not permitted" in err or b"PermissionError" in err
+    assert b"Operation not permitted" in err or b"PermissionError" in err, err
 
 
 def test_writes_only_under_cwd_and_temp(box, tmp_path):
@@ -96,10 +100,13 @@ def test_timeout(box):
 
 def test_missing_sandbox_exec_fails_closed(box, monkeypatch):
     monkeypatch.setattr(sandbox_exec, "SANDBOX_EXEC", "/nonexistent/sandbox-exec")
+    monkeypatch.setattr(sandbox_exec, "BWRAP", "/nonexistent/bwrap")
     with pytest.raises(HarnessError):
         py("print(1)", box[0])
+    assert sandbox_exec.probe() is not None
 
 
+@mac
 def test_profile_escapes_quotes(tmp_path):
     p = sandbox_exec.profile(tmp_path / 'we"ird', tmp_path, deny_read=[tmp_path / "k\\x"])
     assert '\\"' in p and "\\\\" in p
@@ -233,12 +240,14 @@ _MACH = ("import ctypes\n"
          "print('kr', kr)\n")
 
 
+@mac
 def test_profile_starts_from_deny_default():
     p = sandbox_exec.profile("/tmp/c", "/tmp/t")
     assert "(deny default)" in p and "(allow default)" not in p
     assert "(deny network*)" in p
 
 
+@mac
 def test_launchservices_lookup_is_denied(box):
     """`open https://…` goes through LaunchServices over mach; the child must not reach it."""
     cwd, _ = box
@@ -274,7 +283,8 @@ def test_case_variants_of_instruction_files_are_not_writable(box, name):
     assert code != 0 and not (cwd / name).exists()
 
 
-def test_case_variant_of_denied_dir_is_not_writable(box):
+@mac
+def test_case_variant_of_denied_dir_is_not_writable(box):  # APFS is case-insensitive; ext4 is not
     cwd, _ = box
     (cwd / ".claude").mkdir()
     code, _, _ = py("import os; open(os.path.join('.CLAUDE', 'settings.json'), 'w').write('x')", cwd,
@@ -282,6 +292,7 @@ def test_case_variant_of_denied_dir_is_not_writable(box):
     assert code != 0 and not (cwd / ".claude" / "settings.json").exists()
 
 
+@mac
 def test_profile_does_not_resolve_its_inputs(tmp_path):
     (tmp_path / "real").mkdir()
     (tmp_path / "link").symlink_to(tmp_path / "real")
@@ -345,3 +356,44 @@ def test_launcher_resolve_refuses_a_symlink_in_the_resolved_path(tmp_path, monke
     monkeypatch.setattr(mod.os.path, "realpath", lambda p: str(tmp_path / "b" / "x"))
     with pytest.raises(ValueError):
         mod._resolve(str(tmp_path / "anything"))
+
+
+# --- Linux (bubblewrap) ---
+
+
+@linux
+def test_linux_child_cannot_unmount_its_way_to_the_keys(box):
+    # mounts made by bwrap are locked in the child's user namespace; a nested one cannot peel them either
+    cwd, keys = box
+    sh = (f"umount {keys} 2>/dev/null; cat {keys}/hmac.key 2>/dev/null; "
+          f"unshare -rm sh -c 'umount {keys}; cat {keys}/hmac.key' 2>/dev/null; true")
+    code, out, err = sandbox_exec.run(["/bin/sh", "-c", sh], cwd, deny_read=[keys])
+    assert b"s3cret" not in out, (out, err)
+
+
+@linux
+def test_linux_setsid_child_does_not_outlive_the_call(box):
+    import time
+    cwd, _ = box
+    flag = cwd / "late.txt"
+    code, _, err = sandbox_exec.run(["/bin/sh", "-c", f"setsid sh -c 'sleep 2; echo late > {flag}' & exit 0"], cwd)
+    assert code == 0, err
+    time.sleep(3)
+    assert not flag.exists(), "a setsid child escaped the pid namespace"
+
+
+@linux
+def test_linux_runtime_sockets_and_host_tmp_are_hidden(box, tmp_path):
+    cwd, _ = box
+    (tmp_path / "host-tmp-file").write_text("x")
+    code, out, err = sandbox_exec.run(["/bin/sh", "-c", "ls -A /run /var/tmp; ls /tmp"], cwd)
+    assert b"user" not in out and b"docker.sock" not in out, out
+    assert b"host-tmp-file" not in out
+
+
+@linux
+def test_linux_new_instruction_file_is_removed_and_fails_the_call(box):
+    cwd, _ = box
+    code, _, err = py("open('CLAUDE.md', 'w').write('x')", cwd)
+    assert code == sandbox_exec.INSTRUCTION_CODE and not (cwd / "CLAUDE.md").exists(), err
+    assert b"removed instruction files" in err

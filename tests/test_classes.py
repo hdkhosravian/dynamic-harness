@@ -611,3 +611,14 @@ def test_make_dry_run_still_counts_as_running_code(ctx):
     # `make -n` still expands $(shell ...) and runs `+`-prefixed recipe lines
     for cmd in ("make -n", "make --dry-run build", "make --just-print", "make -n -C src"):
         assert _cls(cmd, ctx).irreversible, cmd
+
+
+@pytest.mark.parametrize("cmd", ["xclip -selection clipboard", "xsel -b", "wl-copy", "echo x | xclip"])
+def test_linux_clipboard_tools_are_egress_like_pbcopy(ctx, cmd):
+    assert classes.classify("Bash", {"command": cmd}, None, ctx).cls == "egress_with_data"
+
+
+@pytest.mark.parametrize("cmd", ["xdotool type hi", "ydotool key 28:1", "wtype hi", "dbus-send --session x",
+                                 "gdbus call --session", "qdbus org.kde", "busctl --user call"])
+def test_linux_desktop_automation_is_app_automation(ctx, cmd):
+    assert classes.classify("Bash", {"command": cmd}, None, ctx).cls == "local_app_automation"

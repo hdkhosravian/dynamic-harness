@@ -317,3 +317,12 @@ def test_non_startup_with_a_lost_baseline_trusts_no_tracked_file(tmp_path):
     written.start(data, "s1", ws, run=git, source="resume")
     assert json.loads((sdir / "tracked.json").read_text()) == {}
     assert not (sdir / "written.json").exists()
+
+
+def test_session_without_a_working_os_sandbox_is_refused(ctx, monkeypatch):
+    # e.g. Ubuntu with unprivileged user namespaces blocked, or bubblewrap not installed
+    from harness_core import sandbox_exec
+    monkeypatch.setattr(sandbox_exec, "probe", lambda: "bwrap cannot create a sandbox here")
+    out = session.on_start({"session_id": "s1"}, ctx)
+    assert out["state"] == "REFUSED" and "bwrap cannot create a sandbox here" in out["reason"]
+    assert status(ctx)["ok"] is False

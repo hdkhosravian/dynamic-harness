@@ -154,7 +154,7 @@ def test_cd_does_not_move_the_workspace(h):
 
 # ---- bin/harness-sandbox-exec: fixed roots, protected cwd, symlinked job dirs (finding 9, A) ----
 
-sbx = pytest.mark.skipif(not os.path.exists(sandbox_exec.SANDBOX_EXEC), reason="macOS sandbox-exec only")
+sbx = pytest.mark.skipif(sandbox_exec.probe() is not None, reason="no working OS sandbox")
 
 
 def launch(h, cwd, code):
@@ -212,6 +212,12 @@ def test_launcher_denies_protected_paths_from_a_subdir(h):
            "HOME": str(h["home"])}
     r = subprocess.run([sys.executable, "-I", str(ROOT / "bin" / "harness-sandbox-exec"), "--cwd", str(sub), "--",
                         "/usr/bin/python3", "-I", "-c", code, *map(str, targets)], capture_output=True, env=env, timeout=60)
+    if sandbox_exec.backend() == "bwrap":
+        # bwrap cannot refuse creating a new CLAUDE*.md: the launcher removes it and fails the call
+        assert r.returncode == sandbox_exec.INSTRUCTION_CODE and b"CLAUDE.local.md" in r.stderr, r.stderr
+        assert not (sub / "CLAUDE.local.md").exists() and (sub / "CLAUDE.md").read_text() == "nested\n"
+        assert b"denied " + str(sub / "CLAUDE.md").encode() in r.stdout and (sub / "ok.txt").exists()
+        return
     assert r.returncode == 0, r.stderr
     assert b"WROTE" in r.stdout and r.stdout.count(b"WROTE") == 1 and b"ok.txt" in r.stdout.split(b"WROTE")[1]
 

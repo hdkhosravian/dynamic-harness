@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import canon, config_guard, safety, written
+from . import canon, config_guard, safety, sandbox_exec, written
 from .errors import HarnessError
 from .safeio import atomic_write, safe_open
 
@@ -168,6 +168,9 @@ def _checks(evt, ctx) -> dict:
     if mismatch:
         return _block("STOPPED_TAMPER", f"hash mismatch against config_log.jsonl: {', '.join(mismatch)}", ctx,
                       mismatch=mismatch)
+    problem = sandbox_exec.probe()
+    if problem:  # gate children and harness-sandbox-exec need it; a session without it cannot finish a task
+        return _block("REFUSED", f"{problem}: tasks above T0 are refused", ctx)
     if not canary(ctx):
         return _block("CANARY_FAILED", "PreToolUse canary failed: tasks above T0 are refused", ctx)
     return {}
