@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "note": "enforce | shadow per component. shadow logs what the component would have blocked (SHADOW_WOULD_BLOCK in the session log) and blocks nothing. Safety, budget, lanes, protected paths, egress, the query guard, the trusted writers and Stop's receipt check are always enforced and are not keys here. Shipped as enforce (stage 1 of the evaluation runs every key in enforce); /dynamic-harness:off sets shadow.",
+  "contacts": "enforce",
+  "tripwire": "enforce",
+  "shadow_draft": "shadow"
+}

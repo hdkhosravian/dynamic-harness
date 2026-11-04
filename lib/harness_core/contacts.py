@@ -66,6 +66,15 @@ def progress(ctx) -> float:
 
 
 def check(kind, ctx, questions=0, handoff=False):
+    why = _check(kind, ctx, questions, handoff)
+    if why and kind != "cost" and (kind == "ask" or kind in TYPES):  # a malformed request is never shadowed
+        from . import enforcement
+        if enforcement.shadowed("contacts", ctx, why):
+            return None
+    return why
+
+
+def _check(kind, ctx, questions=0, handoff=False):
     t = tier(ctx)
     if t not in ("T1", "T2"):
         return None

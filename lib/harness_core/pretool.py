@@ -32,7 +32,8 @@ SPAWN = ("Agent", "Task")  # Task is the older name of the same tool
 
 
 def _template(key):
-    return json.loads((Path(__file__).resolve().parents[2] / "templates" / "en.json").read_text("utf-8")).get(key, key)
+    from . import templates
+    return templates.render(key, lang="en")  # a hint to the model, not owner text
 
 
 def neutral(tool, c) -> bool:

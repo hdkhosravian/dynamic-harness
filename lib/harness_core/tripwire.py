@@ -19,8 +19,8 @@ from .events import EventLog
 from .paths import job_paths
 
 def _template(key):
-    root = Path(__file__).resolve().parents[2] / "templates" / "en.json"
-    return json.loads(root.read_text("utf-8")).get(key, key)
+    from . import templates
+    return templates.render(key, lang="en")  # a hint to the model, not owner text
 
 
 def on_post(evt, ctx, st) -> dict:
@@ -46,6 +46,10 @@ def on_post(evt, ctx, st) -> dict:
     elif (probe.get("money_tokens") or probe.get("data_classes")) and tool not in classes.NEUTRAL_TOOLS:
         why = "a data read on a request with money or personal data"  # any non-neutral call: no name list
     if why is None:
+        sessionstate.update(ctx, sid, t0_calls=calls)
+        return {}
+    from . import enforcement
+    if enforcement.shadowed("tripwire", ctx, why):  # /dynamic-harness:off: log, never block
         sessionstate.update(ctx, sid, t0_calls=calls)
         return {}
     floor = "T2" if probe.get("irreversible_classes") else "T1"

@@ -74,6 +74,12 @@ def effective(ctx, job=None) -> dict:
     """``{key: value}`` in effect: the newest record per key; task-scoped records only for ``job``."""
     out = {}
     for r in store.read_jsonl(ctx.data_root, store.session_log(ctx.data_root), FILE):
+        if r.get("forgotten"):  # /dynamic-harness:memory forget: a tombstone ends what came before it
+            if r.get("key") == "*":
+                out.clear()
+            else:
+                out.pop(r.get("key"), None)
+            continue
         if r.get("key") not in ALLOWED or r.get("value") not in ALLOWED[r["key"]]:
             continue
         if r.get("scope") == "task" and r.get("source_task") != job:
