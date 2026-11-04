@@ -4,10 +4,13 @@ A Claude Code plugin that builds a per-task harness on top of loop-contract.
 
 - **Design:** `dynamic_harness_design_spec.md` (normative). The review trail is
   in `egm-harness-review/`.
-- **Status:** build phases P1–P2 and the P5 setup step. This covers the core
-  event log, ledger, gate adapter and receipts, plus the safety hook,
-  irreversible classes, egress, query guard, protected paths, the sandbox
-  launcher, the bypass corpus and `/dynamic-harness:setup`.
+- **Status:** build phases P1–P3 and the P5 setup step.
+  - P1–P2: the core event log, ledger, gate adapter and receipts; the safety hook, irreversible classes,
+    egress, query guard, protected paths, the sandbox launcher and the bypass corpus.
+  - P3: the probe, pre-filter, task card, tier selector and compiler; the contact rules; user memory;
+    lanes, the tripwire and SubagentStop.
+  - P5: `/dynamic-harness:setup`.
+  - The Stop hook, budget and lease come in P4.
 - **Platforms:** macOS (`sandbox-exec`) and Linux (`bubblewrap`). Ubuntu 22.04
   and 24.04 are tested in containers.
 - **Tests:** run `python3 -m pytest -q`.

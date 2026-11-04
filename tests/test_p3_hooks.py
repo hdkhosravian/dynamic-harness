@@ -303,3 +303,27 @@ def test_only_named_side_effect_free_tools_pass_the_session_gate(tmp_path, tool,
     (tmp_path / "d").mkdir()
     assert hookmain.main("PreToolUse", {"session_id": "x", "tool_name": tool, "tool_input": inp,
                                         "cwd": str(tmp_path)}, env)[0] == code
+
+
+def test_a_subagent_not_spawned_in_the_task_does_not_get_its_context(h):
+    job = compiled(h)
+    c = hookmain.build_ctx({"session_id": SID, "agent_id": "stranger", "agent_type": lanes.RESEARCHER}, h["env"])
+    assert c.job is None
+    # a spawn recorded in the task, linked to its agent id, keeps the task
+    assert pre(h, "Agent", subagent_type="dynamic-harness:data-analyst", prompt="count") == 0
+    post(h, "Agent", {"agentId": "analyst01"}, subagent_type="dynamic-harness:data-analyst", prompt="count")
+    say(h, "What is the capital of France?", "p2")  # the main thread moves on
+    c = hookmain.build_ctx({"session_id": SID, "agent_id": "analyst01", "agent_type": "dynamic-harness:data-analyst"},
+                           h["env"])
+    assert c.job == job
+
+
+@pytest.mark.parametrize("tool, inp", [
+    ("Grep", {"pattern": "total", "type": "py"}),
+    ("Read", {"file_path": "notes.jsonl"}),
+    ("Bash", {"command": "sqlite3 shop.sqlite3 'select 1'"}),
+])
+def test_any_read_on_a_money_request_counts_as_a_data_read(h, tool, inp):
+    say(h, "what is the total amount in toman?", "p1")
+    sessionstate.update(ctx_of(h), SID, pending_card=None)
+    assert post(h, tool, **inp)[0] == 2

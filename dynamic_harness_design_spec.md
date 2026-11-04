@@ -2184,7 +2184,7 @@ profiles:
   - Red team round 1: 133 of 135 held, on macOS and Linux.
   - Red team round 2: 181 of 188 held-out cases held before fixes, and 188 of 188 after, with 0 of 44 false denies.
   - The round-2 cases are now regression tests, so they no longer measure unseen attacks. Every release needs a fresh held-out red-team round.
-- **Known gaps carried to P3.**
+- **Known gaps carried to P3** (see §Build decisions (P3) for what P3 closed).
   - Setup (P5) now installs the Claude Code sandbox and the deny rules (§Build decisions (P5 setup)). Until the owner runs it, a session is refused above T0.
   - If the PostToolUse hook times out after a Write or Edit, the write is not recorded. The file still counts as written through `untrusted_files` (its ctime is after session start). Bash writes no longer depend on PostToolUse.
   - `written.session_sets` walks the whole workspace on every PreToolUse call (for `untrusted_files` and the strict fallback), and walks every recorded directory. After `tar -x`, `unzip` or `cp -r` into the workspace root, the whole workspace counts as written for the rest of the session. Both are slow for large workspaces, and a walk past the 4 s watchdog denies the call.
@@ -2197,6 +2197,56 @@ profiles:
   - Nothing writes the claims, fetch-log or search-log files yet.
   - `protected._norm` homoglyph folding is reserved for the maintainer.
   - The opt-in `HARNESS_DEBUG_LOG` records hook metadata, with tool inputs and responses redacted to type and length. It is for development only.
+
+### Build decisions (P3, as built in `dynamic-harness` @ `feat/p1-p2`)
+
+- **Flow.**
+  - UserPromptSubmit (`prompt.py`) records every turn, routes it, and runs the probe and the pre-filter.
+  - When a card is needed, the model is told to draft one. It runs `harness-card validate` and `harness-compile --card <file>`. The plugin's `bin/` is on the Bash PATH, verified live.
+  - `compile.apply` writes the job and points the session at it.
+  - PreToolUse runs the pending-card gate, then lanes, then the contacts gate, then safety. PostToolUse runs the written-file record, the writers and then the tripwire. SubagentStop records harness subagents.
+- **Probe and pre-filter** (`probe.py`, keywords in `control/probe.json`, English and Persian).
+  - A verb sets `irreversible_classes`, and with it a T2 floor, only when it is an instruction, not a question: "send it" counts, "did we send it?" does not.
+  - Deviation from the spec's list: the pre-filter also counts quantity words ("how many…") as needing a card, because a computed number is coming (R-11).
+  - Named files are scanned for personal data only inside the workspace.
+- **Card** (`card.py`).
+  - Code sets `irreversible`, `reversibility`, `data_classes`, `personal_data` and `computed_numbers`. Deviation: the draft may raise these fields, never lower them.
+  - `decision_class` is max-merged by policy severity.
+  - Risk is at least medium unless its provenance is `user`, and high above a business-profile threshold.
+  - `multi_session` is true only with `resume_of`, because `harness-estimate` is not built yet.
+- **Tier** (`tier_select.py`).
+  - It follows the pseudocode. A malformed field, an unknown decision class or an unknown parent tier fails towards T2.
+  - 28 taxonomy fixtures cover all 13 task types.
+- **Compile** (`compile.apply`).
+  - The card's `request` is the owner turn's redacted text.
+  - One owner prompt makes one job.
+  - A prompt routed to an open task cannot compile a new card; re-understanding is P4.
+  - A new task at T1 or above pauses the open one.
+  - REFUSE writes the card and `STOPPED{REFUSED}`.
+  - A tier above T0 needs a gate profile: `control/gate.json`, `<tier>.<task_type>` or `<tier>.default`.
+- **Contacts** (`contacts.py`, `contact.py`; R-7, R-8).
+  - The cap is 5 counted contacts per task, with `decision_ack` and `cost` exempt. One `--handoff` per task is allowed, for a before-spend contact only.
+  - Start questions go in one message, at most 3.
+  - No question once progress reaches 50%. Progress counts terminal units, or milestones for a single-unit task.
+  - The cap is re-checked under the lock that records the contact.
+  - A plan's text is rendered from `plan.json`. `--accept` needs the owner's reply to that plan contact, and the whole reply must be an approval. The contact is then consumed, and the grant is written with a `GRANT` event.
+- **Memory** (`memory.py`; R-9).
+  - Only `[pref:<key>]` questions are stored, and only one of the offered options from the closed enums.
+  - Answers are read from `tool_response` only, because the model writes `tool_input`.
+  - `default_choices` is not stored in v1.
+  - Not yet verified: the exact `AskUserQuestion` response shape in an interactive session, since the tool is unavailable in `-p`.
+- **Neutral tools.** `classes.NEUTRAL_TOOLS` lists Skill, TodoWrite, TodoRead, ToolSearch, ListMcpResourcesTool and AskUserQuestion. They pass the session gate and the pending-card gate, and they never trip the tripwire. Spawning an agent is not neutral.
+- **Lanes** (`lanes.py`).
+  - Web tools are allowed only for the researcher, in an investigation.
+  - Researcher and verifier spawns need a recorded `harness-research render` or `harness-critic render`. Neither renderer is built yet, so such spawns are denied until P4/P5.
+  - A subagent's calls keep the task it was spawned in, and only that one: its agent id must be linked in the task's `spawns.jsonl`.
+- **Tripwire.** It is active at T0 while no card is pending. It trips on a side effect, or on the 9th call. When the probe saw money or personal data, it also trips on any read (Read, Grep, Glob, Bash) or registered-connector call; there is no file-name pattern to get around.
+- **R-5.** SessionStart stops as `STOPPED_TAMPER` when a shipped `skills/**/SKILL.md` has no matching `approved_procedures.json` entry, and when there is any symlink under `skills/`.
+- **Corrections and shadow.** Corrections are logged verbatim, as evidence only, and cite a real owner turn. The second draft is logged in shadow and never changes the card.
+- **Known gaps carried to P4.**
+  - The Stop hook does not exist yet. A model can still answer in plain text while a card is pending, and a live `-p` run did exactly that (2 orders, 30 toman, from a read). The spec's enforcement for this is Stop refusing a T0 completion while `pending_card` is set.
+  - Not built yet: lease, budget, stall, RE_UNDERSTAND, thread matching to terminal jobs, `cost` contacts, `harness-ledger`, `harness-claims fetch`, `harness-research render` and `harness-critic render`.
+  - `templates/fa.json` is a P5 item; P3 ships English only.
 
 ### Build decisions (P5 setup, as built in `dynamic-harness` @ `feat/p1-p2`)
 

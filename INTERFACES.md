@@ -594,3 +594,37 @@ its last `file_sha`, appends the row, then appends an event carrying
   installed plugin's `keys/` and `experience/` (`sandbox_exec.secret_dirs`).
   It allows writes to job folders and denies writes to the protected workspace
   paths, `CLAUDE*.md` files, the data root, the plugin root and `~/.claude`.
+
+## P3: probe, card, tier, compile, contacts, memory, lanes, tripwire, subagents
+
+- `probe.run(request, ctx, cwd=None) -> probe` (schema `harness/probe@1`): `question_only`,
+  `action_verbs`, `irreversible_classes` (imperative only), `write_targets`, `files_named`, `connectors`,
+  `write_connectors`, `money_tokens`, `number_tokens`, `quantitative`, `data_classes`, `decision_hits`,
+  `continuation` and `floor_tier`. `prefilter(probe) -> "T0-fast" | "card-needed"`.
+- `pii.scan(text | Path) -> [tag]` and `pii.redact(text)`.
+- `tier_select.select_tier(card, probe, control=None, stored_tier=None, ctx=None) -> T0|T1|T2|REFUSE`,
+  `policy(decision_class)` and `tier_max(*t)`.
+- `card.validate(draft) -> [error]`, `card.normalize(draft, probe, ctx, request) -> card`,
+  `card.merge(a, b) -> (draft, questions)` and `card.multi_session(card)`. Schemas:
+  `card_draft`, `card`.
+- `compile.apply(req, ctx, evt) -> {job_id, state, tier, opening|message, shadow?}`. It writes
+  `runs/<job>/{card.v1.json, tier.json, scope.v1.jsonl, opening.txt, budget.json, contacts.json,
+  state.json}`, the jobs index and the session file. It raises `Denied` or `CardError`.
+- `contacts.check(kind, ctx, questions=0, handoff=False) -> reason | None`, `record(...)`,
+  `record_ask(evt, ctx)`, `progress(ctx)`, `tier(ctx)`. `contact.apply(req, ctx, evt)` handles
+  question, plan, assumption_sheet, definition_confirm and decision_ack, plus `--handoff` and
+  `plan --accept`.
+- `memory.apply(evt, ctx) -> [row]`, `memory.effective(ctx, job=None)` and `memory.snapshot(ctx, job)`.
+- `writers.on_post(evt, ctx)`: a lone `harness-compile` or `harness-contact` call, whose stdout
+  request names the same tool; `AskUserQuestion` goes to memory and the counter.
+- `prompt.on_prompt(evt, ctx)` (UserPromptSubmit), `pretool.on_pre`, `posttool.on_post`,
+  `lanes.on_pre` and `lanes.link_spawn`, `tripwire.on_post(evt, ctx, st)` and
+  `subagent.on_subagent_stop`.
+- `sessionstate.load/update(ctx, sid)` for `sessions/<sid>.json`, and `jobs`, `set_job` and `tier_of`
+  for `jobs/index.json`. `store.append_jsonl/write_json/read_json/read_jsonl` chain every write and
+  check every read.
+- `corrections.log(ctx, job, turn_id)` and `shadow.log_second_draft(ctx, job, first, second, probe)`.
+- `session.unapproved_procedures(ctx)` (R-5).
+- `bin/`: `harness-compile --card F [--second-draft F]`, `harness-contact TYPE [--text|--text-file|
+  --plan|--handoff|--accept]`, `harness-card validate F | merge F1 F2`, and `harness-probe TEXT`. They
+  only print.

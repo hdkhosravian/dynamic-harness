@@ -12,7 +12,6 @@ so only reads are allowed until a card compiles. For an inline T0 with an open t
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from . import classes, contacts, protected, sessionstate
@@ -24,26 +23,13 @@ def _template(key):
     return json.loads(root.read_text("utf-8")).get(key, key)
 
 
-def _strings(v):
-    if isinstance(v, str):
-        yield v
-    elif isinstance(v, dict):
-        for x in v.values():
-            yield from _strings(x)
-    elif isinstance(v, list):
-        for x in v:
-            yield from _strings(x)
-
-
-_DATA = re.compile(r"(?i)\.(?:csv|tsv|xlsx|xls|json|parquet|sqlite|db)\b|\*\.(?:csv|tsv|xlsx|xls|json)")
+READS = ("Read", "Grep", "Glob", "NotebookRead", "Bash", "LSP")
 
 
 def _data_tool(tool, ti, ctx) -> bool:
-    """Any field of the call names a data file (Read/Grep/Glob paths and patterns, Bash commands…), or the
-    tool is a registered connector."""
-    if tool.startswith("mcp__") and tool in (ctx.connector_registry or {}):
-        return True
-    return any(_DATA.search(x) for x in _strings(ti))
+    """On a money or personal-data request, any read counts as a data read: a file-name pattern would be
+    one more parser to get around. Registered connectors count too."""
+    return tool in READS or (tool.startswith("mcp__") and tool in (ctx.connector_registry or {}))
 
 
 def on_post(evt, ctx, st) -> dict:

@@ -96,6 +96,17 @@ def _session_ok(status, lcr):
     return True, None
 
 
+def _spawned_in(data, ws, job, agent_id) -> bool:
+    """A subagent belongs to a task only when the task's spawn record links its agent id."""
+    if not job or not isinstance(agent_id, str):
+        return False
+    from . import store
+    from .events import EventLog
+    from .paths import job_paths
+    p = job_paths(data, ws, job)
+    return any(r.get("agent_id") == agent_id for r in store.read_jsonl(p.run, EventLog(p.run, p.heads), "spawns.jsonl"))
+
+
 def build_ctx(evt: dict, env, event=None):
     from . import written
     from .events import EventLog
@@ -145,8 +156,11 @@ def build_ctx(evt: dict, env, event=None):
     ctx.prompt_scope = sess.get("prompt_scope")
     # scope rule: hooks resolve to active_task only when this prompt belongs to it; a subagent's calls belong
     # to the task it was spawned in, whatever the main thread's latest prompt was
-    subagent = bool(evt.get("agent_id") or evt.get("agent_type"))
-    job = sess.get("active_task") if (sess.get("prompt_scope") == "active_task" or subagent) else None
+    agent_id = evt.get("agent_id")
+    if agent_id or evt.get("agent_type"):
+        job = sess.get("active_task") if _spawned_in(data, ws, sess.get("active_task"), agent_id) else None
+    else:
+        job = sess.get("active_task") if sess.get("prompt_scope") == "active_task" else None
     if job:
         ctx.job = written.safe_id(job, "job")
         run = data / "runs" / ctx.job
