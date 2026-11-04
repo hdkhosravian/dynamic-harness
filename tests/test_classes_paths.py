@@ -367,6 +367,13 @@ def test_r2_cd_elsewhere_stays_allowed(ctx, cmd):
     "git -C {data}/keys log",
     "git -C {ws}/src diff --no-index ../../data/keys/k /dev/null",
     "git --work-tree={data} ls-files",
+    "grep -d recurse secret",  # -d recurse is -r
+    "grep --directories=recurse secret",
+    "grep --directories recurse secret",
+    # option values and words after -- are not exclusions
+    "grep -r -e --exclude-dir=keys -e --exclude-dir=experience .",  # with -e, every positional is a path
+    "grep -r -m --exclude-dir=keys --exclude-dir=experience secret",
+    "grep -r secret -- --exclude-dir=keys --exclude-dir=experience .",
 ])
 def test_r3_recursive_readers_over_protected_trees_are_denied(ctx, cmd):
     _cwd(ctx, ctx.data_root.parent) if "{data}" not in cmd and "{ws}" not in cmd else None

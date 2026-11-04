@@ -88,7 +88,7 @@ def main(argv):
         print("harness-sandbox-exec: CLAUDE_PLUGIN_DATA is not set; refusing to run", file=sys.stderr)
         return 2
     home = _resolve(os.path.expanduser("~"))
-    claude_home = os.path.join(home, ".claude")
+    claude_home = _resolve(os.path.join(home, ".claude"))  # a symlinked ~/.claude protects its target
     data = _resolve(data)
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     plugin_root = _resolve(plugin_root) if plugin_root else None

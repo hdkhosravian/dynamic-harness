@@ -147,6 +147,21 @@ def test_bin_refuses_cwd_inside_claude_home(box, tmp_path):
     assert r.returncode == 2 and not (home / ".claude" / "x").exists()
 
 
+def test_bin_refuses_cwd_inside_a_symlinked_claude_home(box, tmp_path):
+    # ~/.claude -> a real dir inside the project (dotfiles setups): the resolved target is still ~/.claude
+    cwd, _ = box
+    real = cwd / "dotclaude"
+    real.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".claude").symlink_to(real)
+    data = tmp_path / "data"
+    data.mkdir()
+    env = {**os.environ, "HOME": str(home), "CLAUDE_PLUGIN_DATA": str(data), "CLAUDE_PROJECT_DIR": str(cwd)}
+    r = _bin(["--cwd", str(real), "--", PY, "-I", "-c", "open('x','w').write('1')"], cwd, env)
+    assert r.returncode == 2 and not (real / "x").exists()
+
+
 def test_bin_denies_keys_of_every_installed_plugin(box, tmp_path):
     # env points CLAUDE_PLUGIN_DATA elsewhere; keys under ~/.claude/plugins/data/*/keys stay unreadable
     cwd, _ = box

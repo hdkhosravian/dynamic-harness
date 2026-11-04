@@ -320,7 +320,8 @@ GIT_NET = {"fetch", "pull", "clone", "ls-remote", "submodule", "archive-remote",
 GIT_OPT_ARGS = {"-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix"}
 PY_OPT_ARGS = {"-W", "-X", "-Q"}
 GREP_OPT_ARGS = {"-e", "-f", "-m", "-A", "-B", "-C", "-d", "-D", "--regexp", "--file", "--include", "--exclude",
-                 "--exclude-dir", "--max-count", "-g", "--glob", "-t", "--type", "-T", "--type-not"}
+                 "--exclude-dir", "--max-count", "-g", "--glob", "-t", "--type", "-T", "--type-not",
+                 "--directories", "--devices"}
 
 
 def _code_like(path: str) -> bool:
@@ -350,6 +351,16 @@ def _split_opts(args, opt_args=()):
             pos.append(a)
         i += 1
     return opts, pos
+
+
+def _options_only(opts):
+    """Drop the values ``_split_opts`` paired with value-taking options, keeping ``--x=v`` forms."""
+    out, skip = [], False
+    for a in opts:
+        if not skip:
+            out.append(a)
+        skip = not skip and a in GREP_OPT_ARGS
+    return out
 
 
 def _opt_value(args, names):
@@ -891,7 +902,8 @@ class _Bash:
         narrowing = name in ("grep", "egrep", "fgrep") and not _short_or_long(opts, "RS", ("--dereference-recursive",))
         if not _has_opt(rest, ("-e", "--regexp", "-f", "--file")):
             pos = pos[1:]  # the first positional is the pattern
-        excl = [x for v in _opt_value(rest, ("--exclude-dir",)) for x in _brace_expand(v)]
+        # from the parsed options only: a value of -e/-m/... or a word after -- is not an exclusion
+        excl = [x for v in _opt_value(_options_only(opts), ("--exclude-dir",)) for x in _brace_expand(v)]
         names = set()
         for pat in protected.load_patterns(self.ctx)["read_protected"]:
             e = protected._expand(pat, self.ctx)
@@ -982,7 +994,8 @@ class _Bash:
                 # the workspace (a -m profile path) over-denies. Upgrade to a per-option arity table if that bites.
                 for f in _split_opts(rest)[1]:
                     self.write_target(f, "sips (in place)")
-            if name in ("grep", "egrep", "fgrep") and any(o.startswith("-") and not o.startswith("--") and ("r" in o or "R" in o) or o in ("--recursive", "--dereference-recursive") for o in rest) or name in ("rg", "ag", "ack"):
+            if name in ("grep", "egrep", "fgrep") and (any(o.startswith("-") and not o.startswith("--") and ("r" in o or "R" in o) or o in ("--recursive", "--dereference-recursive") for o in rest)
+                                                       or "recurse" in _opt_value(rest, ("-d", "--directories"))) or name in ("rg", "ag", "ack"):
                 self.grep_tree(name, rest)
             if name == "diff" and _short_or_long(rest, "rR", ("--recursive",)):
                 self.recursive_read(_split_opts(rest)[1])
