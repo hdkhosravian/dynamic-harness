@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "write_protected": [
+    "${CLAUDE_PLUGIN_DATA}/**",
+    "${CLAUDE_PLUGIN_ROOT}/**",
+    "${LOOP_CONTRACT_ROOT}/**",
+    "~/.claude/**",
+    "~/.claude.json",
+    "/Library/Application Support/ClaudeCode/**",
+    "/etc/claude-code/**",
+    "${WORKSPACE}/.claude/**",
+    "${WORKSPACE}/.mcp.json",
+    "${WORKSPACE}/.git/**"
+  ],
+  "write_exceptions": [
+    "${WORKSPACE}/.claude/loops/*/requests/**",
+    "${WORKSPACE}/.claude/loops/*/work/**"
+  ],
+  "read_protected": [
+    "${CLAUDE_PLUGIN_DATA}/keys/**",
+    "${CLAUDE_PLUGIN_DATA}/experience/**"
+  ],
+  "always_protected": [
+    "${WORKSPACE}/**/CLAUDE.md",
+    "${WORKSPACE}/**/CLAUDE.local.md"
+  ]
+}

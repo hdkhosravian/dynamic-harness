@@ -1,0 +1,28 @@
+#!/usr/bin/python3 -I
+"""harness-hook <Event>: reads the hook JSON on stdin; exit 0 = allow, exit 2 = deny/block."""
+import sys
+
+try:
+    import json
+    import os
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    from harness_core import hookmain
+
+    event = sys.argv[1] if len(sys.argv) > 1 else ""
+    try:
+        data = json.loads(sys.stdin.read())
+    except ValueError as e:
+        print(f"harness: hook input is not JSON: {e} (fail closed)", file=sys.stderr)
+        sys.exit(2)
+    code, out = hookmain.main(event, data, os.environ)
+    if out is not None:
+        sys.stdout.write(json.dumps(out))
+    sys.stdout.flush()
+except BaseException as e:  # import failure, SystemExit from planted code, anything: deny
+    if isinstance(e, SystemExit) and e.code == 2:
+        raise
+    print(f"harness: {type(e).__name__}: {e} (fail closed)", file=sys.stderr)
+    code = 2
+sys.exit(code)

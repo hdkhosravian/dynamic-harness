@@ -1,0 +1,5 @@
+{
+  "name": "probe-plugin",
+  "version": "0.1.0",
+  "description": "OQ-4 spike probe: logs every hook input and misbehaves on demand"
+}

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "Domains WebFetch/WebSearch/hook fetches may reach without a grant. Empty in v1: sandboxed Bash gets no network at all; research uses per-job grants.",
+  "domains": []
+}

@@ -1,0 +1,66 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "business_hash": {
+      "type": "string"
+    },
+    "caps": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "caps_sha": {
+      "type": "string"
+    },
+    "control_hash": {
+      "type": "string"
+    },
+    "core_hash": {
+      "type": "string"
+    },
+    "events_head": {
+      "type": "string"
+    },
+    "gate_sha": {
+      "type": "string"
+    },
+    "hmac": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "done",
+        "known"
+      ]
+    },
+    "report_sha": {
+      "type": "string"
+    },
+    "scope_sha": {
+      "type": "string"
+    },
+    "traced_set_sha": {
+      "type": "string"
+    },
+    "tree_sha": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "events_head",
+    "scope_sha",
+    "tree_sha",
+    "report_sha",
+    "gate_sha",
+    "control_hash",
+    "business_hash",
+    "core_hash",
+    "mode",
+    "caps_sha",
+    "traced_set_sha",
+    "caps",
+    "hmac"
+  ],
+  "type": "object"
+}

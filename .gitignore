@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# run artefacts may contain session ids, transcript paths and prompts
+spike/logs/
+spike/work/
+spike/smoke/run*/

@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "attempt": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "check_id": {
+      "type": "string"
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "result": {
+      "type": "string"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "unit": {
+      "type": "string"
+    },
+    "values": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "check_id",
+    "unit",
+    "attempt",
+    "exit_code",
+    "result",
+    "values",
+    "sha256"
+  ],
+  "type": "object"
+}

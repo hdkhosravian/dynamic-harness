@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "pending_contact_id": {
+      "type": "string"
+    },
+    "seq": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "text_norm": {
+      "type": "string"
+    },
+    "text_sha": {
+      "type": "string"
+    },
+    "ts": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "string"
+    },
+    "typed_command": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "seq",
+    "turn_id",
+    "ts",
+    "text_sha",
+    "text_norm"
+  ],
+  "type": "object"
+}

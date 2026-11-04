@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "note": "v1_action: every irreversible class is denied; exception: harness:web-researcher GETs/queries under a per-job grant that pass the query guard.",
+  "classes": {
+    "external_message": {
+      "examples": "send email / SMS / chat, post to social media, publish",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "money": {
+      "examples": "payment, refund, payout, invoice issue",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "payee_change": {
+      "examples": "new or changed supplier bank details (Sheba/IBAN)",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "price_publish": {
+      "examples": "price change in a live shop",
+      "reversibility": "R1",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "accounting_entry": {
+      "examples": "journal entry, invoice void",
+      "reversibility": "R2",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "destructive": {
+      "examples": "delete files outside run state, rm -rf, drop table, delete a cloud resource, git push (any), write outside the workspace",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "local_app_automation": {
+      "examples": "osascript, AppleScript/JXA, open, shortcuts, automator",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "external_write": {
+      "examples": "CRM / ERP writes, Sheets shared with others, deploy",
+      "reversibility": "R1",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "automation_create": {
+      "examples": "scheduled job, routine, webhook or standing rule",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "egress_offlist": {
+      "examples": "network request to a domain not on the allowlist (any network from Bash in v1)",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "egress_with_data": {
+      "examples": "request carrying workspace data or business names (query strings, search queries, POST bodies)",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "unknown_mcp_write": {
+      "examples": "MCP tool not tagged read in the connector registry",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "self_written_exec": {
+      "examples": "running code the agent wrote this task (scripts, inline -c/-e code, code piped to a shell) outside harness-sandbox-exec",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "local_reversible": {
+      "examples": "files in run state or a git-tracked workspace",
+      "reversibility": "R0",
+      "irreversible": false,
+      "v1_action": "allow"
+    },
+    "draft_create": {
+      "examples": "creating a draft with a connector-registry tool tagged draft",
+      "reversibility": "R0",
+      "irreversible": false,
+      "v1_action": "allow"
+    },
+    "read": {
+      "examples": "read-only tool call (not in the spec table; never irreversible)",
+      "reversibility": "R0",
+      "irreversible": false,
+      "v1_action": "allow"
+    },
+    "protected_path": {
+      "examples": "write to a protected path, read of keys/ or experience/, direct fold_ledger.py call (not in the spec table)",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    },
+    "unknown": {
+      "examples": "anything the classifier cannot recognise or parse; unknown resolves to irreversible",
+      "reversibility": "R3",
+      "irreversible": true,
+      "v1_action": "deny"
+    }
+  },
+  "researcher_exception": {
+    "agent_type": "harness:web-researcher",
+    "classes": [
+      "egress_offlist",
+      "egress_with_data"
+    ],
+    "requires": [
+      "grant",
+      "GET",
+      "query_guard"
+    ]
+  }
+}

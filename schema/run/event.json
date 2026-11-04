@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "file": {
+      "type": "string"
+    },
+    "file_sha": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "prev_sha": {
+      "type": "string"
+    },
+    "row_sha": {
+      "type": "string"
+    },
+    "seq": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "sha": {
+      "type": "string"
+    },
+    "ts": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "seq",
+    "ts",
+    "type",
+    "payload",
+    "prev_sha",
+    "sha"
+  ],
+  "type": "object"
+}

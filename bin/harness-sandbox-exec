@@ -1,0 +1,56 @@
+#!/usr/bin/python3 -I
+"""harness-sandbox-exec [--cwd DIR] [--deny-read DIR]... [--timeout S] -- ARGV...
+
+Runs ARGV (no shell) under the harness sandbox: no network, no Apple Events, no
+reads of ${CLAUDE_PLUGIN_DATA}/keys|experience, writes only under the working
+directory and a temp dir, never to the workspace's protected paths.
+"""
+import glob
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+
+def main(argv):
+    from harness_core import sandbox_exec
+
+    cwd, deny_read, timeout, i = os.getcwd(), [], 600, 0
+    while i < len(argv) and argv[i] != "--":
+        if argv[i] in ("--cwd", "--deny-read", "--timeout") and i + 1 < len(argv):
+            if argv[i] == "--cwd":
+                cwd = argv[i + 1]
+            elif argv[i] == "--deny-read":
+                deny_read.append(argv[i + 1])
+            else:
+                timeout = float(argv[i + 1])
+            i += 2
+            continue
+        break
+    cmd = argv[i + 1:] if i < len(argv) and argv[i] == "--" else argv[i:]
+    if not cmd:
+        print(__doc__, file=sys.stderr)
+        return 2
+    data = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if data:
+        deny_read += [os.path.join(data, "keys"), os.path.join(data, "experience")]
+    deny_write = [os.path.join(cwd, n) for n in (".git", ".claude", "CLAUDE.md", "CLAUDE.local.md", ".mcp.json")]
+    deny_write += [p for p in (data, os.environ.get("CLAUDE_PLUGIN_ROOT")) if p]
+    allow_write = glob.glob(os.path.join(cwd, ".claude", "loops", "*", "work"))
+    allow_write += glob.glob(os.path.join(cwd, ".claude", "loops", "*", "requests"))
+    stdin = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read()
+    code, out, err = sandbox_exec.run(cmd, cwd, stdin, timeout, deny_read, deny_write, allow_write)
+    sys.stdout.buffer.write(out)
+    sys.stderr.buffer.write(err)
+    return code
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except BaseException as e:  # fail closed, never run unsandboxed
+        if isinstance(e, SystemExit):
+            raise
+        print(f"harness-sandbox-exec: {type(e).__name__}: {e}", file=sys.stderr)
+        sys.exit(2)

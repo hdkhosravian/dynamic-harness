@@ -1,0 +1,53 @@
+{
+  "$comment": "kind=unit row in run/ledger.jsonl; verdict holds the harness state",
+  "additionalProperties": false,
+  "properties": {
+    "attempt": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "failure_sig": {
+      "type": "string"
+    },
+    "finding": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "outputs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "PASS",
+        "PASS_FLAGGED",
+        "UNVERIFIED",
+        "FAIL",
+        "BLOCKED",
+        "SUPPORTED",
+        "REFUTED",
+        "INCONCLUSIVE",
+        "NOT_INVESTIGATED"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "attempt",
+    "verdict"
+  ],
+  "type": "object"
+}

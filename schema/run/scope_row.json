@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "check_id": {
+      "type": "string"
+    },
+    "claim": {
+      "type": "string"
+    },
+    "deliverable": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "unit_type": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "claim",
+    "label"
+  ],
+  "type": "object"
+}

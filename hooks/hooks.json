@@ -1,0 +1,42 @@
+{
+  "description": "Dynamic harness safety hooks. python3 -I (no user site-packages); hookmain watchdog = timeout - 1 s; any handler failure exits 2; onFailure=block makes crashes/timeouts block (needs Claude Code >= 2.1.295, OQ-4 spike S1).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" PreToolUse",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" SessionStart",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/bin/harness-hook\" ConfigChange",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}

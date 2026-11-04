@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "scope_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "scope_sha": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "scope_sha",
+    "scope_count"
+  ],
+  "type": "object"
+}

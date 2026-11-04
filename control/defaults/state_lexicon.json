@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "note": "State words that may appear only in template-rendered state lines (spec §Gate and Stop semantics, final-message lint).",
+  "terms": {
+    "en": ["checked", "verified", "reconciled", "confirmed", "matches", "✓", "✔"],
+    "fa": ["بررسی شد", "بررسی‌شده", "تأیید شد", "تایید شد", "تأییدشده", "تطبیق داده شد", "مطابقت دارد", "صحت‌سنجی شد"]
+  }
+}

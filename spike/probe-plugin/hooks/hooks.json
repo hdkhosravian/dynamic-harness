@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" session_start \"${CLAUDE_PLUGIN_DATA}\""}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" user_prompt_submit"}]}],
+    "PreToolUse": [
+      {"matcher": "*", "hooks": [{"type": "command", "timeout": 3, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" pre"}]},
+      {"matcher": "Bash", "hooks": [{"type": "command", "timeout": 3, "onFailure": "block", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" pre_onfail"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "*", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" post"}]},
+      {"matcher": "Bash", "hooks": [{"type": "command", "timeout": 1800, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" post_long"}]}
+    ],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" subagent_start"}]}],
+    "SubagentStop": [
+      {"matcher": "^probe-plugin:probe-agent$", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" sas_exact"}]},
+      {"matcher": "probe-agent", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" sas_substr"}]},
+      {"matcher": "zzz-nomatch", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" sas_nomatch"}]},
+      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" sas_all"}]}
+    ],
+    "Stop": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" stop"}]}],
+    "ConfigChange": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/probe.py\" config_change"}]}]
+  }
+}
