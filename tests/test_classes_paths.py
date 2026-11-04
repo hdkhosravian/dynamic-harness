@@ -374,6 +374,15 @@ def test_r2_cd_elsewhere_stays_allowed(ctx, cmd):
     "grep -r -e --exclude-dir=keys -e --exclude-dir=experience .",  # with -e, every positional is a path
     "grep -r -m --exclude-dir=keys --exclude-dir=experience secret",
     "grep -r secret -- --exclude-dir=keys --exclude-dir=experience .",
+    "grep -re --exclude-dir=keys --exclude-dir=experience .",  # -re: -e takes the next word
+    "grep -rm --exclude-dir=keys --exclude-dir=experience secret",
+    "grep -d rec secret",  # getopt accepts abbreviated -d values
+    "grep --dir=recurse secret",  # and abbreviated long options
+    "grep --recur secret",
+    "grep -e -- -r .",  # -e takes --, so -r is still an option
+    "grep -r --exclude-dir keys --exclude-dir experience secret",  # only the = form narrows
+    "grep -r -A1 --exclude-dir=keys --exclude-dir=experience secret",
+    "grep -r --exclude-d=keys --exclude-d=experience secret",
 ])
 def test_r3_recursive_readers_over_protected_trees_are_denied(ctx, cmd):
     _cwd(ctx, ctx.data_root.parent) if "{data}" not in cmd and "{ws}" not in cmd else None

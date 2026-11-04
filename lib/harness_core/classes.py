@@ -353,14 +353,27 @@ def _split_opts(args, opt_args=()):
     return opts, pos
 
 
-def _options_only(opts):
-    """Drop the values ``_split_opts`` paired with value-taking options, keeping ``--x=v`` forms."""
-    out, skip = [], False
-    for a in opts:
-        if not skip:
-            out.append(a)
-        skip = not skip and a in GREP_OPT_ARGS
-    return out
+_GREP_SAFE = re.compile(r"-[rinlHhcosqvwxEFGIL]+|--recursive")  # flags that take no value
+
+
+def _grep_recursive(args):
+    """Fail closed over every word (values and words after ``--`` included): ``-r``/``-R`` in a short
+    cluster, a prefix of --recursive/--dereference-recursive, or any -d/--directories value but read/skip."""
+    for i, a in enumerate(args):
+        nxt = args[i + 1] if i + 1 < len(args) else ""
+        if a.startswith("--") and len(a) > 2:
+            n, eq, v = a[2:].partition("=")
+            if "recursive".startswith(n) or "dereference-recursive".startswith(n):
+                return True
+            if "directories".startswith(n) and (v if eq else nxt) not in ("read", "skip"):
+                return True
+        elif a.startswith("-") and len(a) > 1:
+            if "r" in a or "R" in a:
+                return True
+            j = a.find("d")
+            if j > 0 and (a[j + 1:] or nxt) not in ("read", "skip"):
+                return True
+    return False
 
 
 def _opt_value(args, names):
@@ -902,8 +915,10 @@ class _Bash:
         narrowing = name in ("grep", "egrep", "fgrep") and not _short_or_long(opts, "RS", ("--dereference-recursive",))
         if not _has_opt(rest, ("-e", "--regexp", "-f", "--file")):
             pos = pos[1:]  # the first positional is the pattern
-        # from the parsed options only: a value of -e/-m/... or a word after -- is not an exclusion
-        excl = [x for v in _opt_value(_options_only(opts), ("--exclude-dir",)) for x in _brace_expand(v)]
+        # honoured only when every option word is a plain flag cluster or --exclude-dir=V: anything else
+        # (a value-taking option, --, an abbreviation) can hide which word is an exclusion
+        narrowing = narrowing and all(_GREP_SAFE.fullmatch(a) or a.startswith("--exclude-dir=") for a in rest if a.startswith("-"))
+        excl = [x for v in _opt_value(rest, ("--exclude-dir",)) for x in _brace_expand(v)] if narrowing else []
         names = set()
         for pat in protected.load_patterns(self.ctx)["read_protected"]:
             e = protected._expand(pat, self.ctx)
@@ -994,8 +1009,7 @@ class _Bash:
                 # the workspace (a -m profile path) over-denies. Upgrade to a per-option arity table if that bites.
                 for f in _split_opts(rest)[1]:
                     self.write_target(f, "sips (in place)")
-            if name in ("grep", "egrep", "fgrep") and (any(o.startswith("-") and not o.startswith("--") and ("r" in o or "R" in o) or o in ("--recursive", "--dereference-recursive") for o in rest)
-                                                       or "recurse" in _opt_value(rest, ("-d", "--directories"))) or name in ("rg", "ag", "ack"):
+            if name in ("grep", "egrep", "fgrep") and _grep_recursive(rest) or name in ("rg", "ag", "ack"):
                 self.grep_tree(name, rest)
             if name == "diff" and _short_or_long(rest, "rR", ("--recursive",)):
                 self.recursive_read(_split_opts(rest)[1])
