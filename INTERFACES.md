@@ -373,8 +373,10 @@ its last `file_sha`, appends the row, then appends an event carrying
        `control`, `business`, `gate` (`control/gate.json`), `plugin` or
        `loop_contract` (`STOPPED_TAMPER`; a layer present now but never
        recorded is a mismatch too);
-    7. no working OS sandbox, `sandbox_exec.probe()` not None (`REFUSED`);
-    8. a failed PreToolUse canary (`CANARY_FAILED`).
+    7. effective settings that miss anything in `setup.required`, from
+       `setup.verify(ctx)` (`REFUSED`, quoting up to four problems);
+    8. no working OS sandbox, `sandbox_exec.probe()` not None (`REFUSED`);
+    9. a failed PreToolUse canary (`CANARY_FAILED`).
 - `config_guard.on_change(evt, ctx) -> dict` (ConfigChange). Judges the
   changed file against `ctx.settings_baseline` (`{realpath: settings}` over
   `~/.claude/settings.json`, `<ws>/.claude/settings.json` and
@@ -427,7 +429,9 @@ its last `file_sha`, appends the row, then appends an event carrying
   Never raises.
   - `HANDLERS`: `PreToolUse → safety.on_pre`, `PostToolUse` and
     `PostToolUseFailure → written.on_post`,
-    `SessionStart → session.on_start`, `ConfigChange → config_guard.on_change`.
+    `SessionStart → session.on_start`, `ConfigChange → config_guard.on_change`,
+    `UserPromptSubmit → setup.on_prompt` (pre-filtered: only a setup prompt
+    reaches the handler, and its block is printed as JSON with exit 0).
     Only the module for the event is imported. A handler is called as
     `fn(stdin_json, build_ctx(stdin_json, env, event))`. An unknown event
     exits 2.
@@ -468,6 +472,31 @@ its last `file_sha`, appends the row, then appends an event carrying
   - Hook state is read with `safe_open`.
 - The plugin manifest is `.claude-plugin/plugin.json` (`name: dynamic-harness`; renamed from `harness`, which collides with an unrelated public plugin of that name);
   hooks load from `hooks/hooks.json`.
+
+## Setup (`harness_core/setup.py`, `commands/setup.md`)
+
+- `is_setup_prompt(evt) -> bool`: the stripped prompt is `/dynamic-harness:setup`
+  or starts with it plus whitespace. `<task-notification>` prompts never match.
+- `on_prompt(evt, ctx) -> {"decision": "block", "reason": text}` (UserPromptSubmit;
+  `hookmain` prints it as JSON with exit 0). Arguments: none (plan), `confirm
+  <code>`, `undo`, `status`; anything else shows usage. It runs under an `flock`
+  on `data_root/setup/.lock`. Pending state is `setup/pending.json` `{kind, code,
+  sid, ts, sha}`; a code works once, for `PENDING_TTL` = 600 s, in the issuing
+  session, and only while the recomputed plan has the same sha.
+- `required(ctx, lcr) -> {set: {scope: {key: value}}, include: {key: [entries]},
+  empty: [keys], forbid: [keys]}`: the single list that `plan` writes and
+  `verify` checks. Keys are tuples, such as `("sandbox", "network",
+  "strictAllowlist")`.
+- `plan(ctx) -> {files, paths, base, lines, lcr, need_key, need_log}`. It raises
+  `Blocked` in these cases:
+  - invalid JSON;
+  - a symlinked workspace `.claude/` or `settings*.json`;
+  - a home or root workspace;
+  - no loop-contract ≥ 1.1.0.
+- `verify(ctx) -> [problem]`: `[]` when set up. SessionStart refuses otherwise.
+- `settings_paths(ctx) -> {user, project, local}`; `find_loop_contract(ctx)`.
+- Backups: `setup/backups/<ts>-<rand>/{manifest.json, <scope>.json}`; `undo` restores
+  the latest one and removes it.
 
 ## Sandbox exec (`harness_core/sandbox_exec.py`, `bin/harness-sandbox-exec`)
 
@@ -514,7 +543,35 @@ its last `file_sha`, appends the row, then appends an event carrying
   - `backend() -> "sandbox-exec" | "bwrap" | None` by platform;
     `probe() -> None | reason` (bwrap: runs `/bin/true` in a sandbox).
   - When the backend is missing, it raises `HarnessError` (fails closed).
-- `bin/harness-sandbox-exec [--cwd DIR] [--deny-read DIR]... [--timeout S] -- ARGV`
+  - `_native_ok(b) -> "ok" | "nested" | "broken"` is decided once per run.
+    `broken` raises. `nested` runs in outer mode:
+    - `outer_contained()` and `_verify_outer(deny_read, deny_write)` must
+      both return None, or `run()` raises;
+    - the command then runs directly with the clean env, the timeout, the
+      group kill and the guard over `cwd`, `allow_write` and `watch`;
+    - `run(..., watch=())` adds guard roots; `run(..., mode=)` raises if the
+      mode differs from the caller's.
+    - `_verify_outer` also requires every missing protected path, with an
+      existing parent, to be uncreatable (create, unlink, refuse). A symlinked
+      entry has its target checked.
+    - `_proxy_check()` requires at least one proxy in the environment, every
+      one refusing CONNECT; an untestable proxy fails.
+  - `outer_contained() -> None | reason`. Checks, from inside the process:
+    - no plugin `keys/` (and `hmac.key` by name) or `experience/` under the
+      `pwd` home is readable;
+    - `_net_reachable()` and `_proxy_tunnels()` are both false;
+    - no plugin data root is writable.
+- `bin/harness-sandbox-exec [--cwd DIR] [--deny-read DIR]... [--timeout S] -- ARGV`.
+  When `_native_ok` is `nested` (inside Claude Code's sandbox), it takes the
+  outer path (`_outer`):
+  - it needs no `CLAUDE_*` env; the project is `CLAUDE_PROJECT_DIR` or the
+    nearest `.git`/`.claude` ancestor;
+  - it refuses a cwd in `~/.claude` or in a protected path other than a job
+    folder;
+  - it passes `OUTER_DENY_WRITE` plus every `CLAUDE*.md` as `deny_write`, and
+    `watch=[project]`.
+
+  Otherwise:
   (default timeout 600 s). It refuses (exit 2) in these cases:
   - `CLAUDE_PLUGIN_DATA` or `CLAUDE_PROJECT_DIR` is unset;
   - the cwd is outside the project, or inside `~/.claude`, the data root or the

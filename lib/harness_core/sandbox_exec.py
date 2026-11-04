@@ -162,21 +162,20 @@ def _net_reachable() -> bool:
     return False
 
 
-def _proxy_tunnels() -> bool:
-    """True when a proxy named in this environment opens a tunnel to the internet. Claude Code's sandbox
-    proxy must refuse it (empty allowedDomains, strictAllowlist). The child never gets these variables."""
+def _proxy_check():
+    """None when every proxy named in this environment refuses a CONNECT tunnel, else why not. Claude Code's
+    sandbox always sets them (its proxy enforces the empty allowedDomains), so none at all fails closed, as
+    does a proxy that cannot be tested. The child never gets these variables."""
     import base64
     from urllib.parse import unquote, urlsplit
 
-    urls = dict.fromkeys(os.environ.get(v) for v in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
-                                                     "ALL_PROXY", "all_proxy"))
+    urls = [u for u in dict.fromkeys(os.environ.get(v) for v in (
+        "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")) if u]
+    if not urls:
+        return "no sandbox proxy in the environment to test"
     for url in urls:  # each distinct proxy once (the sandbox logs every refused CONNECT)
-        if not url:
-            continue
         try:
             u = urlsplit(url if "://" in url else "http://" + url)
-            if not u.hostname or not u.port:
-                continue
             req = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n"
             if u.username:
                 cred = f"{unquote(u.username)}:{unquote(u.password or '')}".encode()
@@ -185,11 +184,11 @@ def _proxy_tunnels() -> bool:
                 c.settimeout(5)
                 c.sendall(req + b"\r\n")
                 status = c.recv(128).split(b"\r\n", 1)[0]
-        except (OSError, ValueError):
-            continue
+        except (OSError, ValueError, TypeError) as e:
+            return f"proxy {u.hostname if 'u' in dir() else url} could not be tested: {e}"
         if status.split()[1:2] == [b"200"]:
-            return True
-    return False
+            return f"proxy {u.hostname}:{u.port} opens a tunnel to the internet"
+    return None
 
 
 def _data_writable(dirs) -> list:
@@ -236,12 +235,12 @@ def outer_contained():
                 seen += 1
     if not seen:
         return f"no plugin keys found under {home}/.claude/plugins/data to check (run /dynamic-harness:setup)"
-    if _net_reachable() or _proxy_tunnels():
+    if _net_reachable():
         return "the network is reachable"
     bad = _data_writable(datas)
     if bad:
         return f"{bad[0]} is writable"
-    return None
+    return _proxy_check()
 
 
 def _verify_outer(deny_read, deny_write):
@@ -258,8 +257,18 @@ def _verify_outer(deny_read, deny_write):
         except OSError:
             continue
     for p in map(os.fspath, deny_write):
-        if os.path.islink(p) or not os.path.lexists(p):
-            continue  # a new path is caught by the guard after the run
+        if os.path.islink(p):
+            p = os.path.realpath(p)  # writing through the link changes the target: that must be denied
+        if not os.path.lexists(p):
+            if not os.path.isdir(os.path.dirname(p)):
+                continue  # parent missing too: left to the guard (creating parents to test is too invasive)
+            try:  # a missing protected name must be uncreatable, or a process that outlives the guard could add it
+                fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except OSError:
+                continue
+            os.close(fd)
+            os.unlink(p)
+            return f"{p} can be created"
         if os.path.isdir(p):
             if _data_writable([p]):
                 return f"{p} is writable"
@@ -381,7 +390,8 @@ def _killpg(pgid) -> None:
         pass
 
 
-def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), allow_write=(), env=None, watch=()):
+def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), allow_write=(), env=None, watch=(),
+        mode=None):
     """Returns ``(code, stdout_bytes, stderr_bytes)``; a timeout gives code 124."""
     b = backend()
     if b is None:
@@ -393,7 +403,10 @@ def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), al
         child_env = {"PATH": SAFE_PATH, "HOME": tmp, "TMPDIR": tmp,
                      "LANG": "en_US.UTF-8" if b == "sandbox-exec" else "C.UTF-8"}
         child_env.update(env or {})
-        mode = _native_ok(b)
+        seen = _native_ok(b)
+        if mode is not None and mode != seen:  # the caller planned for another mode (it chose its checks by it)
+            raise HarnessError(f"sandbox mode changed between the caller's check ({mode}) and now ({seen})")
+        mode = seen
         if mode == "broken":
             raise HarnessError(f"the {b} sandbox cannot start here: refusing to run unsandboxed")
         if mode == "nested":

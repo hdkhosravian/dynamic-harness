@@ -89,3 +89,22 @@
 The CLI auto-created `~/.claude/plugins/data/probe-plugin-inline/`, which is empty and is the `CLAUDE_PLUGIN_DATA` for the `--plugin-dir` plugin. It is safe to delete. No user settings, plugins or CLAUDE.md were modified.
 
 `logs/r5_long.console.txt` ends with `d: unbound variable`. That error came from editing `run_spike.sh` while the background r5 run was still executing it (bash reads scripts incrementally). It is not a probe result. The r5 session itself completed with exit 0, and the current script passes `bash -n`.
+
+## P5 setup spike (2026-11-04, Claude Code 2.1.296, macOS, `claude -p --model haiku`)
+
+Re-run with `spike/run_p5_spike.sh`. Each item is EMPIRICAL unless marked.
+
+| # | Item | Result | Design implication |
+|---|---|---|---|
+| 11 | UserPromptSubmit and a typed plugin command `/probe2:setup confirm 1234` | The hook's `prompt` is the raw typed line. JSON `{"decision":"block","reason":…}` gives 0 turns and $0. The result text is "UserPromptSubmit operation blocked by hook: <reason> … Original prompt: …". DOCS agree: the line comes before expansion, the reason is shown to the user and not added to context. | Setup can run entirely in the hook, without the model. |
+| 12a | Nested `sandbox-exec` inside Claude Code's sandbox | `sandbox-exec: sandbox_apply: Operation not permitted`, exit 71. A nested profile also fails under a plain restrictive outer `sandbox-exec`. | `harness-sandbox-exec` needs an outer mode. |
+| 12b | Claude Code's sandbox from inside | `denyRead` file gives EPERM; a direct TCP connect gives EPERM. Env has `SANDBOX_RUNTIME=1` (forgeable) and `HTTP(S)_PROXY` with credentials. | Check properties from the inside, not env markers. Drop the proxy variables from the child env. |
+| 12c | LaunchServices and Apple Events inside Claude Code's sandbox | `bootstrap_look_up(launchservicesd)` = 0 (allowed); pasteboard and appleevents = 1100 (denied); `open -a TextEdit` failed; `osascript -e 'return 1'` exit 0; `pbcopy` exit 1. | Claude Code's sandbox is close to the harness profile but not identical. The classifier still denies `open`/`osascript`. |
+| 13 | Bash tool environment | No `CLAUDE_PROJECT_DIR` and no `CLAUDE_PLUGIN_*`. | The launcher's outer path must not need them. |
+| 14 | Plugin loaded with `--plugin-dir` | An ordinary prompt reaches the model (1 turn). `/dynamic-harness:setup` and `status` give 0 turns and $0. The real `~/.claude/settings.json` is unchanged, byte for byte. | Pre-filtering other prompts works; the plan step writes nothing. |
+| 15 | The generated settings via `--settings` | No settings error; `ls <data root>` gives "Operation not permitted"; workspace writes work. | The keys setup writes are accepted and enforced. |
+| 16 | `harness-sandbox-exec` in outer mode, with no `CLAUDE_*` env | `42`, exit 0. The sandbox proxy refused the probe's CONNECT ("deny network-outbound example.com:443 (host is not on the allow list)"). `--cwd .git` refused, exit 2. | Outer mode works and keeps the workspace checks. |
+
+| 17 | Outer mode with the stricter checks: missing `CLAUDE.md`/`.mcp.json`/`.git/hooks` must be uncreatable, a proxy must exist and refuse | `42`, exit 0, with one refused CONNECT. A child writing `sub/CLAUDE.md` got `PermissionError: [Errno 1] Operation not permitted` from Claude Code's sandbox, and nothing was left behind. | setup's `**/CLAUDE.md` denyWrite holds; outer mode's preconditions are met in a set-up folder. |
+
+Not tested: Claude Code's sandbox on Linux, and an interactive (non `-p`) session.

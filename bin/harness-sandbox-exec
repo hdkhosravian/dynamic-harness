@@ -112,11 +112,15 @@ def _outer(sandbox_exec, cmd, cwd, deny_read, timeout):
         print(f"harness-sandbox-exec: --cwd {cwd!r} is inside a protected workspace path; refusing to run", file=sys.stderr)
         return 2
     deny_write = [os.path.join(project, n) for n in OUTER_DENY_WRITE]
+    # the cwd's own CLAUDE*.md: proving them uncreatable proves setup's **/CLAUDE*.md deny holds here
+    deny_write += [os.path.join(real_cwd, "CLAUDE.md"), os.path.join(real_cwd, "CLAUDE.local.md")]
     deny_write += glob.glob(os.path.join(project, "**", "CLAUDE*.md"), recursive=True)
+    home = sandbox_exec._real_home()
+    deny_read = list(deny_read) + sandbox_exec.secret_dirs(os.devnull, home)[2:]  # every plugin's keys/experience
     stdin = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read()
     try:
         code, out, err = sandbox_exec.run(cmd, real_cwd, stdin, timeout, deny_read=[_resolve(d) for d in deny_read],
-                                          deny_write=deny_write, watch=[project])
+                                          deny_write=deny_write, watch=[project], mode="nested")
     except HarnessError as e:
         print(f"harness-sandbox-exec: {e}", file=sys.stderr)
         return 2
@@ -145,7 +149,7 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     b = sandbox_exec.backend()
-    if b is not None and sandbox_exec._native_ok(b) == "nested":
+    if b is not None and sandbox_exec._native_ok(b) == "nested":  # run() refuses if this changes
         return _outer(sandbox_exec, cmd, cwd, deny_read, timeout)
     data = os.environ.get("CLAUDE_PLUGIN_DATA")
     if not data:

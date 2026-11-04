@@ -556,6 +556,7 @@ def test_launcher_outer_mode_needs_no_claude_env(box, monkeypatch, capfdbinary):
     mod = _launcher()
     monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
     monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    monkeypatch.setattr(sandbox_exec, "_verify_outer", lambda dr, dw: None)  # stands in for the outer sandbox
     for k in ("CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(mod.sys, "stdin", None)
@@ -638,10 +639,51 @@ def _fake_proxy(status):
     return f"http://u:p@127.0.0.1:{srv.getsockname()[1]}"
 
 
-@pytest.mark.parametrize("status, open_", [("200 Connection established", True), ("403 Forbidden", False)])
-def test_proxy_that_tunnels_counts_as_network(monkeypatch, status, open_):
+@pytest.mark.parametrize("status, ok", [("200 Connection established", False), ("403 Forbidden", True)])
+def test_proxy_that_tunnels_counts_as_network(monkeypatch, status, ok):
+    for v in ("HTTP_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(v, raising=False)
     monkeypatch.setenv("HTTPS_PROXY", _fake_proxy(status))
-    assert sandbox_exec._proxy_tunnels() is open_
+    assert (sandbox_exec._proxy_check() is None) is ok
+
+
+def test_no_proxy_to_test_fails_closed(monkeypatch):
+    # inside Claude Code's sandbox the proxy variables are always set; stripping them is not a pass
+    for v in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(v, raising=False)
+    assert "no sandbox proxy" in sandbox_exec._proxy_check()
+
+
+def test_an_untestable_proxy_fails_closed(monkeypatch):
+    for v in ("HTTP_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")  # nothing listens
+    assert "could not be tested" in sandbox_exec._proxy_check()
+
+
+def test_outer_mode_refuses_a_creatable_missing_protected_path(box, monkeypatch):
+    cwd, _ = box  # CLAUDE.md does not exist and can be created here: the outer sandbox does not deny it
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    with pytest.raises(HarnessError, match="can be created"):
+        py("print(1)", cwd, deny_write=[cwd / "CLAUDE.md"])
+    assert not (cwd / "CLAUDE.md").exists()  # the probe left nothing behind
+
+
+def test_outer_mode_checks_the_target_of_a_symlinked_protected_name(box, tmp_path, monkeypatch):
+    cwd, _ = box
+    (tmp_path / "notes.md").write_text("x")
+    (cwd / "CLAUDE.md").symlink_to(tmp_path / "notes.md")
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "nested")
+    monkeypatch.setattr(sandbox_exec, "outer_contained", lambda: None)
+    with pytest.raises(HarnessError, match="writable"):
+        py("print(1)", cwd, deny_write=[cwd / "CLAUDE.md"])
+
+
+def test_run_refuses_when_the_callers_mode_differs(box, monkeypatch):
+    monkeypatch.setattr(sandbox_exec, "_native_ok", lambda b: "ok")
+    with pytest.raises(HarnessError, match="mode"):
+        sandbox_exec.run(["/usr/bin/true"], box[0], mode="nested")
 
 
 def test_launcher_outer_mode_keeps_the_workspace_checks(box, monkeypatch, capfdbinary):

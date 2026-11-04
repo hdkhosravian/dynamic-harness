@@ -1210,6 +1210,9 @@ owner's currency and shown before a long task begins.
 - where managed settings are used, the harness hooks are installed there before `allowManagedHooksOnly` is set.
 
 The harness refuses to start a task above T0 if setup has not been done.
+As built (P5), setup writes the user file only for `strictAllowlist` and
+puts everything else in the workspace's `.claude/settings.local.json`; see
+§Build decisions (P5 setup).
 
 --------------------------------------------------------------------------------
 
@@ -2050,7 +2053,7 @@ mode it logs what it would have done without blocking anything.
 
 | Command | Arguments | Writes | Confirmation |
 | --- | --- | --- | --- |
-| `/dynamic-harness:setup` | — | `~/.claude/settings.json`: `permissions.deny`; `sandbox.enabled`, `sandbox.allowUnsandboxedCommands: false`, `sandbox.excludedCommands: []`, `sandbox.network.allowedDomains: []`, `sandbox.network.strictAllowlist: true`, `sandbox.failIfUnavailable: true`; `sandbox.filesystem.denyWrite` for protected paths; `sandbox.filesystem.denyRead` for `keys/` and `experience/` (plus `permissions.deny` Read/Grep/Glob rules for both); `disableBypassPermissionsMode`; `cleanupPeriodDays`. Records `loop_contract_root` and the release hashes in `config_log.jsonl`. Where managed settings are used, it installs the harness hooks there before setting `allowManagedHooksOnly`. It checks `openpyxl` and `formulas` | A plain summary of each change |
+| `/dynamic-harness:setup` | — / `confirm <code>` / `undo` / `status` | As built (§Build decisions (P5 setup)): `~/.claude/settings.json` gets only `sandbox.network.strictAllowlist: true`. The workspace's `.claude/settings.local.json` gets `sandbox.enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false`, `excludedCommands: []`, `network.allowedDomains: []`, `network.allowUnixSockets: []`, `filesystem.denyRead` and `denyWrite`, the `permissions.deny` Read/Edit rules and `disableBypassPermissionsMode`. Creates `keys/hmac.key`; records `loop_contract_root` and the release hashes in `config_log.jsonl` | The hook shows the plan grouped by file in plain words, with a one-time code; nothing changes until `confirm <code>` |
 | `/dynamic-harness:business` | `set <object> <field>` / `show` | Through `harness-business set` | A rendered sentence |
 | `/dynamic-harness:config` | `<file> <key> <value>` | Control layer and config log | Operator only |
 | `/dynamic-harness:memory` | `show` / `edit` / `forget` | Through the memory writer | Per item |
@@ -2182,7 +2185,7 @@ profiles:
   - Red team round 2: 181 of 188 held-out cases held before fixes, and 188 of 188 after, with 0 of 44 false denies.
   - The round-2 cases are now regression tests, so they no longer measure unseen attacks. Every release needs a fresh held-out red-team round.
 - **Known gaps carried to P3.**
-  - Setup (P5) does not yet install the Claude Code sandbox and the deny rules that the spec calls the hard backstop. Until it does, the Bash classifier is the only line of defence.
+  - Setup (P5) now installs the Claude Code sandbox and the deny rules (§Build decisions (P5 setup)). Until the owner runs it, a session is refused above T0.
   - If the PostToolUse hook times out after a Write or Edit, the write is not recorded. The file still counts as written through `untrusted_files` (its ctime is after session start). Bash writes no longer depend on PostToolUse.
   - `written.session_sets` walks the whole workspace on every PreToolUse call (for `untrusted_files` and the strict fallback), and walks every recorded directory. After `tar -x`, `unzip` or `cp -r` into the workspace root, the whole workspace counts as written for the rest of the session. Both are slow for large workspaces, and a walk past the 4 s watchdog denies the call.
   - On macOS, a gate or sandbox child that calls `setsid()` leaves the process group and escapes the group kill. Linux is not affected (pid namespace).
@@ -2190,10 +2193,62 @@ profiles:
   - `source venv/bin/activate` (and any `source`/`.`) is now denied, because the cwd cannot be tracked through it.
   - `safeio._under` refuses roots reached through a symlinked parent (for example `/var` → `/private/var`). Callers must pass realpath'd roots.
   - Only `harness-hook` and `harness-sandbox-exec` exist under `bin/`. Every other `harness-*` CLI fails the trust rule, so it is denied live.
-  - It is unverified whether `CLAUDE_PROJECT_DIR` is set in the Bash tool's environment. `harness-sandbox-exec` refuses to run without it.
+  - Verified live: the Bash tool's environment has no `CLAUDE_PROJECT_DIR` or `CLAUDE_PLUGIN_*`. Inside Claude Code's sandbox, `harness-sandbox-exec` therefore needs none of them (outer mode, §Build decisions (P5 setup)). Without that sandbox, it still refuses to run without them.
   - Nothing writes the claims, fetch-log or search-log files yet.
   - `protected._norm` homoglyph folding is reserved for the maintainer.
   - The opt-in `HARNESS_DEBUG_LOG` records hook metadata, with tool inputs and responses redacted to type and length. It is for development only.
+
+### Build decisions (P5 setup, as built in `dynamic-harness` @ `feat/p1-p2`)
+
+- **Plugin name.** The plugin is `dynamic-harness`, so commands are `/dynamic-harness:<cmd>` and agent types `dynamic-harness:<agent>`. An unrelated public plugin named `harness` (an agent-team designer) is common, and plugin names namespace commands and agent types. The `harness-*` CLI names are unchanged.
+- **Where setup runs.** Setup runs entirely in the UserPromptSubmit hook, outside the Claude Code sandbox, and the model never takes part. Verified on 2.1.296 and in the docs:
+  - the hook gets the typed line before the command expands;
+  - a JSON `block` decision stops the prompt, shows the reason to the user, and adds nothing to context (0 turns, $0).
+
+  `commands/setup.md` sets `disable-model-invocation: true`. Its body only matters if the hook did not run, and it tells the model to change nothing. Every other prompt passes through before any state is read.
+- **Two-step consent.** `/dynamic-harness:setup` shows the plan, grouped by file, in plain words with the exact keys and entries, plus a one-time 6-digit code. `confirm <code>` applies exactly that plan only if all of these hold:
+  - the code matches;
+  - it is under 10 minutes old;
+  - it comes from the same session;
+  - no settings file changed since the plan.
+
+  The code works once. `undo` restores the files from before the last setup, with the same two steps. `status` runs `verify`.
+- **Scopes.** These follow the documented merge rules:
+  - `sandbox.network.strictAllowlist` is honoured only from user, managed or `--settings` scope, so it is the one key written to `~/.claude/settings.json`. It acts only where the sandbox is on.
+  - Everything else goes into the workspace's `.claude/settings.local.json`, so other projects keep their settings. Local beats project and user for single values; permission rules and sandbox path lists merge across scopes; `disableBypassPermissionsMode` takes the strictest value.
+  - Lists that merge and must be empty (`excludedCommands`, `network.allowedDomains`, `network.allowUnixSockets`) are emptied in whichever file sets them.
+  - Sandbox-weakening switches (`enableWeakerNestedSandbox`, `allowNestedUserNamespaces`, `network.allowAllUnixSockets`, `filesystem.disabled`) are turned off wherever they are on.
+- **What it writes.**
+  - Sandbox: on, with `failIfUnavailable` and no unsandboxed escape hatch.
+  - `denyRead`: the whole data root, and every plugin's `keys/` and `experience/` (glob).
+  - `denyWrite`: `~/.claude`, `~/.claude.json`, the data, plugin and loop-contract roots, and `CLAUDE.md`/`CLAUDE.local.md` at any depth. Claude Code already protects `.claude` settings/skills/agents/commands/hooks, `.mcp.json` and `.git` hooks/config.
+  - Permissions: `Read(//…/keys/**)`, `Read(//…/experience/**)` and `Edit(//…/**)` rules for those roots, plus `disableBypassPermissionsMode: "disable"`.
+  - Harness files: `keys/hmac.key` (32 random bytes, 0600 in a 0700 directory, never rotated by a re-run), and a `config_log.jsonl` row with the release hashes and the loop-contract root. loop-contract is found through `config_log`, `LOOP_CONTRACT_ROOT` or `installed_plugins.json`, and must be ≥ 1.1.0.
+  - Verified live: Claude Code loads the generated settings without a settings error, and they deny the data root.
+- **Care.**
+  - Setup never overwrites invalid JSON.
+  - It never writes through a symlinked workspace `.claude/` or `settings*.json`, because a cloned repo controls those. It follows the user's own symlinked dotfile and names the real target.
+  - It keeps file modes and backs up every file it changes.
+  - It refuses the home directory, or one of its parents, as the workspace.
+  - A release hash that changed since the last setup is named as a warning in the plan. It is never re-baselined quietly, since that would hide what SessionStart reports as `STOPPED_TAMPER`.
+- **Not done, by decision.**
+  - `cleanupPeriodDays` is not changed. The spec gives no value, and the key applies to every project, so the Claude Code default (30 days) stands.
+  - The `openpyxl`/`formulas` check belongs to the business packs, which are not built yet.
+  - Managed deployments need an administrator: install the plugin in managed `enabledPlugins` before `allowManagedHooksOnly` (spike S9).
+- **SessionStart.** It runs `setup.verify` over the effective settings: managed > local > project > user, with Claude Code's strictest-wins and user-only rules. It refuses above T0, quoting what is missing, until setup has run.
+- **`harness-sandbox-exec` inside Claude Code's sandbox (outer mode).**
+  - Verified live: the native sandbox cannot nest there (`sandbox_apply: Operation not permitted`, exit 71), and the Bash tool's environment has no `CLAUDE_*` variables.
+  - The mode is decided once per run: `ok`, `nested` (only that exact error on macOS) or `broken`. `broken` fails closed.
+  - When nested, `run()` verifies from the inside, then runs the command in the surrounding sandbox. It adds a clean env (no proxy credentials), the timeout, the process-group kill, and the quarantine guard over the whole project. It refuses unless all of these hold:
+    - every plugin's `keys/` is unreadable (home from `pwd`, not `$HOME`), including `hmac.key` opened by name, and `experience/` too;
+    - there is no direct network, and no proxy from the environment opens a CONNECT tunnel;
+    - every plugin data root is unwritable;
+    - every `deny_read` path is unreadable, and every existing `deny_write` path is unwritable.
+
+    These checks prove properties, not identity. Faking them without a sandbox needs writes to the data root, which the classifier denies.
+  - The launcher's outer path finds the project from `CLAUDE_PROJECT_DIR` or the nearest `.git`/`.claude` ancestor. It keeps the protected-cwd refusal and passes Claude Code's protected names and every `CLAUDE*.md` as `deny_write`.
+  - Verified live: the command printed 42 with exit 0; the sandbox proxy refused the probe's CONNECT; `--cwd .git` was refused.
+  - Not verified: Claude Code's Linux sandbox. There the probe has to prove containment, and a failed bwrap counts as nested.
 
 ### Verification Plan
 
