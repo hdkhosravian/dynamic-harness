@@ -245,3 +245,18 @@ def test_subagent_stop_never_blocks(h):
     compiled(h)
     assert hookmain.main("SubagentStop", {"session_id": SID, "agent_type": "dynamic-harness:verifier",
                                           "agent_id": "v1", "last_assistant_message": "yes"}, h["env"]) == (0, None)
+
+
+def test_skills_and_todos_run_before_setup_but_writes_do_not(tmp_path):
+    # live finding: before setup the model could not even load the task-card skill
+    env = {"CLAUDE_PLUGIN_DATA": str(tmp_path / "d"), "CLAUDE_PLUGIN_ROOT": str(ROOT), "HOME": str(tmp_path / "h"),
+           "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    (tmp_path / "d").mkdir()
+
+    def call(tool, **inp):
+        return hookmain.main("PreToolUse", {"session_id": "x", "tool_name": tool, "tool_input": inp,
+                                            "cwd": str(tmp_path)}, env)[0]
+    assert call("Skill", skill="dynamic-harness:task-card") == 0
+    assert call("TodoWrite", todos=[]) == 0
+    assert call("Agent", subagent_type="dynamic-harness:data-analyst", prompt="x") == 2
+    assert call("Write", file_path=str(tmp_path / "a.txt"), content="x") == 2
