@@ -243,3 +243,12 @@ def period(spec, profile=None) -> dict:
     return {"start": start, "end": end, "label": label,
             "label_gregorian": f"{start.isoformat()} to {end.isoformat()}",
             "label_jalali": f"{jalali_str(start)} to {jalali_str(end)}"}
+
+
+def label_fa(label: str) -> str:
+    """A period label for Persian text: Jalali month names in Persian, "to" as «تا», "fiscal year" as «سال مالی»."""
+    out = str(label or "")
+    for en, fa in zip(JALALI_MONTHS, JALALI_MONTHS_FA):
+        out = re.sub(rf"\b{en}\b", fa, out)
+    out = out.replace(" to ", " تا ").replace("fiscal year", "سال مالی")
+    return out.translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))

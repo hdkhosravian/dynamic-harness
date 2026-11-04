@@ -42,7 +42,7 @@ def test_over_the_call_cap_the_task_stops_with_a_cost_contact(h, capsys):
     set_cap(h, job, 2)
     res = [post(h, "Read", file_path=str(h["ws"] / "orders.csv")) for _ in range(3)]
     assert [blocked(r) for r in res] == [False, False, True]
-    assert "Stopped, not done" in res[-1][1]["reason"] and res[-1][1]["systemMessage"] == res[-1][1]["reason"]
+    assert "stopped at your limit" in res[-1][1]["reason"] and res[-1][1]["systemMessage"] == res[-1][1]["reason"]
     p, log = log_of(h, job)
     assert [e for e in log.events() if e["type"] == "STOPPED"][-1]["payload"]["state"] == "STOPPED_BUDGET"
     assert sessionstate.jobs(ctx_of(h))[job]["state"] == "STOPPED_BUDGET"

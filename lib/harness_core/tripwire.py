@@ -56,4 +56,4 @@ def on_post(evt, ctx, st) -> dict:
         p = job_paths(ctx.data_root, ctx.workspace, open_job)
         EventLog(p.run, p.heads).append("PAUSED", {"reason": "handoff", "by": "tripwire"})
         sessionstate.set_job(ctx, open_job, state="PAUSED")
-    return {"decision": "block", "reason": f"{_template('tripwire')} (tripwire: {why}; floor {floor})"}
+    return {"decision": "block", "reason": f"{_template('model.tripwire')} (tripwire: {why}; floor {floor})"}

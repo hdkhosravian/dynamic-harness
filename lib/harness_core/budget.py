@@ -45,9 +45,9 @@ def latest_stop(log):
     return state
 
 
-def _template(key, **kw):
-    t = json.loads((Path(__file__).resolve().parents[2] / "templates" / "en.json").read_text("utf-8")).get(key, key)
-    return t.format(**kw)
+def _template(key, ctx=None, **kw):
+    from . import templates
+    return templates.render(key, ctx, **kw)
 
 
 def _verdicts(log) -> int:
@@ -147,15 +147,18 @@ def stop(ctx, job, state, reason, sid=None, calls=None, amount=None):
     total = len(Ledger(p, log).sanctioned_scope())
     done = total - len(remaining(ctx, job))
     if state in ("STOPPED_BUDGET", "STOPPED_COST"):
-        more = f"{amount:.2f} {sessionstate_business(ctx).get('caps', {}).get('currency', '')}".strip() if amount \
-            else f"{calls} more tool calls"
+        from . import templates
+        lang = templates.language(ctx)
+        cur = sessionstate_business(ctx).get("caps", {}).get("currency", "")
+        more = (templates.render("more.money", ctx, lang, amount=round(amount, 2), currency=templates.currency(cur, lang))
+                if amount else templates.render("more.calls", ctx, lang, n=calls))
         from .turns import Turns
         seq = (Turns(ctx.data_root).latest() or {}).get("seq", 0)  # only a later reply can accept it
         row = contacts.record(ctx, "cost", "", recheck=False, extra={"calls": calls, "amount": amount, "turn_seq": seq})
         if sid:
             sessionstate.update(ctx, sid, pending_contact_id=row["contact_id"])
-        return _template("stopped_budget", done=done, total=total, more=more)
-    return _template("stopped_stall", what=job, why=reason)
+        return _template("stopped_budget", ctx, done=done, total=total, more=more)
+    return _template("stopped_stall", ctx)  # the reason stays in the record: it names internal steps
 
 
 def charge(evt, ctx) -> dict:

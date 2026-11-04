@@ -56,7 +56,7 @@ def on_pre(evt, ctx) -> dict:
               or (lone is not None and lone[0] in ("card", "compile"))
               or _card_draft(tool, ti, ctx))
         if not ok:
-            return _deny(f"harness: {_template('pending_card')} ({ctx.pending_card.get('reason', 'card needed')})")
+            return _deny(f"harness: {_template('model.pending_card')} ({ctx.pending_card.get('reason', 'card needed')})")
     if tool == "Skill" and (getattr(ctx, "pending_card", None) or contacts.tier(ctx) in ("T1", "T2")):
         from .session import approved_skill
         if not approved_skill(ctx, ti.get("skill")):

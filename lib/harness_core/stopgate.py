@@ -143,7 +143,8 @@ def _job(evt, ctx, sid, st, msg, job) -> dict:
     if v["ok"]:
         from .answer import status_line
         # only harness-rendered status lines; never model-influenced text such as opening.txt
-        hits = lexicon_hits(ctx, msg, allowed=[v["state"], status_line(p, log)])
+        from . import templates
+        hits = lexicon_hits(ctx, msg, allowed=[v["state"], templates.state_line(v["state"], ctx), status_line(p, log)])
         if hits:
             return _block(ctx, sid, st, "lexicon", f"the final message uses state words {hits} outside the state line", job)
         rec = json.loads(safe_open(p.run / "receipt.json", [p.run]))
@@ -155,7 +156,8 @@ def _job(evt, ctx, sid, st, msg, job) -> dict:
         sessionstate.set_job(ctx, job, state="DONE", result=v["state"])
         record.write(ctx, job, "DONE")
         sessionstate.update(ctx, sid, stop_blocks=None)
-        return {"systemMessage": v["state"]}
+        from . import templates
+        return {"systemMessage": templates.state_line(v["state"], ctx)}
     if _ASKS.search(msg or ""):
         why = contacts.check("question", ctx)
         if why:

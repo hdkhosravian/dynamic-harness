@@ -39,9 +39,8 @@ __all__ = ["apply", "CardError"]
 
 
 def _template(key, ctx, **kw) -> str:
-    root = Path(__file__).resolve().parents[2] / "templates" / "en.json"
-    t = json.loads(root.read_text("utf-8")).get(key, key)
-    return t.format(**kw) if kw else t
+    from . import templates
+    return templates.render(key, ctx, **kw)
 
 
 def _job_id(c) -> str:
@@ -73,9 +72,11 @@ def _opening(ctx, c, tier, job) -> str:
     from . import business, estimate
     est = estimate.estimate(ctx, tier) if tier in ("T1", "T2") else None
     if est:
+        from . import templates
         cur = business.profile(ctx).get("currency")
-        money = (f" and roughly {est['money'][0]:,}–{est['money'][1]:,} {business.CURRENCIES.get(cur, cur)}"
-                 if est["money"] and cur else "")
+        lang = templates.language(ctx)
+        money = (templates.render("opening.estimate_money", ctx, lang, lo=est["money"][0], hi=est["money"][1],
+                                  currency=templates.currency(cur, lang)) if est["money"] and cur else "")
         line += " " + _template("opening.estimate", ctx, lo=est["minutes"][0], hi=est["minutes"][1], money=money)
     prefs = memory.effective(ctx, job)
     if prefs:

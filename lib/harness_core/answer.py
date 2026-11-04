@@ -85,10 +85,13 @@ def apply(req, ctx, evt) -> dict:
                      f"version {entry.get('version')}: re-run the check")
     prof = business.profile(ctx)
     lang = templates.language(ctx)
-    unit_name = business.CURRENCIES.get(v.get("unit"), v.get("unit") or "")
+    unit_name = templates.currency(v.get("unit"), lang)
     calendar = prof.get("calendar") or ("jalali" if v.get("unit") in ("IRT", "IRR") else "gregorian")
     period = v.get("period") or ""
     other = v.get("period_gregorian") if calendar == "jalali" else v.get("period_jalali")
+    if lang == "fa":
+        from .localize import label_fa
+        period, other = label_fa(period), label_fa(other or "")
     excl = [entry.get("exclusions")] if entry.get("exclusions") else []
     if v.get("transfers_excluded"):
         excl.append(templates.render("header.transfers", ctx, lang, n=v["transfers_excluded"]))

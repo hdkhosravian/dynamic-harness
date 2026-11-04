@@ -53,17 +53,24 @@ def is_approval(text) -> bool:
     return APPROVAL.fullmatch(t) is not None
 
 
-def _plan_text(plan) -> str:
+def _plan_text(plan, ctx=None) -> str:
     """What the owner sees for a plan: rendered from plan.json itself, so the approval covers the grant."""
+    from . import templates
+    lang = templates.language(ctx)
+
+    def r(key, **kw):
+        return templates.render(key, ctx, lang, **kw)
     # free-text fields are quoted, so a hypothesis cannot pose as another line of the plan
-    return "\n".join([f"Research plan {plan['plan_sha'][:12]}",
-                      f"- Hypotheses: {json.dumps(plan['hypotheses'], ensure_ascii=False)}",
-                      f"- Searches: {json.dumps(plan['queries'], ensure_ascii=False)}",
-                      f"- Pages: {json.dumps(plan['urls'], ensure_ascii=False)}",
-                      f"- Sources (domains): {', '.join(plan['domains'])}",
-                      f"- Up to {plan['page_budget']} pages",
-                      f"- Stop when: {json.dumps(plan['stop_rule'], ensure_ascii=False)}",
-                      "Reply yes to approve this plan, or say what to change."])
+    q = (lambda xs: json.dumps(xs, ensure_ascii=False))
+    return "\n".join([r("plan.head", sha=plan["plan_sha"][:12]),
+                      "- " + r("plan.hypotheses", items=q(plan["hypotheses"])),
+                      "- " + r("plan.searches", items=q(plan["queries"])),
+                      "- " + r("plan.pages", items=q(plan["urls"])),
+                      "- " + r("plan.domains", items=", ".join(plan["domains"])),
+                      "- " + r("plan.budget", n=plan["page_budget"]),
+                      "- " + r("plan.stop", rule=q(plan["stop_rule"])),
+                      "- " + r("plan.private"),
+                      r("plan.ask")])
 
 
 def _domains(urls) -> list:
@@ -104,7 +111,7 @@ def apply(req, ctx, evt) -> dict:
         stored = dict(plan, schema="harness/research_plan@1", plan_sha=plan_sha)
         store.write_json(p.run, log, "plan.json", stored, "PLAN", {"plan_sha": plan_sha})
         extra["plan_sha"] = plan_sha
-        text = _plan_text(stored)  # the model's own wording is not what the owner approves
+        text = _plan_text(stored, ctx)  # the model's own wording is not what the owner approves
     if kind == "assumption_sheet":
         from . import model_cmd
         rows = model_cmd._rows(p, log)

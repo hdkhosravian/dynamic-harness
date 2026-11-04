@@ -1,0 +1,14 @@
+#!/usr/bin/python3 -I
+"""harness-lint-user-text: lint the harness's own user-facing templates (internal terms, missing keys,
+placeholders, Persian orthography). Exit 1 when anything is found. Reads only."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from harness_core import lint_text  # noqa: E402
+
+problems = lint_text.lint()
+for p in problems:
+    print(p)
+print(f"{len(problems)} problem(s)", file=sys.stderr)
+sys.exit(1 if problems else 0)
