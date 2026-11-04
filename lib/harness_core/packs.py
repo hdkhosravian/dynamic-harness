@@ -7,7 +7,8 @@ A pack is a skill directory ``skills/<pack>/`` with a ``SKILL.md`` (approved lik
      "checks": {"finance.reconcile": {"entry": "checks/reconcile.py", "sha256": "<hex>",
                                       "task_types": ["data_question"], "run_files": [], "timeout": 120}}}
 
-- A check id is ``<pack>.<name>`` and belongs to the pack that registers it.
+- A check id is ``<family>.<name>`` (``finance.reconcile``, ``doc.check``) and belongs to the one pack that
+  registers it; two packs registering one id is an error.
 - ``entry(check_id)`` returns the entry file only when it is a regular file inside the pack (no symlink on the
   way) whose sha256 equals the manifest's. The plugin tree hash (SessionStart) covers the same files; this
   re-check closes the window between the session check and the run.
@@ -72,8 +73,11 @@ def manifests(ctx) -> dict:
         if m["pack"] != d.name:
             raise HarnessError(f"{f}: pack {m['pack']!r} lives in directory {d.name!r}")
         for cid in m["checks"]:
-            if not _ID.fullmatch(cid) or cid.split(".", 1)[0] != m["pack"]:
-                raise HarnessError(f"{f}: check id {cid!r} must be {m['pack']}.<name>")
+            if not _ID.fullmatch(cid):
+                raise HarnessError(f"{f}: check id {cid!r} must be <family>.<name>")
+            owner = next((q for q, o in out.items() if cid in o["checks"]), None)
+            if owner:
+                raise HarnessError(f"{f}: check id {cid!r} is already registered by pack {owner!r}")
         out[m["pack"]] = m
     return out
 
@@ -82,8 +86,8 @@ def spec(ctx, check_id) -> dict:
     """The manifest entry of a registered check, plus its pack directory; Denied when not registered."""
     if not isinstance(check_id, str) or not _ID.fullmatch(check_id):
         raise Denied(f"{check_id!r} is not a check id (<pack>.<name>)")
-    m = manifests(ctx).get(check_id.split(".", 1)[0])
-    if not m or check_id not in m["checks"]:
+    m = next((x for x in manifests(ctx).values() if check_id in x["checks"]), None)
+    if m is None:
         raise Denied(f"check {check_id!r} is not registered in a pack manifest")
     return dict(m["checks"][check_id], pack=m["pack"], pack_version=m["version"], dir=str(_root(ctx) / m["pack"]))
 

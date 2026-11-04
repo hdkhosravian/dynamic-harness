@@ -1,0 +1,29 @@
+{
+  "schema": "harness/pack@1",
+  "pack": "operations",
+  "version": "1.0.0",
+  "description": "Documents (task type 3) and decision support (task type 7). v1 prepares work only: nothing is sent or signed.",
+  "checks": {
+    "doc.check": {
+      "entry": "checks/doc_check.py",
+      "sha256": "64449571f99008b8b0eb820f929c5d4e84a4fc59951bc8f1eedbee71d17f28cb",
+      "task_types": [
+        "document",
+        "one_off_operation",
+        "bulk_operation",
+        "planning"
+      ],
+      "timeout": 60,
+      "description": "Required items present, no placeholders, the business footer, nobody on the do-not-contact list."
+    },
+    "decide.score_flip": {
+      "entry": "checks/score_flip.py",
+      "sha256": "576a3cee200750fef7b77f48f42691721fa0b341f63e62db77ad633a729ce18b",
+      "task_types": [
+        "decision_support"
+      ],
+      "timeout": 60,
+      "description": "Weighted scores recomputed by code, constraints, and the flip test (each weight +-20%)."
+    }
+  }
+}

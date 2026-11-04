@@ -12,6 +12,11 @@
       "approver": "release 0.4.0"
     },
     {
+      "path": "skills/operations/SKILL.md",
+      "sha256": "4b6a727352a18c13697d168a41bc024ec60d914714af22bc4beff366c34587e4",
+      "approver": "release 0.4.0"
+    },
+    {
       "path": "skills/research/SKILL.md",
       "sha256": "e8eef194cfc5cb121dbcfabe13c262aaa456af8610efba25c6045b00489402fe",
       "approver": "release 0.4.0"
