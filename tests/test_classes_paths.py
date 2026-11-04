@@ -532,7 +532,7 @@ def test_find_f_primary_words_also_get_their_bsd_start_path_checked(ctx, word):
     assert B(ctx, f"find {word} -- -name k").cls == "protected_path"
 
 
-@pytest.mark.parametrize("p", ["/dev/fd/63", "/proc/self/fd/63", "/proc/4242/fd/63", "/proc/thread-self/fd/3"])
+@pytest.mark.parametrize("p", ["/dev/fd/63", "/proc/self/fd/63", "/proc/thread-self/fd/3"])
 def test_fd_paths_on_linux_and_macos_are_process_substitutions(p):
     # Linux realpath turns /dev/fd/63 into /proc/<pid>/fd/63
     assert classes._is_fd(p)
@@ -540,3 +540,22 @@ def test_fd_paths_on_linux_and_macos_are_process_substitutions(p):
 
 def test_regular_proc_paths_are_not_fd_paths():
     assert not classes._is_fd("/proc/cpuinfo") and not classes._is_fd("/home/u/fd/1")
+
+
+@pytest.mark.parametrize("p", ["/dev/fd/3/x", "/proc/1/fd/3", "/proc/self/fd/3/../../root", "/proc/self/root/etc"])
+def test_only_bare_own_fd_entries_are_fd_paths(p):
+    # another process's fd (/proc/1/fd/3) can be the hmac key it has open
+    assert not classes._is_fd(p)
+
+
+def test_hook_own_pid_fd_is_an_fd_path():
+    assert classes._is_fd(f"/proc/{os.getpid()}/fd/63")
+
+
+@pytest.mark.parametrize("cmd", [
+    "grep -r -m 1 x {data}",  # -m value then a path; any word may be a path
+    "grep -r --context 2 x {data}",
+    "rg -j 2 x {data}",
+])
+def test_every_word_of_a_recursive_grep_is_checked(ctx, cmd):
+    assert B(ctx, cmd).cls == "protected_path"

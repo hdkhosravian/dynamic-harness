@@ -354,7 +354,8 @@ def _split_opts(args, opt_args=()):
 
 def _is_fd(p) -> bool:
     """A process-substitution / fd path: ``/dev/fd/N`` on macOS, ``/proc/<pid>/fd/N`` once Linux realpaths it."""
-    return p.startswith("/dev/fd/") or re.match(r"/proc/(self|thread-self|\d+)/fd/", p) is not None
+    # a bare entry only, and only this process's (another pid's fd can be a secret it holds open)
+    return re.fullmatch(rf"/dev/fd/\d+|/proc/(self|thread-self|{os.getpid()})/fd/\d+", p) is not None
 
 
 def _grep_recursive(args):
@@ -912,10 +913,10 @@ class _Bash:
 
     def grep_tree(self, name, rest):
         """R3: a recursive grep reads its whole tree. No option narrows it (``--exclude-dir`` parsing
-        kept losing to getopt differentials). A lone positional may be the pattern (cwd searched) or a
-        path (with ``-e``), so both are checked."""
-        pos = _split_opts(rest, GREP_OPT_ARGS)[1]
-        self.recursive_read(pos if len(pos) > 1 else pos + ["."])
+        kept losing to getopt differentials). Every word and the cwd are checked as search roots."""
+        # every word may be a path (option arity differs between grep, ugrep, rg, ag, ack): check them all
+        words = [a.split("=", 1)[1] if a.startswith("--") and "=" in a else a for a in rest]
+        self.recursive_read([w for w in words if w and not w.startswith("-")] + ["."])
 
     def dispatch(self, name, args, stdin_code, stdin_file, dynamic):
         """Classify a known command; return False when ``name`` is unknown."""

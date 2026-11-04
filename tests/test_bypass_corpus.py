@@ -1,7 +1,7 @@
 """Bypass corpus (spec §Evaluation stage 1): guard recall 100% on expected-deny rows,
 0 false denies on expected-allow rows and no class mismatches. Each row runs through ``safety.on_pre``.
 
-Row: {id, tool, input, expected: allow|deny, class, note, ctx?}. ``${WS}``, ``${DATA}``,
+Row: {id, tool, input, expected: allow|deny, class, note, ctx?}. ``${WS}``, ``${DATA}``, ``${TMP}``,
 ``${ROOT}`` and ``${HOME}`` in inputs expand to the fixture's paths. ``ctx`` may set
 agent_type, grant, written (paths), protected_terms, registry, temp_roots.
 """
@@ -51,7 +51,8 @@ def base(tmp_path):
     (data / "keys" / "hmac.key").write_text("k")
     for n in classes.HARNESS_CLIS:  # bare harness-<name> is trusted only when the plugin ships it
         (root / "bin" / f"harness-{n}").write_text("#!/bin/sh\n")
-    subs = {"${WS}": str(ws), "${DATA}": str(data), "${ROOT}": str(root), "${HOME}": str(home)}
+    (tmp_path / "tmp").mkdir()  # the temp root: on Linux tmp_path is under /tmp, which then holds the data root
+    subs = {"${WS}": str(ws), "${DATA}": str(data), "${ROOT}": str(root), "${HOME}": str(home), "${TMP}": str(tmp_path / "tmp")}
     return tmp_path, subs
 
 
