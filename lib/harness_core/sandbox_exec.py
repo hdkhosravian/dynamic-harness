@@ -20,8 +20,10 @@ Linux (bwrap): ``/`` read-only; fresh ``/dev`` and ``/proc``; ``/tmp``, ``/var/t
 replaced by empty read-only tmpfs (no X11, D-Bus, ssh-agent or docker sockets); every namespace
 unshared (no network; abstract sockets are per network namespace); ``cwd``, the temp dir and
 ``allow_write`` writable; ``deny_write`` and existing ``CLAUDE*.md``/``.mcp.json`` read-only;
-``deny_read`` directories replaced by an empty mode-000 tmpfs. bwrap cannot refuse the *creation*
-of a new ``CLAUDE*.md``/``.mcp.json``, so ``run`` removes any the child created and fails the call.
+``deny_read`` directories replaced by an empty mode-000 tmpfs. bwrap cannot refuse *creating* a path
+that did not exist (a new ``CLAUDE*.md``/``.mcp.json`` at any depth, or a missing ``deny_write`` path
+such as ``.claude/``), so ``run`` compares by inode afterwards, renames each such path aside
+(``<path>.harness-quarantine-<time>``, never deleted) and fails the call with code 126.
 The child is pid 2 of its own pid namespace, so ``setsid()`` cannot outlive it.
 
 Fails closed: if the backend is missing, ``run`` raises ``HarnessError``.
@@ -36,13 +38,14 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 from .errors import HarnessError
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 BWRAP = "/usr/bin/bwrap"
 TIMEOUT_CODE = 124
-INSTRUCTION_CODE = 126  # the child created a CLAUDE*.md / .mcp.json (Linux; removed after the run)
+INSTRUCTION_CODE = 126  # Linux: the child created a path bwrap could not refuse (quarantined after the run)
 _INSTRUCTION = re.compile(r"claude[^/]*\.md|\.mcp\.json", re.IGNORECASE)
 SAFE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -133,7 +136,8 @@ def bwrap_args(cwd, tmp, deny_read=(), deny_write=(), allow_write=()) -> list:
     for p in map(os.fspath, allow_write):
         if os.path.isdir(p) and not os.path.islink(p):
             a += ["--bind", p, p]
-    for p in _instruction_files([cwd, *map(os.fspath, allow_write)]):  # after allow_write: never re-allowed
+    for p in _instruction_files([cwd, *map(os.fspath, allow_write)], [x for x in map(os.fspath, deny_write) if os.path.isdir(x)]):
+        # after allow_write: never re-allowed
         a += ["--ro-bind", p, p]
     deny_read = [os.fspath(p) for p in deny_read]
     for p in deny_read:
@@ -148,12 +152,46 @@ def bwrap_args(cwd, tmp, deny_read=(), deny_write=(), allow_write=()) -> list:
     return a + ["--chdir", cwd, "--"]
 
 
-def _instruction_files(roots) -> set:
-    out = set()
+def _instruction_files(roots, skip=()) -> dict:
+    """``{path: (st_dev, st_ino)}`` of every CLAUDE*.md / .mcp.json under ``roots``; ``skip`` = read-only mounts."""
+    out, skip = {}, set(skip)
     for r in roots:
         for base, dirs, names in os.walk(r):
-            dirs[:] = [d for d in dirs if d != ".git"]
-            out.update(os.path.join(base, n) for n in names + dirs if _INSTRUCTION.fullmatch(n))
+            dirs[:] = [d for d in dirs if os.path.join(base, d) not in skip]
+            for n in names + dirs:
+                if _INSTRUCTION.fullmatch(n):
+                    try:
+                        st = os.lstat(os.path.join(base, n))
+                    except OSError:
+                        continue
+                    out[os.path.join(base, n)] = (st.st_dev, st.st_ino)
+    return out
+
+
+def _guard_before(cwd, deny_write, allow_write):
+    roots = [os.fspath(cwd), *map(os.fspath, allow_write)]
+    skip = [p for p in map(os.fspath, deny_write) if os.path.isdir(p) and not os.path.islink(p)]  # read-only mounts
+    missing = [p for p in map(os.fspath, deny_write) if not os.path.lexists(p)]
+    return roots, skip, missing, _instruction_files(roots, skip)
+
+
+def _guard_after(state) -> list:
+    """What bwrap could not refuse: new or replaced instruction files, and deny_write paths that appeared.
+    Each is renamed aside (never deleted: a moved original or user files inside a new directory survive)."""
+    roots, skip, missing, before = state
+    after, seen = _instruction_files(roots, skip), set(before.values())
+    bad = [p for p, ident in after.items() if before.get(p) != ident and ident not in seen]
+    bad += [p for p in missing if os.path.lexists(p)]
+    moved = sorted(p for p, ident in before.items() if after.get(p) != ident)
+    out, stamp = [], time.strftime("%Y%m%dT%H%M%S")
+    for p in sorted(set(bad), key=len, reverse=True):  # deepest first
+        q = f"{p}.harness-quarantine-{stamp}"
+        try:
+            os.rename(p, q)
+            out.append(f"{p} -> {q}")
+        except OSError as e:
+            out.append(f"{p} (could not quarantine: {e})")
+    out += [f"{p} (original moved or replaced)" for p in moved]
     return out
 
 
@@ -181,7 +219,7 @@ def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), al
             before = None
         else:
             cmd = bwrap_args(cwd, tmp, deny_read, deny_write, allow_write)
-            before = _instruction_files([os.fspath(cwd), *map(os.fspath, allow_write)])
+            before = _guard_before(cwd, deny_write, allow_write)
         p = subprocess.Popen(
             cmd + [os.fspath(a) for a in argv],
             cwd=os.fspath(cwd) if b == "sandbox-exec" else tmp,
@@ -198,14 +236,9 @@ def run(argv, cwd, stdin_bytes=None, timeout=60, deny_read=(), deny_write=(), al
         finally:
             _killpg(p.pid)  # background children of a finished command die with it
         if before is not None:
-            made = _instruction_files([os.fspath(cwd), *map(os.fspath, allow_write)]) - before
-            if made:  # bwrap cannot refuse creating them; the pid namespace is gone, so no race
-                for m in sorted(made, reverse=True):
-                    if os.path.isdir(m) and not os.path.islink(m):
-                        shutil.rmtree(m, ignore_errors=True)
-                    elif os.path.lexists(m):
-                        os.unlink(m)
-                note = "removed instruction files the command created: " + ", ".join(sorted(made))
+            broke = _guard_after(before)  # the pid namespace is gone, so nothing races this
+            if broke:
+                note = "quarantined what the sandbox could not refuse: " + "; ".join(broke)
                 return INSTRUCTION_CODE, out, err + b"\nharness-sandbox-exec: " + note.encode("utf-8", "surrogateescape")
         return code, out, err
     finally:

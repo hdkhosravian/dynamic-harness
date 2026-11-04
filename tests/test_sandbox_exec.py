@@ -396,4 +396,33 @@ def test_linux_new_instruction_file_is_removed_and_fails_the_call(box):
     cwd, _ = box
     code, _, err = py("open('CLAUDE.md', 'w').write('x')", cwd)
     assert code == sandbox_exec.INSTRUCTION_CODE and not (cwd / "CLAUDE.md").exists(), err
-    assert b"removed instruction files" in err
+    assert b"quarantined" in err and list(cwd.glob("CLAUDE.md.harness-quarantine-*"))
+
+
+@linux
+def test_linux_missing_deny_write_path_cannot_be_created(box):
+    cwd, _ = box  # no .claude yet: creating .claude/settings.json would configure the next session
+    code, _, err = py("import os; os.mkdir('.claude'); open('.claude/settings.json', 'w').write('{}')", cwd,
+                      deny_write=[cwd / ".claude"])
+    assert code == sandbox_exec.INSTRUCTION_CODE and not (cwd / ".claude").exists(), err
+
+
+@linux
+def test_linux_rename_then_recreate_is_caught_and_the_original_is_kept(box):
+    cwd, _ = box
+    (cwd / "a").mkdir()
+    (cwd / "a" / "CLAUDE.md").write_text("orig")
+    code, out, err = sandbox_exec.run(
+        ["/bin/sh", "-c", "mv a b 2>&1; mkdir -p a; echo evil > a/CLAUDE.md; echo done"], cwd)
+    assert b"done" in out, err
+    if (cwd / "b").exists():  # the kernel allowed renaming the parent of the read-only mount
+        assert (cwd / "b" / "CLAUDE.md").read_text() == "orig"  # never deleted
+        assert code == sandbox_exec.INSTRUCTION_CODE, err
+    assert not (cwd / "a" / "CLAUDE.md").exists() or (cwd / "a" / "CLAUDE.md").read_text() == "orig"
+
+
+@linux
+def test_linux_new_instruction_file_inside_a_writable_git_dir_is_caught(box):
+    cwd, _ = box
+    code, _, err = py("import os; os.makedirs('.git'); open('.git/CLAUDE.md', 'w').write('x')", cwd)
+    assert code == sandbox_exec.INSTRUCTION_CODE and not (cwd / ".git" / "CLAUDE.md").exists(), err

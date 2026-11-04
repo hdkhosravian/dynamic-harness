@@ -503,9 +503,11 @@ its last `file_sha`, appends the row, then appends an event carrying
     5. each `deny_read` directory as an empty mode-000 read-only tmpfs, a file
        as `/dev/null`; entries under another entry are skipped;
     6. the hidden tmpfs remounted read-only; `--chdir cwd`.
-    The child env uses `LANG=C.UTF-8`. Any `CLAUDE*.md`/`.mcp.json` the child
-    created is removed after it exits, and the call returns `126`
-    (`INSTRUCTION_CODE`) with the paths on stderr.
+    The child env uses `LANG=C.UTF-8`. After the child exits, any new or
+    replaced `CLAUDE*.md`/`.mcp.json` (compared by `(st_dev, st_ino)`) and any
+    `deny_write` path that did not exist before is renamed to
+    `<path>.harness-quarantine-<time>`; the call returns `126`
+    (`INSTRUCTION_CODE`) with the paths, and any moved original, on stderr.
   - `backend() -> "sandbox-exec" | "bwrap" | None` by platform;
     `probe() -> None | reason` (bwrap: runs `/bin/true` in a sandbox).
   - When the backend is missing, it raises `HarnessError` (fails closed).
