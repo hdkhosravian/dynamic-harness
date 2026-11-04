@@ -1,5 +1,12 @@
 {
   "name": "dynamic-harness",
   "version": "0.4.0",
-  "description": "Dynamic harness for Claude Code: fail-closed safety hooks, a hash-chained run ledger, registered pack checks run in a sandbox, and a gate that signs what was checked. English and Persian."
+  "description": "Dynamic harness for Claude Code: fail-closed safety hooks, a hash-chained run ledger, registered pack checks run in a sandbox, and a gate that signs what was checked. English and Persian.",
+  "license": "MIT",
+  "author": {
+    "name": "Sam Khosravian",
+    "url": "https://github.com/hdkhosravian"
+  },
+  "repository": "https://github.com/hdkhosravian/dynamic-harness",
+  "homepage": "https://github.com/hdkhosravian/dynamic-harness"
 }

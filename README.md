@@ -33,6 +33,7 @@ act on goes through a frozen scope, a recorded check and an HMAC-signed receipt.
 - [Repository layout](#repository-layout)
 - [Documentation](#documentation)
 - [Limits](#limits)
+- [License](#license)
 
 ---
 
@@ -359,3 +360,8 @@ spike/              Claude Code platform spike
 - Professional sign-off classes (tax, legal, employment) stay "prepared, not final".
 - Check notes (rows left out, sources that disagree) are written in English, also inside Persian text.
 - A forecast is a JSON driver model plus a CSV table, not a formula workbook; Monte Carlo runs are not built.
+
+## License
+
+[MIT](LICENSE). Anyone may use, copy, change, merge, publish, distribute, sublicense and sell it, for any
+purpose, anywhere, as long as the copyright and license notice stay with the copies.
