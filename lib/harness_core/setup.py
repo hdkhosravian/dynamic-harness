@@ -211,12 +211,23 @@ def _list(d, key, label) -> list:
 
 
 def _inside(entry, protected, home) -> bool:
-    """``entry`` is on or inside ``protected`` (a path, or a pattern with * / **)."""
-    e = os.path.normpath(os.path.join(home, entry[2:]) if entry.startswith("~/") else home if entry == "~" else entry)
+    """``entry`` (an allow-list path) may reach ``protected`` (a path, or a pattern with * / **).
+
+    Fails closed: only an absolute or ``~/`` path without wildcards is judged, after realpath (so a symlink
+    alias counts) and case folding on macOS; a relative, ``//`` or wildcard entry always counts as reaching."""
+    if not isinstance(entry, str) or any(c in entry for c in "*?[{"):
+        return True
+    if entry == "~" or entry.startswith("~/"):
+        entry = home + entry[1:]
+    elif not entry.startswith("/") or entry.startswith("//"):
+        return True
+    fold = (lambda x: x.casefold()) if sys.platform == "darwin" else (lambda x: x)
+    e = fold(os.path.realpath(entry))
     if any(c in protected for c in "*?["):
-        pat = protected.replace("**", "*")
+        base = re.split(r"/[^/]*[*?\[]", protected, maxsplit=1)[0]
+        pat = fold(os.path.realpath(base) + protected[len(base):]).replace("**", "*")
         return fnmatch.fnmatchcase(e, pat) or fnmatch.fnmatchcase(e, pat + "/*")
-    p = protected.rstrip("/")
+    p = fold(os.path.realpath(protected)).rstrip("/")
     return e == p or e.startswith(p + "/")
 
 

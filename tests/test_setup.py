@@ -425,3 +425,17 @@ def test_emptying_user_wide_lists_is_said_plainly(ctx):
     files(ctx)["user"].write_text(json.dumps({"sandbox": {"network": {"allowedDomains": ["github.com"]}}}))
     out = prompt(ctx, "/dynamic-harness:setup")
     assert "github.com" in out["reason"] and "other projects" in out["reason"]
+
+
+@pytest.mark.parametrize("entry", ["./x", "x", "//{data}", "~/.claude/plugins/data/*", "{link}", "{data_upper}"])
+def test_ambiguous_or_aliased_allow_entries_count_as_overlapping(ctx, tmp_path, entry):
+    (tmp_path / "alias").symlink_to(ctx.data_root)
+    data = os.path.realpath(ctx.data_root)
+    e = entry.format(data=data.lstrip("/"), link=str(tmp_path / "alias"), data_upper=data.upper())
+    if entry == "{data_upper}" and not os.path.exists(e):
+        pytest.skip("case-sensitive file system")
+    assert setup._inside(e, data, setup._home(ctx))
+
+
+def test_a_plain_unrelated_allow_entry_is_kept(ctx):
+    assert not setup._inside("/opt/fine", os.path.realpath(ctx.data_root), setup._home(ctx))
