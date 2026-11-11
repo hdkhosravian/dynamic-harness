@@ -710,7 +710,8 @@ its last `file_sha`, appends the row, then appends an event carrying
   `[a-z0-9_-]{1,32}`; a file is regular, not a symlink, at most `MAX_BYTES` (256 KiB). Any violation raises
   `LocaleError` naming the file.
 - `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, the first list stays as
-  written and a later one adds items not yet present, the first scalar wins, a kind conflict raises `LocaleError` naming the dotted key and both ids);
+  written and a later one adds items not yet present, the first scalar wins, a kind conflict raises `LocaleError`
+  naming the dotted key and both ids);
   `installed(ctx=None) -> {pack_id: pack}` (shipped, then a live pack of the same id merged on top);
   `active(ctx=None) -> [pack_id]` (profile list `locales` without repeats, then `BASE`; any other value: `BASE`, then
   every other installed id sorted); `view(ctx=None) -> dict` (merge of the active packs without `schema`, `id`,

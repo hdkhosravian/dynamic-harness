@@ -8,6 +8,7 @@ import copy
 import json
 import os
 import re
+import sys
 
 import pytest
 
@@ -252,6 +253,61 @@ def test_a_pack_nested_too_deep_is_a_locale_error_that_names_the_file(h, L, Loca
         with pytest.raises(LocaleError) as e:
             fn(ctx_of(h))
         assert name in str(e.value)
+
+
+def _nested(pid, shape, depth):
+    """A pack with ``words.w`` nested ``depth`` levels (arrays, or arrays that hold one object each)."""
+    inner = {"arrays": "[" * depth + "1" + "]" * depth,
+             "arrays_of_objects": '[{"a": ' * depth + "1" + "}]" * depth}[shape]
+    return ('{"schema": "harness/locale@1", "id": "%s", "words": {"w": %s}}' % (pid, inner)).encode("utf-8")
+
+
+# The parser stops near the recursion limit; merging (copy and compare) needs more frames per level and stops
+# earlier. Measured on 3.9 at limits 500, 1000 and 2000: arrays merge-fail from 0.5 and parse-fail from 0.95 of the
+# limit, arrays of objects from 0.25 and 0.5. A depth of 0.7 and 0.35 of the limit is inside the window of each.
+LIMIT = sys.getrecursionlimit()
+MID = [("arrays", int(LIMIT * 0.7)), ("arrays_of_objects", int(LIMIT * 0.35))]
+
+
+@pytest.mark.parametrize("pid", ["xx", "fa"], ids=["new-id", "shipped-id"])
+@pytest.mark.parametrize("shape,depth", MID, ids=[m[0] for m in MID])
+def test_a_pack_that_parses_but_is_too_deep_to_merge_is_refused_naming_the_file(h, L, LocaleError, shape, depth, pid):
+    data = _nested(pid, shape, depth)
+    json.loads(data)  # precondition: the parser accepts it
+    with pytest.raises(LocaleError):  # precondition: merging it fails
+        L.merge([("a", json.loads(data)), ("b", {})])
+    put(h, pid + ".json", data)
+    set_profile(h, locales=["fa"])
+    for fn in (L.installed, L.active, L.view):
+        with pytest.raises(LocaleError) as e:
+            fn(ctx_of(h))
+        assert pid + ".json" in str(e.value)
+
+
+@pytest.mark.parametrize("kind", ["objects", "arrays"])
+def test_merge_of_two_in_memory_packs_too_deep_is_a_locale_error(L, LocaleError, kind):
+    def deep():
+        d = {} if kind == "objects" else []
+        for _ in range(2 * LIMIT):
+            d = {"w": d} if kind == "objects" else [d]
+        return {"words": d}
+    with pytest.raises(LocaleError) as e:
+        L.merge([("first_pack", deep()), ("second_pack", deep())])
+    assert "first_pack" in str(e.value) and "second_pack" in str(e.value)
+
+
+def test_a_recursion_error_while_checking_a_pack_is_a_locale_error_naming_the_file(h, L, LocaleError, monkeypatch):
+    real = L.validate
+
+    def overflow(instance, *a, **k):
+        if instance.get("id") == "xx":
+            raise RecursionError("maximum recursion depth exceeded")
+        return real(instance, *a, **k)
+    monkeypatch.setattr(L, "validate", overflow)  # no pack input reaches this; a nearly full caller stack can
+    put(h, "xx.json", pack("xx"))
+    with pytest.raises(LocaleError) as e:
+        L.installed(ctx_of(h))
+    assert "xx.json" in str(e.value)
 
 
 def test_a_pack_one_byte_over_the_limit_is_refused(h, L, LocaleError):
