@@ -342,7 +342,7 @@ def test_the_request_of_a_check_holds_the_fold_of_every_installed_pack(h, job):
     assert run.apply(req, ctx_of(h), {"session_id": SID}, runner=runner)["result"] == "pass"
     want = locales.view(ctx_of(h), every=True)["fold"]
     assert want == {"letters": dict(NINE, **{YO: YE})}
-    assert sent[0]["locale"] == {"fold": want}
+    assert sent[0]["locale"]["fold"] == want
     assert sent[0]["business"] and sent[0]["check_id"] == "finance.reconcile"  # the other keys are still there
 
 
@@ -355,7 +355,7 @@ def test_the_request_holds_an_empty_fold_when_no_pack_has_one(h, job, tmp_path, 
         return 0, b'{"result": "pass", "values": {}, "notes": []}\n', b""
     req = {"tool": "run", "check_id": "finance.reconcile", "unit": "u1", "attempt": 1, "inputs": ["sales.csv"]}
     run.apply(req, ctx_of(h), {"session_id": SID}, runner=runner)
-    assert sent[0]["locale"] == {"fold": {}}
+    assert sent[0]["locale"]["fold"] == {}
 
 
 def test_checklib_main_hands_the_fold_of_the_request_to_fold_name(tmp_path):

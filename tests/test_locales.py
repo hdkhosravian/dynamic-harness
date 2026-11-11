@@ -821,7 +821,8 @@ def test_a_pack_can_hold_every_new_key_and_a_mark_counts_characters_not_bytes(h,
 
 
 def test_every_names_the_keys_that_apply_for_every_installed_pack(L):
-    assert set(L.EVERY) == {"render", "state_lexicon", "question_marks", "fold"} and len(L.EVERY) == 4
+    assert set(L.EVERY) == {"render", "state_lexicon", "question_marks", "fold", "currencies", "currency_pairs"}
+    assert len(L.EVERY) == 6
 
 
 def test_view_every_adds_only_the_every_keys_of_a_pack_the_profile_does_not_name(h, L):
