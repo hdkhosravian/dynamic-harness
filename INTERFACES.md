@@ -709,7 +709,8 @@ its last `file_sha`, appends the row, then appends an event carrying
 ## P1: locale packs (`harness_core/locales.py`)
 
 - Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words, render, state_lexicon,
-  question_marks}`, `schema` and `id` required, no other top-level key. Shipped packs `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
+  question_marks}`, `schema` and `id` required, no other top-level key. Shipped packs
+  `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
   `${CLAUDE_PLUGIN_DATA}/control/locales/<id>.json` (in the control hash). The id equals the file stem,
   `[a-z0-9_-]{1,32}`; a file is regular, not a symlink, at most `MAX_BYTES` (256 KiB). Any violation raises
   `LocaleError` naming the file.
@@ -754,12 +755,15 @@ its last `file_sha`, appends the row, then appends an event carrying
   `question_marks`: one `locales.view(ctx, every=True)` and one read of `probe.json`. A list is the pack list, then
   the entries of the same key in `probe.json` (the owner's own extra words; a key it lacks is empty), duplicates
   dropped. An owner verb goes to `verbs` when a pack lists it under `verbs`, else to `verbs_anywhere`.
-  `file_extensions` is the list of `probe.json` (the shipped list when the live file lacks the key);
-  `question_marks` come from the packs only. A wrong kind in `probe.json` raises `HarnessError` naming the key.
-  `probe.run` calls it once.
+  `file_extensions` is the list of `probe.json` (the shipped list when the live file lacks the key). A hand-edited
+  live `probe.json` may also hold `imperative_join` (it adds join words); keys `verbs_anywhere` and `question_marks`
+  in `probe.json` are not read: those two come from the packs only (an owner verb that no pack lists is matched
+  anywhere). A file that is not an object, or a wrong kind of a key, raises `HarnessError` naming `probe.json` and
+  the key. A question mark that `probe._norm` folds to nothing is ignored. `probe.run` calls it once.
 - `gate.lexicon(ctx) -> {terms, template_lines}`: the `state_lexicon` of `view(ctx, every=True)`, then a live
-  `control/state_lexicon.json` placed by hand in 0.4.0 (flattened), duplicates dropped. `stopgate.lexicon_hits` and
-  `gate._lexicon` use it. `stopgate.asks(ctx, msg) -> bool`: a line of `msg` ends with a `question_marks` entry of
+  `control/state_lexicon.json` placed by hand in 0.4.0 (flattened), duplicates dropped; a file that is not an
+  object, or a `terms` / `template_lines` that is neither a list of strings nor an object of such lists, raises
+  `HarnessError` naming `state_lexicon.json`. `stopgate.lexicon_hits` and `gate._lexicon` use it. `stopgate.asks(ctx, msg) -> bool`: a line of `msg` ends with a `question_marks` entry of
   an installed pack, white space may follow.
 - `business.list_entry(ctx, field, value, add) -> str`: the checked list entry (`admin` calls it before offering a
   code, `change_list` before writing); `business add locales <id>` needs an installed id.

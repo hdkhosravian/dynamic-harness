@@ -159,6 +159,13 @@ def lexicon(ctx) -> dict:
     live = Path(data_root) / "control" / "state_lexicon.json" if data_root else None
     if live and live.is_file():
         old = json.loads(live.read_text("utf-8"))
+        if not isinstance(old, dict):
+            raise HarnessError("state_lexicon.json: the file must hold an object")
+        for key in ("terms", "template_lines"):
+            v = old.get(key, [])
+            groups = list(v.values()) if isinstance(v, dict) else [v]
+            if not all(isinstance(g, list) and all(isinstance(x, str) for x in g) for g in groups):
+                raise HarnessError(f"state_lexicon.json: {key} must be a list of strings or an object of such lists")
         terms, lines = terms + _flat(old.get("terms")), lines + _flat(old.get("template_lines"))
     return {"terms": list(dict.fromkeys(terms)), "template_lines": list(dict.fromkeys(lines))}
 

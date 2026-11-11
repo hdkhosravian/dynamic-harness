@@ -81,6 +81,8 @@ def words(ctx) -> dict:
     view = locales.view(ctx, every=True)
     w = view.get("words", {})
     live = protected.load_control("probe.json", ctx)
+    if not isinstance(live, dict):
+        raise HarnessError("probe.json: the file must hold an object")
     out = {k: list(dict.fromkeys(w.get(k, []) + _strings(live.get(k, []), k))) for k in LISTS}
     mine = _classes(live, "verbs")
     pos = {_norm(v) for vs in w.get("verbs", {}).values() for v in vs}
@@ -89,9 +91,9 @@ def words(ctx) -> dict:
         out[key] = {cls: list(dict.fromkeys(pack.get(cls, []) + [v for v in mine.get(cls, [])
                                                                  if (_norm(v) in pos) == keep]))
                     for cls in dict.fromkeys(CLASSES + tuple(pack) + tuple(mine))}
-    dec, mine = w.get("decision_keywords", {}), _classes(live, "decision_keywords")
-    out["decision_keywords"] = {cls: list(dict.fromkeys(dec.get(cls, []) + mine.get(cls, [])))
-                                for cls in dict.fromkeys(list(dec) + list(mine))}
+    dec, own = w.get("decision_keywords", {}), _classes(live, "decision_keywords")
+    out["decision_keywords"] = {cls: list(dict.fromkeys(dec.get(cls, []) + own.get(cls, [])))
+                                for cls in dict.fromkeys(list(dec) + list(own))}
     exts = live["file_extensions"] if "file_extensions" in live else \
         json.loads((protected.DEFAULTS_DIR / "probe.json").read_text("utf-8"))["file_extensions"]
     out["file_extensions"] = _strings(exts, "file_extensions")
@@ -154,7 +156,7 @@ def run(request, ctx, cwd=None) -> dict:
     imperative |= {cls for cls, vs in pos.items() if any(_imperative(text, v, leads, joins) for v in vs)}
     irreversible = sorted(c for c in imperative if c not in ("local_reversible",))
     first = re.split(r"\s+", text.strip(), maxsplit=1)[0] if text.strip() else ""
-    marks = tuple(_norm(m) for m in k["question_marks"])
+    marks = tuple(m for m in map(_norm, k["question_marks"]) if m)  # a mark that folds to nothing ends every text
     asks = text.rstrip().endswith(marks) or first in {_norm(q) for q in k["question_lead"]}
     question_only = bool(asks and not imperative)
     files = _files(raw[:MAX_CHARS], k["file_extensions"])
