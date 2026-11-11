@@ -1,0 +1,4 @@
+Client: Northwind Traders
+Item: 3 pallets of printer paper
+Price: 450 per pallet
+Delivery: within 14 days of the order

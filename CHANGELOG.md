@@ -4,6 +4,9 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
 
 ## Unreleased
 
+- **Live end-to-end scaffold.** `tests/e2e` runs one scripted `claude -p` request per pack and verifies its
+  receipt with the harness's own check; it is skipped unless `HARNESS_E2E=1` and has not been run against a live
+  model yet.
 - **loop-contract 1.2.0.** The harness now needs loop-contract 1.2.0 or later (the gate flags ship there);
   setup prints the two Claude Code commands that install or update it.
 - **Plugin hash.** The session check hashes only the shipped plugin directories and the entries Claude Code
