@@ -34,9 +34,12 @@ def _pack(f: Path) -> dict:
         pack = json.loads(data.decode("utf-8"))
     except ValueError as e:
         raise LocaleError(f"locale pack {f}: not UTF-8 JSON ({e})") from e
+    except RecursionError as e:
+        raise LocaleError(f"locale pack {f}: nested too deep") from e
     try:
         validate(pack, json.loads(CONTRACT.read_text("utf-8")))
-    except SchemaError as e:
+        merge([(f.name, pack)])  # one walk now, so a pack too deep to merge is named here, not in view()
+    except (SchemaError, LocaleError, RecursionError) as e:
         raise LocaleError(f"locale pack {f}: {e}") from e
     stem = f.name[:-len(".json")]
     if not re.fullmatch(r"[a-z0-9_-]{1,32}", stem) or pack["id"] != stem:
@@ -51,10 +54,14 @@ def _read(d: Path) -> dict:
 
 
 def merge(packs) -> dict:
-    """Merge ``[(pack_id, dict)]`` in order: objects recurse, lists append new items, the first scalar wins."""
+    """Merge ``[(pack_id, dict)]`` in order: objects recurse, a later list adds its items not yet present, the first
+    scalar wins."""
     out, first = {}, {}
-    for pid, pack in packs:
-        _into(out, pack, pid, first, "")
+    try:
+        for pid, pack in packs:
+            _into(out, pack, pid, first, "")
+    except RecursionError as e:
+        raise LocaleError(f"locale packs {', '.join(pid for pid, _ in packs)}: nested too deep") from e
     return out
 
 
@@ -65,9 +72,11 @@ def _kind(v) -> str:
 def _into(out, new, pid, first, path) -> None:
     for k, v in new.items():
         key = path + k
-        if k not in out:
-            out[k] = {} if isinstance(v, dict) else [] if isinstance(v, list) else v
+        if k not in out:  # the first list is kept as written; a later one adds only what is not there yet
+            out[k] = {} if isinstance(v, dict) else copy.deepcopy(v)
             first[key] = pid
+            if not isinstance(v, dict):
+                continue
         old = out[k]
         if _kind(old) != _kind(v):
             raise LocaleError(f"locale packs {first[key]!r} and {pid!r} give {key} a different kind of value "

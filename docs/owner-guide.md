@@ -102,8 +102,9 @@ Your business settings.
 | `work_week`, `jurisdiction`, `owner_name`, `retention_years`, `thresholds.*` | As named |
 
 Lists you can `add` to and `remove` from: `own_accounts` (transfers between them are not revenue),
-`do_not_contact`, `protected_terms` (names that never go into a web search). `metric remove <id>` deletes a
-metric definition.
+`do_not_contact`, `protected_terms` (names that never go into a web search), `locales` (the ids of installed
+locale packs that apply, in this order, plus the base pack `en`; when it is empty, every installed pack
+applies). `metric remove <id>` deletes a metric definition.
 
 ### `/dynamic-harness:memory`
 

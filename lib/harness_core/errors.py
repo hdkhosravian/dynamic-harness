@@ -12,6 +12,7 @@ class TamperError(HarnessError):
 class SchemaError(HarnessError):
     pass
 
+
 class LocaleError(HarnessError):
     pass
 
