@@ -58,7 +58,7 @@ ALLOWED = {
     "lib/harness_core/claims.py": {"currency": 2, "script": 88},
     "lib/harness_core/contact.py": {"script": 56},
     "lib/harness_core/finance.py": {"calendar": 13, "currency": 10, "script": 139},
-    "lib/harness_core/localize.py": {"calendar": 51, "currency": 24, "lang": 5, "region": 4, "script": 109},
+    "lib/harness_core/localize.py": {"calendar": 51, "currency": 24, "lang": 5, "region": 4, "script": 105},
     "lib/harness_core/model.py": {"calendar": 4, "currency": 1, "lang": 8, "script": 119},
     "lib/harness_core/model_cmd.py": {"currency": 1},
     "lib/harness_core/normalize.py": {"calendar": 3, "region": 1, "script": 20},

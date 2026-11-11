@@ -11,6 +11,7 @@ go through ``checklib.main`` in a subprocess and through ``fold_name``. Non-ASCI
 escapes or ``chr()``, so that a reader sees which character it is."""
 from __future__ import annotations
 
+import inspect
 import json
 import shutil
 import subprocess
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_core import locales, oracle, probe, protected, run, stopgate
+from harness_core import gate, locales, oracle, probe, protected, run, stopgate
 from harness_core import localize as L
 from harness_core.ledger import Outputs
 from harness_core.safety import Ctx
@@ -170,6 +171,12 @@ GATE_PINNED = [
 @pytest.mark.parametrize("text,hits", GATE_PINNED, ids=[f"g{i:02d}" for i in range(len(GATE_PINNED))])
 def test_the_stop_gate_fold_gives_the_results_of_406bffd(text, hits):
     assert stopgate.lexicon_hits(None, text) == hits
+
+
+def test_the_stop_gate_removes_format_characters_before_it_composes():
+    # recorded from stopgate._fold at 406bffd: e, soft hyphen, combining acute is one character, not two
+    assert stopgate._fold("e\u00ad\u0301", {}) == "\u00e9"
+    assert stopgate._fold("e\u200b\u0301", {}) == "\u00e9"
 
 
 def test_the_stop_gate_pinned_inputs_are_enough():
@@ -428,3 +435,29 @@ def test_a_second_call_reads_the_packs_again_so_a_pair_written_between_two_calls
     assert probe.run("the " + YE_WORD, ctx_of(h))["money_tokens"] == []
     live(h, "xx", words={"money_words": [YO_WORD]}, fold={"letters": {YO: YE}})
     assert probe.run("the " + YE_WORD, ctx_of(h))["money_tokens"] == [YO_WORD]
+
+
+# --- fix round 1 ---------------------------------------------------------------------------------------------------------
+
+
+def test_the_public_functions_take_the_context_only():
+    for fn in (probe.words, gate.lexicon):
+        assert list(inspect.signature(fn).parameters) == ["ctx"], fn.__name__
+
+
+def test_a_request_with_locale_and_no_fold_is_an_error_exit_not_a_result(tmp_path):
+    script = tmp_path / "check_fold.py"
+    script.write_text(CHECK, "utf-8")
+    p = subprocess.run([PY, "-I", str(script)], input=json.dumps({"texts": ["a"], "locale": {}}).encode("utf-8"),
+                       env={}, cwd=str(tmp_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    assert p.returncode == 3 and p.stdout == b"" and b"check error" in p.stderr
+
+
+def test_the_letter_fold_runs_before_case_so_a_pack_lists_each_case_it_wants_folded(h):
+    upper = "\u043e\u0431\u044a\u0401\u043c"  # the word with the upper-case yo
+    live(h, "xx", words={"money_words": [YE_WORD]}, fold={"letters": {YO: YE}})
+    c = ctx_of(h)
+    assert probe.run("the " + YO_WORD, c)["money_tokens"] == [YE_WORD]
+    assert probe.run("the " + upper, c)["money_tokens"] == []   # the pair names the lower-case letter only
+    live(h, "xx", words={"money_words": [YE_WORD]}, fold={"letters": {YO: YE, "\u0401": "\u0415"}})
+    assert probe.run("the " + upper, ctx_of(h))["money_tokens"] == [YE_WORD]
