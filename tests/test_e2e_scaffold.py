@@ -5,8 +5,10 @@ import json
 import os
 import pwd
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -39,6 +41,12 @@ def test_four_tests_are_collected_and_all_skip_without_the_opt_in(tmp_path):
     assert "HARNESS_E2E=1" in r.stdout and "costs money" in r.stdout
 
 
+@pytest.mark.parametrize("value", ["0", "true", "yes", ""])
+def test_only_the_exact_value_1_opts_in(tmp_path, value):
+    r = e2e_pytest(tmp_path, "/usr/bin:/bin", HARNESS_E2E=value)
+    assert "4 skipped" in r.stdout and "failed" not in r.stdout, r.stdout
+
+
 def test_opt_in_without_the_claude_binary_fails_and_names_it(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
@@ -69,7 +77,7 @@ def test_opt_in_with_an_unusable_loop_contract_fails_with_its_problem(tmp_path, 
 
 def test_command_lists_have_no_shell_string_and_no_global_word(tmp_path):
     lc = Path("/opt/lc")  # a fixed path: tmp_path carries the test's name, which says "global"
-    cmds = [driver.claude_cmd("claude", p, "11111111-1111-1111-1111-111111111111", resume=r, lc_root=lc)
+    cmds = [driver.claude_cmd("claude", p, "11111111-1111-1111-1111-111111111111", r, lc, "finance")
             for p in (driver.REQUESTS["finance"], driver.REPLY, driver.setup_prompt(),
                       driver.setup_prompt("123456")) for r in (False, True)]
     for cmd in cmds:
@@ -77,6 +85,30 @@ def test_command_lists_have_no_shell_string_and_no_global_word(tmp_path):
         assert cmd[:2] == ["claude", "-p"] and "global" not in " ".join(cmd).casefold()
         assert "--plugin-dir" in cmd and "--max-budget-usd" in cmd and "--output-format" in cmd
     assert "--resume" in cmds[1] and "--session-id" in cmds[0]
+
+
+WEB = {"WebSearch", "WebFetch"}
+
+
+def test_each_pack_gets_only_its_own_tools_and_only_research_gets_the_web():
+    lc = Path("/opt/lc")
+    allowed = {}
+    for pack in PACKS:
+        cmd = driver.claude_cmd("claude", "x", "s", False, lc, pack)
+        allowed[pack] = cmd[cmd.index("--allowedTools") + 1].split(",")
+        assert allowed[pack] == list(driver.TOOLS[pack]) and cmd[-2] == "--allowedTools"
+    assert [p for p in PACKS if WEB & set(allowed[p])] == ["research"]
+    assert [p for p in PACKS if "Agent" in allowed[p] or "Task" in allowed[p]] == ["research"]
+    assert all("Bash" in t and "Read" in t and "Write" in t for t in allowed.values())  # every skill runs harness-* commands
+    assert set().union(*allowed.values()) == {"Bash", "Read", "Write", "WebSearch", "Agent"}
+
+
+def test_readme_states_the_worst_case_cost_from_the_constants():
+    calls = driver.SETUP_CALLS + driver.MAX_TURNS
+    per_pack = calls * float(driver.MAX_BUDGET_USD)
+    text = (ROOT / "tests" / "e2e" / "README.md").read_text()
+    assert f"{calls} `claude` calls" in text and f"{per_pack:g} USD per pack" in text
+    assert f"{per_pack * len(PACKS):g} USD for all four" in text and "no cap across packs" in text
 
 
 def test_setup_code_is_parsed_from_a_real_plan(ctx):
@@ -133,12 +165,11 @@ def test_receipt_check_accepts_a_real_receipt_and_rejects_a_changed_one(h, env):
     assert driver.find_job(env["data"]) == "j1"
     ok = driver.verify_job(env["data"], env["ws"], "j1")
     assert ok["ok"] is True and ok["state"] == "Checked" and driver.passes(ok)
-    f = h["p"].run / "receipt.json"
-    rec = json.loads(f.read_text())
-    rec["hmac"] = ("0" if rec["hmac"][0] != "0" else "1") + rec["hmac"][1:]  # one character
-    f.write_text(json.dumps(rec))
+    f = h["p"].run / "gate" / "REPORT.md"  # the report the receipt signs (report_sha)
+    f.write_bytes(b"X" + f.read_bytes()[1:])  # one byte
     bad = driver.verify_job(env["data"], env["ws"], "j1")
     assert bad["ok"] is False and not driver.passes(bad)
+    assert bad["reason"] == "receipt HMAC does not match current state (report_sha)"  # the harness's reason, not another cause
 
 
 @pytest.mark.parametrize("state,passes", [("Checked", True), ("Done, not fully checked: known mode", True),
@@ -177,8 +208,85 @@ def test_a_failing_claude_call_stops_the_loop_with_its_stderr(tmp_path):
 
 
 def test_no_e2e_file_imports_outside_the_standard_library_pytest_and_harness_core():
-    allowed = {"__future__", "json", "os", "re", "shutil", "subprocess", "sys", "uuid", "pathlib", "pytest",
+    allowed = {"__future__", "json", "os", "re", "shutil", "signal", "subprocess", "sys", "uuid", "pathlib", "pytest",
                "harness_core", "driver"}  # driver is the directory's own helper module
     for f in (ROOT / "tests" / "e2e").glob("*.py"):
         for m in re.findall(r"^\s*(?:import|from)\s+([A-Za-z_]\w*)", f.read_text(), re.M):
             assert m in allowed, f"{f.name} imports {m}"
+
+
+def test_setup_stops_before_the_confirm_when_the_harness_wrote_outside_the_temp_dir(tmp_path):
+    calls = []
+
+    def fake(cmd, cwd, env):  # the plan call: the hook blocks the prompt; here it left nothing under tmp_path
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "confirm 123456", "")
+
+    with pytest.raises(RuntimeError, match=r"data folder is not under the temporary directory.*no confirm and no "
+                                           r"request was sent"):
+        driver.setup_folder("claude", "finance", tmp_path, {"HOME": str(tmp_path / "home")}, tmp_path / "lc", run=fake)
+    assert len(calls) == 1
+
+
+def test_setup_confirms_in_the_same_session_once_the_plan_left_its_file_under_the_temp_dir(tmp_path):
+    calls = []
+
+    def fake(cmd, cwd, env):
+        calls.append(cmd)
+        sid = cmd[cmd.index("--session-id" if "--session-id" in cmd else "--resume") + 1]
+        if len(calls) == 1:
+            d = tmp_path / "config" / "plugins" / "data" / "x" / "setup"
+            d.mkdir(parents=True)
+            (d / "pending.json").write_text(json.dumps({"code": "123456", "sid": sid}))
+            return subprocess.CompletedProcess(cmd, 0, "type: /dynamic-harness:setup confirm 123456", "")
+        return subprocess.CompletedProcess(cmd, 0, "Applied:", "")
+
+    driver.setup_folder("claude", "finance", tmp_path, {"HOME": str(tmp_path / "home")}, tmp_path / "lc", run=fake)
+    assert [c[2] for c in calls] == ["/dynamic-harness:setup", "/dynamic-harness:setup confirm 123456"]
+
+
+def test_a_plan_file_for_another_session_does_not_count(tmp_path):
+    def fake(cmd, cwd, env):
+        d = tmp_path / "setup"
+        d.mkdir(exist_ok=True)
+        (d / "pending.json").write_text(json.dumps({"code": "123456", "sid": "someone-else"}))
+        return subprocess.CompletedProcess(cmd, 0, "confirm 123456", "")
+
+    with pytest.raises(RuntimeError, match="not under the temporary directory"):
+        driver.setup_folder("claude", "finance", tmp_path, {"HOME": str(tmp_path / "home")}, tmp_path / "lc", run=fake)
+
+
+def test_a_timeout_kills_the_whole_process_group(tmp_path, monkeypatch):
+    pidfile = tmp_path / "grandchild.pid"
+    child = ("import subprocess, sys, time\n"
+             "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+             f"open({str(pidfile)!r}, 'w').write(str(g.pid))\n"
+             "time.sleep(60)\n")
+    monkeypatch.setattr(driver, "CALL_TIMEOUT", 1.5)
+    with pytest.raises(subprocess.TimeoutExpired):
+        driver._run([sys.executable, "-c", child], tmp_path, dict(os.environ))
+    pid = int(pidfile.read_text())
+    for _ in range(20):  # init reaps the orphan a moment after the kill
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    os.kill(pid, signal.SIGKILL)
+    pytest.fail("the grandchild outlived the timeout")
+
+
+def test_run_returns_what_the_child_printed(tmp_path):
+    r = driver._run([sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)"],
+                    tmp_path, dict(os.environ))
+    assert (r.returncode, r.stdout.strip(), r.stderr.strip()) == (3, "out", "err")
+
+
+def test_every_outcome_has_a_distinct_state_word():
+    t = driver.result_state
+    assert t("RUN", v={"ok": True, "state": "Checked"}) == "Checked"
+    assert t("RUN", v={"ok": False, "reason": "no receipt after 8 turns"}) == "NO_RECEIPT(no receipt after 8 turns)"
+    assert t("SETUP", exc=subprocess.TimeoutExpired("c", 1)) == "TIMEOUT_SETUP"
+    assert t("RUN", exc=driver.ClaudeExit("claude exited 3")) == "CLAUDE_EXIT"
+    assert t("SETUP", exc=ValueError("no code")) == "SETUP_ERROR"
+    assert t("PREFLIGHT", exc=AssertionError("no claude")) == "PREFLIGHT_ERROR"
