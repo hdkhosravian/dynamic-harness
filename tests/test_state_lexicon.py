@@ -38,11 +38,12 @@ def write_legacy(h, content=LEGACY):
 
 # --- 2. pinned results of the present code (these pass before and after the change) --------------------------------
 
-# {text: the hits}; recorded from stopgate.lexicon_hits(None, text) at 2de23b1
+# {text: the hits}; recorded from stopgate.lexicon_hits(None, text) at 2de23b1. A hit is returned in folded form;
+# since P1-T2b the nine letter pairs of fa.json fold, so the hit of l02 holds U+0627 where the text has U+0623.
 LEXICON_PINNED = [
     ('The figures are verified.', ['verified']),
     ('All checked', ['checked']),
-    ('\u062a\u0623\u06cc\u06cc\u062f \u0634\u062f', ['\u062a\u0623\u06cc\u06cc\u062f \u0634\u062f']),
+    ('\u062a\u0623\u06cc\u06cc\u062f \u0634\u062f', ['\u062a\u0627\u06cc\u06cc\u062f \u0634\u062f']),  # folded: U+0623 -> U+0627
     ('\u0628\u0631\u0631\u0633\u06cc\u200c\u0634\u062f\u0647', ['\u0628\u0631\u0631\u0633\u06cc\u0634\u062f\u0647']),
     ('\u0628\u0631\u0631\u0633\u06cc \u0634\u062f', ['\u0628\u0631\u0631\u0633\u06cc \u0634\u062f']),
     ('Looks good \u2713', ['\u2713']),

@@ -176,6 +176,16 @@ def test_the_stop_gate_pinned_inputs_are_enough():
     assert len(GATE_PINNED) >= 10 and any(hits for _, hits in GATE_PINNED) and any(not hits for _, hits in GATE_PINNED)
 
 
+def test_a_shipped_state_word_is_a_hit_written_with_the_other_alef_form():
+    # the packs hold "\u062a\u0623\u06cc\u06cc\u062f \u0634\u062f" (hamza above) and "\u062a\u0627\u06cc\u06cc\u062f \u0634\u062f"
+    # (plain alef); a text with U+0622 or U+0625 is only the same word since the nine pairs fold
+    for src in ("\u0622", "\u0625"):
+        assert stopgate.lexicon_hits(None, "\u062a" + src + "\u06cc\u06cc\u062f \u0634\u062f") == \
+            ["\u062a\u0627\u06cc\u06cc\u062f \u0634\u062f"]
+    both = stopgate.lexicon_hits(None, "\u062a\u0627\u06cc\u06cc\u062f \u0634\u062f\n\u062a\u0623\u06cc\u06cc\u062f \u0634\u062f")
+    assert both == ["\u062a\u0627\u06cc\u06cc\u062f \u0634\u062f"]  # one folded hit for both spellings
+
+
 # --- 6. letters are data, hook side -----------------------------------------------------------------------------------
 
 
