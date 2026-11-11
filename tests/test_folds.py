@@ -430,6 +430,14 @@ def test_the_hook_side_calls_make_no_more_view_calls_than_at_406bffd(h, monkeypa
         assert len(calls) == 1, name
 
 
+def test_the_quick_answer_check_of_the_stop_gate_makes_two_view_calls(h, monkeypatch):
+    calls = spy_views(monkeypatch)
+    # no pending card, no state word: the state-word read (1) and the money read (2); a figure and a money word
+    out = stopgate._t0({}, ctx_of(h), SID, {}, "The invoice is 20 dollars.")
+    assert out["decision"] == "block" and "names money" in out["reason"]
+    assert len(calls) == 2
+
+
 def test_a_second_call_reads_the_packs_again_so_a_pair_written_between_two_calls_is_seen(h):
     live(h, "xx", words={"money_words": [YO_WORD]})
     assert probe.run("the " + YE_WORD, ctx_of(h))["money_tokens"] == []
