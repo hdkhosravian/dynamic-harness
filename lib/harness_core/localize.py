@@ -42,8 +42,8 @@ def use_fold(fold: dict) -> None:
 
 
 def fold_name(text) -> str:
-    """Matching key: letters unified by the ``fold.letters`` of the locale packs (shipped: ی/ي, ک/ك, alef forms),
-    format characters a space, diacritics removed, digits ASCII, casefolded."""
+    """Matching key: letters unified by the ``fold.letters`` of the locale packs, format characters a space,
+    diacritics removed, digits ASCII, casefolded."""
     global _fold
     if _fold is None:  # not in a check that got a fold: the shipped packs, read once per process
         from . import locales

@@ -41,7 +41,7 @@ def _fold(text, fold) -> str:
 def lexicon_hits(ctx, text, allowed=()) -> list:
     """State words outside lines the harness itself rendered (``allowed``: only the receipt's state line)."""
     view = locales.view(ctx, every=True)
-    lex, fold = gate.lexicon(ctx, view), probe._letters(view)
+    lex, fold = gate._lexicon_of(ctx, view), probe._letters(view)
     terms = [_fold(t, fold) for t in lex["terms"] if t]
     pats = [re.compile(("(?<!\\w)" if re.match(r"\w", t) else "") + re.escape(t) + ("(?!\\w)" if re.search(r"\w$", t)
                        else "")) for t in terms]
@@ -119,7 +119,7 @@ def _t0(evt, ctx, sid, st, msg) -> dict:
     view = locales.view(ctx, every=True)
     fold = probe._letters(view)
     text = probe._norm(msg, fold)  # digits of other scripts are folded to ASCII here
-    money = probe._hits(text, probe.words(ctx, view)["money_words"], fold)
+    money = probe._hits(text, probe._words(ctx, view)["money_words"], fold)
     if money and re.search(r"\d", text):  # R-11 is about figures: "net margin is net income over revenue" has none
         turn = st.get("request_turn")
         sessionstate.update(ctx, sid, pending_card={"floor": "T1", "reason": f"money in the answer: {money}",

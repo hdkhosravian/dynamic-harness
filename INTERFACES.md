@@ -757,7 +757,8 @@ its last `file_sha`, appends the row, then appends an event carrying
   `fold` (the nine pairs of 0.4.0's `fold_name`). Across packs the first pack wins per key; a chain across two
   packs (`a -> b` in one, `b -> c` in another) is applied once and not resolved (`a` becomes `b`). Digits and format
   characters are not pack data: they fold by Unicode property in code (`localize.decimals`; `probe._norm` removes
-  every `Cf` character, `fold_name` turns it into a space).
+  every `Cf` character, `fold_name` turns it into a space). The letter fold runs before upper and lower case are
+  unified, so a pack for a script with both lists each form it wants folded.
 - `EVERY = ("render", "state_lexicon", "question_marks", "fold")`: the keys that every installed pack supplies.
   `words` are read from the active packs only.
 - `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, the first list stays as
@@ -769,26 +770,26 @@ its last `file_sha`, appends the row, then appends an event carrying
   installed id sorted); `view(ctx=None, every=False) -> dict` (merge of the active packs without `schema`, `id`,
   `name`; `every=True` then adds only the `EVERY` keys of the other installed packs, sorted by id). Files are read on
   every call.
-- `probe.words(ctx, view=None) -> dict` with the keys `verbs`, `verbs_anywhere`, `imperative_lead`,
-  `imperative_join`, `question_lead`, `money_words`, `quantity_words`, `decision_keywords`, `continuation`,
-  `file_extensions`, `question_marks`: one `locales.view(ctx, every=True)` (none when the caller passes the `view`
-  it read) and one read of `probe.json`. A list is the pack list, then
+- `probe.words(ctx) -> dict` with the keys `verbs`, `verbs_anywhere`, `imperative_lead`, `imperative_join`,
+  `question_lead`, `money_words`, `quantity_words`, `decision_keywords`, `continuation`, `file_extensions`,
+  `question_marks`: one `locales.view(ctx, every=True)` and one read of `probe.json`. A list is the pack list, then
   the entries of the same key in `probe.json` (the owner's own extra words; a key it lacks is empty), duplicates
   dropped. An owner verb goes to `verbs` when a pack lists it under `verbs`, else to `verbs_anywhere`.
   `file_extensions` is the list of `probe.json` (the shipped list when the live file lacks the key). A hand-edited
   live `probe.json` may also hold `imperative_join` (it adds join words); keys `verbs_anywhere` and `question_marks`
   in `probe.json` are not read: those two come from the packs only (an owner verb that no pack lists is matched
   anywhere). A file that is not an object, or a wrong kind of a key, raises `HarnessError` naming `probe.json` and
-  the key. A question mark that `probe._norm` folds to nothing is ignored. `probe.run` calls it once.
+  the key. A question mark that `probe._norm` folds to nothing is ignored. `probe.run` and the stop gate's money
+  check call the private `probe._words(ctx, view)` with the view they read, so they make one view call each.
   `probe._norm(s, fold)`: NFC, `localize.decimals`, every `Cf` character removed, the letter table `fold`
   (`probe._letters(view)`, built from `fold.letters` once per public call), casefolded. `probe.run`, `probe.words`,
   `stopgate.lexicon_hits` and the stop gate's money check each read the table from their own `view` call, so two
   contexts in one process each use their own packs.
-- `gate.lexicon(ctx, view=None) -> {terms, template_lines}`: the `state_lexicon` of `view(ctx, every=True)` (or of
-  the `view` the caller passes), then a live `control/state_lexicon.json` placed by hand in 0.4.0 (flattened),
-  duplicates dropped; a file that is not an object, or a `terms` / `template_lines` that is neither a list of
-  strings nor an object of such lists, raises `HarnessError` naming `state_lexicon.json`. `stopgate.lexicon_hits`
-  (which passes its own view, for the letter folds too) and `gate._lexicon` use it. `lexicon_hits` returns the hits
+- `gate.lexicon(ctx) -> {terms, template_lines}`: the `state_lexicon` of `view(ctx, every=True)`, then a live
+  `control/state_lexicon.json` placed by hand in 0.4.0 (flattened), duplicates dropped; a file that is not an
+  object, or a `terms` / `template_lines` that is neither a list of strings nor an object of such lists, raises
+  `HarnessError` naming `state_lexicon.json`. `gate._lexicon` uses it; `stopgate.lexicon_hits` calls the private
+  `gate._lexicon_of(ctx, view)` with the view it also takes the letter folds from. `lexicon_hits` returns the hits
   in folded form.
   `stopgate.asks(ctx, msg) -> bool`: a line of `msg` ends with a `question_marks` entry of an installed pack, white
   space may follow.

@@ -109,8 +109,10 @@ requests: verbs, question words, money words and the like. The pack that writes 
 active, so you keep the words of the language you write in. How a language is written (its digits and
 separators, and the letter forms it reads as one letter, `fold.letters`), the words that state a result
 ("checked", "verified") and the marks that end a question come from every installed pack, whatever the list
-names. Digits of every script count as the same digits, and invisible format characters are ignored when text
-is compared. `metric remove <id>` deletes a metric definition.
+names. The letter fold runs before upper and lower case are unified, so a pack for a script with both lists
+each form it wants folded. Digits of every script count as the same digits. An invisible format character is
+removed when a request or a final message is matched, and counts as a space when a column or account name is
+matched. `metric remove <id>` deletes a metric definition.
 
 ### `/dynamic-harness:memory`
 

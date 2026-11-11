@@ -80,11 +80,15 @@ def _classes(live: dict, key: str) -> dict:
     return {cls: _strings(x, f"{key}.{cls}") for cls, x in v.items()}
 
 
-def words(ctx, view=None) -> dict:
+def words(ctx) -> dict:
     """The keyword lists in force: the ``words`` of the locale packs, then the entries of the live ``probe.json``
     (duplicates dropped, the first kept). An owner verb that a pack lists under ``verbs`` stays a position verb;
-    any other owner verb is matched anywhere. ``view``: the caller's ``locales.view(ctx, every=True)``, if read."""
-    view = locales.view(ctx, every=True) if view is None else view
+    any other owner verb is matched anywhere."""
+    return _words(ctx, locales.view(ctx, every=True))
+
+
+def _words(ctx, view) -> dict:
+    """``words`` from ``view``, the ``locales.view(ctx, every=True)`` the caller read for the same ``ctx``."""
     fold = _letters(view)
     w = view.get("words", {})
     live = protected.load_control("probe.json", ctx)
@@ -157,7 +161,7 @@ def run(request, ctx, cwd=None) -> dict:
     view = locales.view(ctx, every=True)
     fold = _letters(view)
     text = _norm(raw[:MAX_CHARS], fold)
-    k = words(ctx, view)
+    k = _words(ctx, view)
     pos = {cls: _hits(text, ws, fold) for cls, ws in k["verbs"].items()}
     anywhere = {cls: _hits(text, ws, fold) for cls, ws in k["verbs_anywhere"].items()}
     action_verbs = sorted({v for d in (pos, anywhere) for vs in d.values() for v in vs})

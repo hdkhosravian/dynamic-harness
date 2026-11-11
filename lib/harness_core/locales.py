@@ -98,6 +98,7 @@ def _check_fold(letters: dict) -> None:
         if v in letters:
             raise LocaleError(f"fold.letters: {v!r} is a value and a key (a chain)")
 
+
 def _read(d: Path) -> dict:
     if not d.is_dir():
         return {}

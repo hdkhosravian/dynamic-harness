@@ -27,9 +27,10 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
   Arabic letter forms of 0.4.0) now come from `fold.letters` of the locale packs (shipped in `fa`), read from every
   installed pack; a new language adds its own in its pack. Digits of every script now count as ASCII digits (0.4.0:
   only the Arabic-Indic and Extended Arabic-Indic ones), and every invisible format character (Unicode `Cf`) is
-  dropped, or read as a space in name matching (0.4.0: two in request matching, six in name matching). Request matching and the stop gate now also fold the seven letter
-  forms that only name matching folded in 0.4.0 (for example alef with hamza), so a state word written with
-  another alef form is caught, and the hit is shown with the plain alef. The request of a pack check holds the
+  dropped, or read as a space in name matching (0.4.0: two in request matching, six in name matching). Request
+  matching and the stop gate now also fold the seven letter forms that only name matching folded in 0.4.0 (for
+  example alef with hamza), so a state word written with another alef form is caught, and the hit is shown with
+  the plain alef. The request of a pack check holds the
   key `locale.fold`, so the gate replays a check with the folds of its run; a check recorded before this change
   uses the shipped packs.
 - **Languages from files.** The language list is the set of files in `templates/`, and digits, separators, script
