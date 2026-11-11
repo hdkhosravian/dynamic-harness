@@ -101,8 +101,10 @@ import shutil  # noqa: E402
 import pytest  # noqa: E402
 
 from harness_core import business, locales, protected  # noqa: E402
-from harness_core.errors import Denied  # noqa: E402
-from test_locales import pack, put, set_profile  # noqa: E402
+import os  # noqa: E402
+
+from harness_core.errors import Denied, LocaleError  # noqa: E402
+from test_locales import live_dir, pack, put, set_profile  # noqa: E402
 
 SHIPPED_TEMPLATES = ROOT / "templates"
 FA_MORE = " قدم دیگر"  # " more steps" in Persian (templates/fa.json more.calls)
@@ -449,3 +451,122 @@ def test_each_module_imports_first_in_a_fresh_process(first):
     code = f"import sys; sys.path.insert(0, {str(ROOT / 'lib')!r}); import harness_core.{first}"
     r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+# --- P1 task 3, fix round 1 ------------------------------------------------------------------------------------------
+
+PERSIAN_TURN = "\u0641\u0631\u0648\u0634 \u0627\u0633\u0641\u0646"
+EN_HANDOFF = "I've paused this task so you can answer when ready. Reply here to continue."
+
+
+def broken_shipped(tmp_path, monkeypatch, stem="fa"):
+    """The shipped locale packs with one of them broken (what the code reads when it has no context)."""
+    d = tmp_path / "defaults-broken"
+    shutil.copytree(protected.DEFAULTS_DIR, d)
+    (d / "locales" / f"{stem}.json").write_text("{")
+    monkeypatch.setattr(protected, "DEFAULTS_DIR", d)
+
+
+# D1. the profile list `locales` picks words and patterns, not how a language is written
+
+def test_the_profile_list_does_not_hide_how_a_language_is_written(h):
+    set_profile(h, language="fa", locales=["ir"])
+    c = ctx_of(h)
+    assert templates.render("more.calls", c, n=1234) == "\u06f1\u066c\u06f2\u06f3\u06f4" + FA_MORE
+    assert templates.state_line("Done, not fully checked: lexicon; known mode", c) == \
+        STATE_FA + R_LEXICON + SEMI + R_KNOWN
+    set_profile(h, locales=["ir"])  # no profile language: the owner's turn decides
+    say(h, PERSIAN_TURN, "d1")
+    assert templates.language(ctx_of(h)) == "fa"
+
+
+def test_a_live_pack_not_named_in_the_list_still_supplies_its_render_data(h, tmp_path, monkeypatch):
+    template_dir(tmp_path, monkeypatch, el=EL_TEXT)
+    say(h, "\u0393\u03b5\u03b9\u03ac \u03c3\u03bf\u03c5", "d2")
+    put(h, "el.json", pack("el", render=EL_RENDER))
+    set_profile(h, locales=["fa"])
+    c = ctx_of(h)
+    assert locales.active(c) == ["fa", "en"]  # el is installed but not active
+    assert templates.render("more.calls", c, lang="el", n=12) == "\u2081\u2082 calls"
+    assert templates.state_line("Done, not fully checked: lexicon; known mode", c, "el") == "NF: R-LEX / R-KM"
+    assert templates.language(c) == "el"
+
+
+# F1. the live-pack folder cannot be read
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads every folder")
+def test_an_unreadable_live_pack_folder_never_stops_a_message(h):
+    say(h, PERSIAN_TURN, "f1")
+    d = live_dir(h)
+    c = ctx_of(h)
+    d.chmod(0)
+    try:
+        assert templates.render("more.calls", c, lang="fa", n=1234) == "\u06f1\u066c\u06f2\u06f3\u06f4" + FA_MORE
+        assert templates.state_line("Checked", c, "fa") == "\u0628\u0631\u0631\u0633\u06cc\u200c\u0634\u062f\u0647"
+        assert templates.state_line("Done, not fully checked: lexicon; known mode", c) == \
+            STATE_FA + R_LEXICON + SEMI + R_KNOWN  # the language comes from the turn, through the shipped packs
+    finally:
+        d.chmod(0o755)
+
+
+# F2. a call that needs no pack data reads no pack
+
+def test_a_call_that_needs_no_pack_data_makes_no_view_call(h, monkeypatch):
+    c = ctx_of(h)
+    calls = count_views(monkeypatch)
+    assert templates.render("handoff", lang="en") == EN_HANDOFF
+    assert templates.render("handoff", c, lang="en") == EN_HANDOFF
+    assert templates.render("handoff", c, lang="fa") == templates.load("fa")["handoff"]
+    assert templates.language(c) == "en"  # no turn yet
+    set_profile(h, language="fa")
+    assert templates.language(ctx_of(h)) == "fa"  # the profile decides
+    assert calls == []
+
+
+def test_a_message_without_values_is_written_when_a_shipped_pack_is_broken(tmp_path, monkeypatch):
+    broken_shipped(tmp_path, monkeypatch)
+    assert templates.render("handoff", lang="en") == EN_HANDOFF
+    assert templates.language(None) == "en"  # no turn: nothing to count
+
+
+# F3. one read when no language is given
+
+def test_the_view_is_read_once_when_no_language_is_given(h, monkeypatch):
+    say(h, PERSIAN_TURN, "f3")
+    c = ctx_of(h)
+    calls = count_views(monkeypatch)
+    assert templates.render("more.calls", c, n=1) == "\u06f1" + FA_MORE
+    assert len(calls) == 1
+    calls.clear()
+    assert templates.state_line("Done, not fully checked: lexicon; known mode", c) == \
+        STATE_FA + R_LEXICON + SEMI + R_KNOWN
+    assert len(calls) == 1
+    calls.clear()
+    assert templates.note({"code": "left_out_undated", "params": {"n": "12"}}, "EN", c).endswith(
+        "\u06f1\u06f2 \u0631\u062f\u06cc\u0641 \u0628\u062f\u0648\u0646 \u062a\u0627\u0631\u06cc\u062e")
+    assert len(calls) == 1
+
+
+# F4. a broken shipped pack is not swallowed
+
+def test_a_broken_shipped_pack_is_an_error_when_pack_data_is_needed(h, tmp_path, monkeypatch):
+    broken_shipped(tmp_path, monkeypatch)
+    for call in (lambda: templates.render("more.calls", n=1),
+                 lambda: templates.render("more.calls", ctx_of(h), lang="fa", n=1),
+                 lambda: templates.state_line("Checked", lang="fa"),
+                 lambda: templates.note({"code": "left_out_undated", "params": {"n": "1"}}, "EN", lang="fa")):
+        with pytest.raises(LocaleError) as e:
+            call()
+        assert "fa.json" in str(e.value)
+
+
+def test_only_a_harness_or_os_error_sends_the_message_to_the_shipped_packs(h, monkeypatch):
+    real = locales.view
+
+    def broken(ctx=None, **k):  # the live view fails, the shipped one would still work
+        if ctx is not None:
+            raise RuntimeError("a defect, not a bad file")
+        return real(ctx, **k)
+    monkeypatch.setattr(locales, "view", broken)
+    with pytest.raises(RuntimeError):
+        templates.render("more.calls", ctx_of(h), lang="fa", n=1)

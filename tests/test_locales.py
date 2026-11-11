@@ -582,6 +582,43 @@ def test_view_leaves_out_a_pack_that_is_not_active(h, L):
     assert "only-in-xx" in json.dumps(L.view(ctx_of(h)))
 
 
+# --- 11b. every installed pack (P1-T3 fix round 1) ----------------------------------------------------------------
+
+
+def test_view_every_adds_the_installed_packs_the_profile_list_leaves_out(h, L):
+    set_profile(h, locales=["ir"])
+    c = ctx_of(h)
+    assert L.active(c) == ["ir", "en"]
+    assert set(L.view(c)["render"]) == {"en"}
+    got = L.view(c, every=True)["render"]
+    assert got["fa"] == FA_RENDER and got["en"] == {"script": ["AZ", "az"], "direction": "ltr"}
+    assert L.view(None, every=True) == L.view(None)  # without a profile every pack is active already
+
+
+def test_view_every_takes_the_active_packs_first_then_the_others_sorted(h, L):
+    put(h, "xx.json", pack("xx", words={"zz_label": "from xx", "zz_l": ["xx"]}))
+    put(h, "aa.json", pack("aa", words={"zz_label": "from aa", "zz_l": ["aa"], "zz_only_aa": "a"}))
+    put(h, "fa.json", pack("fa", words={"zz_label": "from fa", "zz_l": ["fa"], "zz_only_aa": "f"}))
+    set_profile(h, locales=["xx"])
+    c = ctx_of(h)
+    assert L.active(c) == ["xx", "en"]
+    assert L.view(c)["words"]["zz_l"] == ["xx"]  # the default is unchanged
+    got = L.view(c, every=True)["words"]
+    assert got["zz_label"] == "from xx"          # an active pack wins
+    assert got["zz_l"] == ["xx", "aa", "fa"]     # then aa, fa, ir by id
+    assert got["zz_only_aa"] == "a"              # of the others, the first by id wins
+    set_profile(h, locales=["fa", "xx"])
+    assert L.view(ctx_of(h), every=True)["words"]["zz_label"] == "from fa"
+
+
+def test_view_every_still_refuses_an_invalid_pack(h, L, LocaleError):
+    put(h, "broken.json", b"{")
+    set_profile(h, locales=["fa"])
+    with pytest.raises(LocaleError) as e:
+        L.view(ctx_of(h), every=True)
+    assert "broken.json" in str(e.value)
+
+
 # --- 12. hash layers --------------------------------------------------------------------------------------------
 
 
