@@ -25,7 +25,7 @@ def ctx(tmp_path):
     ws, data, root, lc, home = (tmp_path / n for n in ("ws", "data", "plugin", "lc", "home"))
     for d in (ws, data / "control", data / "business", root / "lib", lc / ".claude-plugin", home):
         d.mkdir(parents=True)
-    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.2.0"}')
     (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
     (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     (data / "control" / "budgets.json").write_text("{}")
@@ -180,7 +180,7 @@ def test_old_or_unreadable_loop_contract_refused(ctx, manifest):
     else:
         f.write_text(manifest)
     out = session.on_start({}, ctx)
-    assert out["state"] == "REFUSED" and "1.1.0" in out["reason"]
+    assert out["state"] == "REFUSED" and "1.2.0" in out["reason"]
 
 
 def test_newer_loop_contract_accepted(ctx):
@@ -188,6 +188,30 @@ def test_newer_loop_contract_accepted(ctx):
     with open(ctx.data_root / "config_log.jsonl", "a") as fh:
         fh.write(json.dumps({"layer": "loop_contract", "sha": session.current_hashes(ctx)["loop_contract"]}) + "\n")
     assert session.on_start({}, ctx) == {}
+
+
+def test_the_required_loop_contract_version_is_1_2_0():
+    assert session.MIN_LOOP_CONTRACT == (1, 2, 0)
+
+
+def test_loop_contract_1_1_0_with_every_flag_is_too_old(ctx):
+    (ctx.loop_contract_root / ".claude-plugin" / "plugin.json").write_text('{"version": "1.1.0"}')
+    assert session.loop_contract_problem(ctx.loop_contract_root) == "loop-contract 1.1.0 < 1.2.0"
+    out = session.on_start({}, ctx)
+    assert out["state"] == "REFUSED" and "loop-contract 1.1.0 < 1.2.0" in out["reason"]
+
+
+@pytest.mark.parametrize("version", ["1.2.0", "1.2.1", "1.10.0", "2.0.0"])
+def test_loop_contract_at_or_above_1_2_0_with_every_flag_has_no_problem(ctx, version):
+    (ctx.loop_contract_root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": version}))
+    assert session.loop_contract_problem(ctx.loop_contract_root) is None
+
+
+def test_loop_contract_1_2_0_missing_one_gate_flag_names_it(ctx):
+    fold = ctx.loop_contract_root / "skills" / "loop-contract" / "scripts" / "fold_ledger.py"
+    fold.write_text(" ".join(GATE_FLAGS[:-1]))
+    p = session.loop_contract_problem(ctx.loop_contract_root)
+    assert "lacks the gate flags" in p and p.endswith(f"{GATE_FLAGS[-1]}: update loop-contract")
 
 
 def test_layer_missing_from_config_log_is_tamper(ctx):

@@ -22,7 +22,7 @@ def h(tmp_path):
     ws, data, home, lc = (tmp_path / n for n in ("ws", "data", "home", "lc"))
     for d in (ws, data, home, lc / ".claude-plugin"):
         d.mkdir(parents=True)
-    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.2.0"}')
     (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
     (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     (ws / "orders.csv").write_text("Customer Name,Email,Amount\nA,a@x.example,10\n")

@@ -23,7 +23,7 @@ def ctx(tmp_path):
     for d in (home / ".claude", ws, data, plugin / ".claude-plugin", lc / ".claude-plugin"):
         d.mkdir(parents=True)
     (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "dynamic-harness"}')
-    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.2.0"}')
     (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
     (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     return Ctx(workspace=ws, data_root=data, plugin_root=plugin, home=home, loop_contract_root=lc)
@@ -514,7 +514,7 @@ def test_global_entries_that_weaken_the_sandbox_need_the_global_option(ctx):
 
 
 def test_a_loop_contract_that_lacks_the_gate_flags_is_refused_up_front(ctx):
-    # the published loop-contract said 1.1.0 before its fold_ledger learned the gate's flags (live, 2026-11-11)
+    # the published loop-contract 1.1.0 has no gate flags in its fold_ledger (live, 2026-11-11); 1.2.0 adds them
     (ctx.loop_contract_root / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text("--ledger --out")
     r = prompt(ctx, "/dynamic-harness:setup")["reason"]
     assert "lacks the gate flags" in r and "--receipt" in r
@@ -544,3 +544,90 @@ def test_undo_after_a_rerun_that_only_rerecorded_the_release_reverses_the_real_s
     assert "sandbox.enabled" in out["reason"]
     prompt(ctx, f"/dynamic-harness:setup confirm {code_of(out)}")
     assert not files(ctx)["local"].exists()
+
+
+# --- the required loop-contract version (1.2.0) and what the refusal tells the owner ---
+
+NOT_FOUND = ('the loop-contract plugin (>= 1.2.0) was not found; install it in Claude Code with '
+             '"/plugin marketplace add hdkhosravian/loop-contract-skill" and then '
+             '"/plugin install loop-contract@loop-contract", then run setup again')
+COMMANDS = ('"/plugin marketplace add hdkhosravian/loop-contract-skill" and then '
+            '"/plugin install loop-contract@loop-contract", then run setup again')
+
+
+def fake_lc(root, version, flags=GATE_FLAGS):
+    (root / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+    (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "loop-contract", "version": version}))
+    (root / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(flags))
+    return root
+
+
+def installed(ctx, *roots):
+    (ctx.home / ".claude" / "plugins").mkdir(parents=True, exist_ok=True)
+    (ctx.home / ".claude" / "plugins" / "installed_plugins.json").write_text(
+        json.dumps({"plugins": {"loop-contract@loop-contract": [{"installPath": str(r)} for r in roots]}}))
+
+
+def test_setup_without_any_loop_contract_names_the_install_commands(ctx):
+    ctx.loop_contract_root = None
+    with pytest.raises(setup.Blocked) as e:
+        setup.plan(ctx)
+    assert str(e.value) == NOT_FOUND
+
+
+def test_setup_with_a_loop_contract_older_than_required_names_the_update_commands(ctx):
+    from harness_core import session
+
+    fake_lc(ctx.loop_contract_root, "1.1.0")
+    problem = session.loop_contract_problem(ctx.loop_contract_root)
+    with pytest.raises(setup.Blocked) as e:
+        setup.plan(ctx)
+    assert str(e.value) == f"{problem}; update it in Claude Code with {COMMANDS}"
+    assert problem == "loop-contract 1.1.0 < 1.2.0"
+
+
+def test_setup_with_a_loop_contract_of_unknown_version_names_the_update_commands(ctx):
+    from harness_core import session
+
+    (ctx.loop_contract_root / ".claude-plugin" / "plugin.json").write_text("{not json")
+    problem = session.loop_contract_problem(ctx.loop_contract_root)
+    with pytest.raises(setup.Blocked) as e:
+        setup.plan(ctx)
+    assert str(e.value) == f"{problem}; update it in Claude Code with {COMMANDS}"
+
+
+def test_setup_with_a_current_loop_contract_that_lacks_a_flag_does_not_send_the_owner_to_install(ctx):
+    fake_lc(ctx.loop_contract_root, "1.2.0", GATE_FLAGS[1:])
+    with pytest.raises(setup.Blocked) as e:
+        setup.plan(ctx)
+    msg = str(e.value)
+    assert msg.endswith(": update loop-contract, then run setup again") and GATE_FLAGS[0] in msg
+    assert "/plugin install" not in msg
+
+
+def test_setup_with_a_loop_contract_without_fold_ledger_keeps_the_plain_form(ctx):
+    (ctx.loop_contract_root / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").unlink()
+    with pytest.raises(setup.Blocked) as e:
+        setup.plan(ctx)
+    assert str(e.value).endswith("has no readable fold_ledger.py, then run setup again")
+    assert "/plugin" not in str(e.value)
+
+
+def test_find_loop_contract_picks_the_1_2_0_install_over_the_1_1_0_one(ctx, tmp_path):
+    old, new = fake_lc(tmp_path / "c" / "1.1.0", "1.1.0"), fake_lc(tmp_path / "c" / "1.2.0", "1.2.0")
+    ctx.loop_contract_root = None
+    installed(ctx, old, new)
+    assert setup.find_loop_contract(ctx) == os.path.realpath(new)
+    installed(ctx, new, old)
+    assert setup.find_loop_contract(ctx) == os.path.realpath(new)
+
+
+def test_find_loop_contract_does_not_return_a_1_1_0_only_install_and_setup_refuses(ctx, tmp_path):
+    old = fake_lc(tmp_path / "c" / "1.1.0", "1.1.0")
+    ctx.loop_contract_root = None
+    installed(ctx, old)
+    assert setup.find_loop_contract(ctx) is None
+    with pytest.raises(setup.Blocked) as e:
+        setup.plan(ctx)
+    assert str(e.value) == NOT_FOUND

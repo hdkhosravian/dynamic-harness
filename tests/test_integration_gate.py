@@ -33,17 +33,17 @@ U1 = {"id": "u1", "claim": "How many widgets shipped?", "label": "Widgets", "che
 U2 = dict(U1, id="u2", claim="Which region led?", label="Region")
 
 REQUIRE = os.environ.get("HARNESS_REQUIRE_INTEGRATION") == "1"
-FLAGS_1_1_0 = ("--receipt", "--events-head", "--sources", "--fetch-log", "--snapshots", "--numbers-trace",
+GATE_FLAGS_HELP = ("--receipt", "--events-head", "--sources", "--fetch-log", "--snapshots", "--numbers-trace",
                "--outputs", "--require-logs", "--include", "--lint-lexicon", "--verify-chain", "--oracle-timeout")
 
 
 def fold_ledger_problem(path=FOLD):
-    """None when fold_ledger is present and speaks every 1.1.0 flag the gate passes, else why not."""
+    """None when fold_ledger is present and speaks every gate flag the gate passes, else why not."""
     if not os.path.isfile(path):
         return f"fold_ledger.py not found at {path}"
     r = subprocess.run(["python3", path, "--help"], capture_output=True, text=True, timeout=30)
-    missing = [f for f in FLAGS_1_1_0 if f not in r.stdout]
-    return f"fold_ledger at {path} lacks 1.1.0 flags {missing}" if r.returncode or missing else None
+    missing = [f for f in GATE_FLAGS_HELP if f not in r.stdout]
+    return f"fold_ledger at {path} lacks the gate flags {missing}" if r.returncode or missing else None
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ need_sandbox = pytest.mark.skipif(sandbox_exec.probe() is not None, reason="no w
 pytestmark = need_fold
 
 
-def test_fold_ledger_is_present_and_1_1_0():
+def test_fold_ledger_is_present_and_has_the_gate_flags():
     assert PROBLEM is None, PROBLEM
 
 
@@ -75,7 +75,7 @@ def test_missing_fold_ledger_is_reported(tmp_path):
     assert "not found" in fold_ledger_problem(str(tmp_path / "nope.py"))
     old = tmp_path / "old.py"
     old.write_text("import argparse; argparse.ArgumentParser().parse_args()\n")
-    assert "lacks 1.1.0 flags" in fold_ledger_problem(str(old))
+    assert "lacks the gate flags" in fold_ledger_problem(str(old))
 
 
 @pytest.fixture

@@ -156,7 +156,7 @@ def test_r6_tool_writes_to_control_prevented(ctx, tool, inp):
 def test_r6_out_of_band_write_detected(ctx, tmp_path):
     lc = tmp_path / "loop-contract"
     (lc / ".claude-plugin").mkdir(parents=True)
-    (lc / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "loop-contract", "version": "1.1.0"}))
+    (lc / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "loop-contract", "version": "1.2.0"}))
     (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
     (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     ctx.loop_contract_root = lc

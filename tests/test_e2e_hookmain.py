@@ -29,7 +29,7 @@ def h(tmp_path):
         d.mkdir(parents=True)
     (plugin / "bin" / "harness-hook").write_text("#!/usr/bin/python3 -I\n")
     shutil.copytree(ROOT / "skills", plugin / "skills")  # the packs that register card oracles
-    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.2.0"}')
     (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
     (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     (ws / "old.py").write_text("print('pre-existing')\n")
