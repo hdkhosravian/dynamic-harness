@@ -4,6 +4,9 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
 
 ## Unreleased
 
+- **Locale packs.** Words and regional facts get a data format (`harness/locale@1`, `control/defaults/locales/`,
+  live packs in `<data>/control/locales/`) and the profile list `locales` (`business add locales <id>`); with no
+  list every installed pack applies, as in 0.4.0. No word or pattern has moved into a pack yet.
 - **Live end-to-end scaffold.** `tests/e2e` runs one scripted `claude -p` request per pack and verifies its
   receipt with the harness's own check; it is skipped unless `HARNESS_E2E=1` and has not been run against a live
   model yet.

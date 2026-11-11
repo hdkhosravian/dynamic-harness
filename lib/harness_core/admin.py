@@ -144,8 +144,8 @@ def _business(ctx, sid, args) -> dict:
         return _offer(ctx, sid, "business", {"op": "set", "field": field, "value": value, "sentence": sentence},
                       lines)
     if args[0] in ("add", "remove") and len(args) >= 3 and args[1] in business.LIST_FIELDS:
-        value = " ".join(args[2:])
         business.guard(ctx)
+        value = business.list_entry(ctx, args[1], " ".join(args[2:]), args[0] == "add")
         sentence = (f"{'Add' if args[0] == 'add' else 'Remove'} {value!r} "
                     f"{'to' if args[0] == 'add' else 'from'} {business.LIST_FIELDS[args[1]]}.")
         return _offer(ctx, sid, "business", {"op": args[0], "field": args[1], "value": value, "sentence": sentence},

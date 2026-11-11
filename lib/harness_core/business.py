@@ -68,7 +68,8 @@ PROFILE_FIELDS = {
     "fx.USD": "the US dollar rate in your currency", "owner_name": "your name",
 }
 LIST_FIELDS = {"own_accounts": "your own bank accounts (transfers between them are not revenue)",
-               "do_not_contact": "the do-not-contact list", "protected_terms": "names that never go into a web search"}
+               "do_not_contact": "the do-not-contact list", "protected_terms": "names that never go into a web search",
+               "locales": "the active locale packs (ids of installed packs)"}
 
 
 def parse_value(field, raw: str, profile_calendar=None):
@@ -185,13 +186,24 @@ def set_field(ctx, field, value) -> None:
     baseline(ctx, f"business set {field}")
 
 
-def change_list(ctx, field, value, add: bool) -> None:
-    guard(ctx)
+def list_entry(ctx, field, value, add: bool) -> str:
+    """The entry as stored, or Denied with what is expected (checked when offered and again when written)."""
     if field not in LIST_FIELDS:
         raise Denied(f"unknown list {field!r}; lists: {', '.join(sorted(LIST_FIELDS))}")
     value = value.strip()
     if not value or len(value) > 200:
         raise Denied("a list entry is 1 to 200 characters")
+    if field == "locales" and add:
+        from . import locales
+        ids = sorted(locales.installed(ctx))
+        if value not in ids:
+            raise Denied(f"unknown locale pack {value!r}; installed: {', '.join(ids)}")
+    return value
+
+
+def change_list(ctx, field, value, add: bool) -> None:
+    guard(ctx)
+    value = list_entry(ctx, field, value, add)
     if field == "protected_terms":
         doc = _load(ctx, FILES["protected_terms"])
         items = list(doc.get("terms") or [])

@@ -39,7 +39,7 @@ def job_paths(data_root, workspace, job) -> JobPaths
 ## Errors (`harness_core/errors.py`)
 
 `HarnessError`, `TamperError(HarnessError)`, `Denied(HarnessError)` (has a
-`.reason`), `SchemaError(HarnessError)`.
+`.reason`), `SchemaError(HarnessError)`, `LocaleError(HarnessError)`.
 
 ## Canonical hashing (`harness_core/canon.py`)
 
@@ -701,3 +701,19 @@ its last `file_sha`, appends the row, then appends an event carrying
 - `enforcement.mode(component, ctx)`, `shadowed(component, ctx, reason)`: `control/enforcement.json`
   `{contacts, tripwire, shadow_draft}`.
 - `estimate.estimate(ctx, tier) -> {minutes, money, samples} | None`; `budget.rate(ctx)`, `month_spent(ctx)`.
+
+## P1: locale packs (`harness_core/locales.py`)
+
+- Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words}`, `schema` and `id`
+  required, no other top-level key. Shipped packs `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
+  `${CLAUDE_PLUGIN_DATA}/control/locales/<id>.json` (in the control hash). The id equals the file stem,
+  `[a-z0-9_-]{1,32}`; a file is regular, not a symlink, at most `MAX_BYTES` (256 KiB). Any violation raises
+  `LocaleError` naming the file.
+- `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, lists append items not yet
+  present, the first scalar wins, a kind conflict raises `LocaleError` naming the dotted key and both ids);
+  `installed(ctx=None) -> {pack_id: pack}` (shipped, then a live pack of the same id merged on top);
+  `active(ctx=None) -> [pack_id]` (profile list `locales` without repeats, then `BASE`; any other value: `BASE`, then
+  every other installed id sorted); `view(ctx=None) -> dict` (merge of the active packs without `schema`, `id`,
+  `name`). Files are read on every call.
+- `business.list_entry(ctx, field, value, add) -> str`: the checked list entry (`admin` calls it before offering a
+  code, `change_list` before writing); `business add locales <id>` needs an installed id.

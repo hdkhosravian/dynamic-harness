@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "schema": {
+      "enum": [
+        "harness/locale@1"
+      ],
+      "type": "string"
+    },
+    "words": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema",
+    "id"
+  ],
+  "type": "object"
+}
