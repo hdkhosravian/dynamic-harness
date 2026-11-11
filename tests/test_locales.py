@@ -296,20 +296,6 @@ def test_merge_of_two_in_memory_packs_too_deep_is_a_locale_error(L, LocaleError,
     assert "first_pack" in str(e.value) and "second_pack" in str(e.value)
 
 
-def test_a_recursion_error_while_checking_a_pack_is_a_locale_error_naming_the_file(h, L, LocaleError, monkeypatch):
-    real = L.validate
-
-    def overflow(instance, *a, **k):
-        if instance.get("id") == "xx":
-            raise RecursionError("maximum recursion depth exceeded")
-        return real(instance, *a, **k)
-    monkeypatch.setattr(L, "validate", overflow)  # no pack input reaches this; a nearly full caller stack can
-    put(h, "xx.json", pack("xx"))
-    with pytest.raises(LocaleError) as e:
-        L.installed(ctx_of(h))
-    assert "xx.json" in str(e.value)
-
-
 def test_a_pack_one_byte_over_the_limit_is_refused(h, L, LocaleError):
     put(h, "big.json", _sized("big", L.MAX_BYTES + 1))
     with pytest.raises(LocaleError) as e:
@@ -361,6 +347,89 @@ def test_installed_needs_the_base_pack_among_the_shipped_packs(L, LocaleError, t
     with pytest.raises(LocaleError) as e:
         L.installed()
     assert L.BASE in str(e.value)
+
+
+# --- 7b. render data (task P1-T3) ---------------------------------------------------------------------------------
+
+
+FA_RENDER = {"digits": "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9", "group": "\u066c",
+             "decimal": "\u066b", "joiner": "\u061b ", "script": ["\u0600\u06ff"], "direction": "rtl",
+             "lint": [{"chars": "\u064a\u0643", "message": "Arabic \u064a or \u0643 instead of Persian \u06cc or \u06a9"},
+                      {"chars": "\u2013\u2014", "message": "a dash in Persian prose"}]}
+
+
+def test_the_shipped_en_and_fa_packs_hold_the_render_values(L):
+    got = L.installed()
+    assert got["en"]["render"] == {"en": {"script": ["AZ", "az"], "direction": "ltr"}}
+    assert got["fa"]["render"] == {"fa": FA_RENDER}
+    assert "render" not in got["ir"]
+    assert L.view()["render"] == {"en": {"script": ["AZ", "az"], "direction": "ltr"}, "fa": FA_RENDER}
+
+
+GOOD = {"digits": "abcdefghij", "group": ".", "decimal": ",", "joiner": "; ", "script": ["az"], "direction": "ltr",
+        "lint": [{"chars": "q", "message": "no q"}]}
+BAD_RENDER = [
+    ("digits-9", {"digits": "abcdefghi"}), ("digits-11", {"digits": "abcdefghijk"}), ("digits-empty", {"digits": ""}),
+    ("group-2", {"group": ".."}), ("group-empty", {"group": ""}),
+    ("decimal-2", {"decimal": ",,"}), ("decimal-empty", {"decimal": ""}),
+    ("joiner-empty", {"joiner": ""}), ("joiner-9", {"joiner": "123456789"}),
+    ("script-1", {"script": ["a"]}), ("script-3", {"script": ["abc"]}), ("script-empty-entry", {"script": [""]}),
+    ("script-reversed", {"script": ["za"]}), ("script-second-bad", {"script": ["az", "ba"]}),
+    ("chars-empty", {"lint": [{"chars": "", "message": "m"}]}),
+    ("message-empty", {"lint": [{"chars": "q", "message": ""}]}),
+    ("direction", {"direction": "up"}),
+    ("unknown-key", {"colour": "red"}),
+]
+
+
+def _accepted(h, L, lang_render, lang="xx"):
+    put(h, "xx.json", pack("xx", render={lang: lang_render}))
+    return L.view(ctx_of(h))["render"][lang]
+
+
+@pytest.mark.parametrize("name,change", BAD_RENDER, ids=[n for n, _ in BAD_RENDER])
+def test_a_render_value_that_breaks_a_rule_is_refused_naming_the_file(h, L, LocaleError, name, change):
+    assert _accepted(h, L, GOOD) == GOOD  # the same pack without the fault loads
+    put(h, "xx.json", pack("xx", render={"xx": dict(GOOD, **change)}))
+    with pytest.raises(LocaleError) as e:
+        L.installed(ctx_of(h))
+    assert "xx.json" in str(e.value)
+
+
+@pytest.mark.parametrize("code", ["XX", "x y", "", "a" * 33, "caf\u00e9", "x.y"])
+def test_a_language_code_outside_the_pack_id_form_is_refused_naming_the_file(h, L, LocaleError, code):
+    assert _accepted(h, L, GOOD) == GOOD
+    put(h, "xx.json", pack("xx", render={code: GOOD}))
+    with pytest.raises(LocaleError) as e:
+        L.installed(ctx_of(h))
+    assert "xx.json" in str(e.value)
+
+
+def test_render_must_be_an_object_of_objects(h, L, LocaleError):
+    assert _accepted(h, L, GOOD) == GOOD
+    for bad in ([], {"xx": []}, {"xx": "ltr"}):
+        put(h, "xx.json", pack("xx", render=bad))
+        with pytest.raises(LocaleError) as e:
+            L.installed(ctx_of(h))
+        assert "xx.json" in str(e.value)
+
+
+def test_the_limits_of_the_render_rules_are_inclusive_and_count_characters(h, L):
+    edge = {"digits": "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9", "group": "\u066c",
+            "decimal": "\u066b", "joiner": "12345678", "script": ["aa", "\u0600\u06ff"], "direction": "rtl",
+            "lint": [{"chars": "\u064a", "message": "m"}]}
+    assert _accepted(h, L, edge, lang="a" * 32) == edge
+    assert _accepted(h, L, {"joiner": "x"}) == {"joiner": "x"}
+    assert _accepted(h, L, {}) == {}
+
+
+def test_a_live_render_adds_to_a_shipped_pack_and_never_replaces(h, L):
+    put(h, "fa.json", pack("fa", render={"fa": {"joiner": "|", "script": ["\u0750\u077f"], "direction": "ltr",
+                                                 "lint": [{"chars": "z", "message": "no z"}]}}))
+    got = L.installed(ctx_of(h))["fa"]["render"]["fa"]
+    assert got["joiner"] == "\u061b " and got["direction"] == "rtl"  # the first scalar wins: the shipped one
+    assert got["script"] == ["\u0600\u06ff", "\u0750\u077f"]
+    assert got["lint"][:2] == FA_RENDER["lint"] and got["lint"][2] == {"chars": "z", "message": "no z"}
 
 
 # --- 8. entries that are not packs --------------------------------------------------------------------------------

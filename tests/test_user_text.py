@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 from harness_core import lint_text, stopgate, templates
@@ -91,3 +92,360 @@ def test_the_plan_the_owner_sees_is_in_their_language(h):
     out = contact.apply({"tool": "contact", "type": "plan", "plan": plan}, ctx_of(h), {"session_id": SID})
     assert out["text"].startswith("پیش از شروع، برنامهٔ جست‌وجو این است") and "حداکثر ۲ صفحه" in out["text"]
     assert Path(templates.ROOT / "fa.json").is_file()
+
+
+# --- P1 task 3: the language list and the rendering data come from files ------------------------------------------
+
+import shutil  # noqa: E402
+
+import pytest  # noqa: E402
+
+from harness_core import business, locales, protected  # noqa: E402
+from harness_core.errors import Denied  # noqa: E402
+from test_locales import pack, put, set_profile  # noqa: E402
+
+SHIPPED_TEMPLATES = ROOT / "templates"
+FA_MORE = " قدم دیگر"  # " more steps" in Persian (templates/fa.json more.calls)
+EL_DIGITS = "₀₁₂₃₄₅₆₇₈₉"
+EL_RENDER = {"el": {"digits": EL_DIGITS, "group": "·", "joiner": " / ", "script": ["ͰϿ"],
+                    "direction": "ltr", "lint": [{"chars": "ς", "message": "final sigma"}]}}
+EL_TEXT = {"state.checked": "OK-el", "state.not_fully": "NF: {what}", "state.partly": "P {done}/{total}",
+           "more.calls": "{n} calls", "reason.lexicon": "R-LEX", "reason.known_mode": "R-KM",
+           "note.left_out_undated": "gone: {n}", "note.sources_disagree": "{x}|{b}|{y}|{gap}"}
+
+
+def template_dir(tmp_path, monkeypatch, **files):
+    """A copy of the shipped template files plus ``name=dict`` extra files; ``templates.ROOT`` points at it."""
+    d = tmp_path / "templates"
+    shutil.copytree(SHIPPED_TEMPLATES, d)
+    for name, table in files.items():
+        (d / f"{name}.json").write_text(json.dumps(table), "utf-8")
+    monkeypatch.setattr(templates, "ROOT", d)
+    return d
+
+
+def shipped_with(tmp_path, monkeypatch, pid, extra, name="defaults"):
+    """The shipped locale packs plus one more shipped pack ``pid`` (what the lint reads: no context)."""
+    d = tmp_path / name
+    shutil.copytree(protected.DEFAULTS_DIR, d)
+    (d / "locales" / f"{pid}.json").write_text(json.dumps(pack(pid, **extra)), "utf-8")
+    monkeypatch.setattr(protected, "DEFAULTS_DIR", d)
+
+
+def count_views(monkeypatch):
+    calls = []
+    real = locales.view
+    monkeypatch.setattr(locales, "view", lambda *a, **k: calls.append(1) or real(*a, **k))
+    return calls
+
+
+# 1. the language list
+
+def test_langs_are_the_stems_of_the_json_files_with_the_base_first(tmp_path, monkeypatch):
+    assert templates.langs() == ["en", "fa"]
+    assert not hasattr(templates, "LANGS")
+    d = tmp_path / "t"
+    d.mkdir()
+    monkeypatch.setattr(templates, "ROOT", d)
+    for name in ("zz", "0b", "fa", "xx", "en", "aa", "a" * 32):
+        (d / f"{name}.json").write_text("{}")
+    for name in ("Bad.json", "a.b.json", "x y.json", "a" * 33 + ".json", "café.json", ".json", "yy.txt",
+                 "yy.json.bak", "UP.JSON", "noext"):
+        (d / name).write_text("{}")
+    assert templates.langs() == ["en", "0b", "aa", "a" * 32, "fa", "xx", "zz"]
+    (d / "en.json").unlink()
+    assert templates.langs() == ["0b", "aa", "a" * 32, "fa", "xx", "zz"]  # no base file: sorted only
+    (d / "new.json").write_text("{}")
+    assert "new" in templates.langs()  # the folder is read at each call
+    monkeypatch.setattr(templates, "ROOT", tmp_path / "missing")
+    assert templates.langs() == []
+
+
+# 2. what the present code writes, pinned as literals (recorded at f2b8dac)
+
+@pytest.mark.parametrize("value,fa,en", [
+    (1234567, "۱٬۲۳۴٬۵۶۷", "1234567"),
+    (1234.5, "۱٬۲۳۴٫۵", "1234.5"),
+    (Decimal("1234567.25"), "۱٬۲۳۴٬۵۶۷٫۲۵", "1234567.25"),
+    (True, "True", "True"),
+    (0, "۰", "0"),
+    (12, "۱۲", "12"),
+])
+def test_numbers_are_written_with_the_digits_of_the_language(value, fa, en):
+    assert templates.render("more.calls", lang="fa", n=value) == fa + FA_MORE
+    assert templates.render("more.calls", lang="en", n=value) == en + " more steps"
+
+
+def test_two_numbers_in_one_sentence_and_a_string_value_left_alone():
+    assert templates.render("opening.estimate", lang="fa", lo=1.5, hi=Decimal("20000.75"), money="") == \
+        "کارهای مشابه حدود " \
+        "۱٫۵ تا ۲۰٬۰۰۰٫۷۵ " \
+        "دقیقه طول کشیده‌اند."
+    assert templates.render("more.calls", lang="fa", n="12") == "12" + FA_MORE  # strings are left alone
+
+
+STATE_FA = "انجام شد، ولی کامل " \
+           "بررسی نشد: "
+R_NUMBERS = "برخی عددها به هیچ " \
+            "بررسی‌ای نمی‌رسند"
+R_LEXICON = "متن، بررسی را خودش " \
+            "تأیید کرده است"
+R_KNOWN = "همهٔ بخش‌ها بررسی " \
+          "اجرایی نداشتند"
+R_NOEXEC = "بررسی اجرایی نداشت"
+SEMI = "؛ "
+
+
+@pytest.mark.parametrize("state,want", [
+    ("Partly done: 2 of 5", "بخشی انجام شد: ۲ از ۵"),
+    ("Done, not fully checked: numbers_untraced", STATE_FA + R_NUMBERS),
+    ("Done, not fully checked: lexicon", STATE_FA + R_LEXICON),
+    ("Done, not fully checked: known mode", STATE_FA + R_KNOWN),
+    ("Done, not fully checked: no executable check", STATE_FA + R_NOEXEC),
+    ("Done, not fully checked: lexicon; known mode", STATE_FA + R_LEXICON + SEMI + R_KNOWN),
+    ("Done, not fully checked: something else", STATE_FA + "something else"),
+    ("Done, not fully checked: lexicon; something else; no executable check",
+     STATE_FA + R_LEXICON + SEMI + "something else" + SEMI + R_NOEXEC),
+    ("Odd state", "Odd state"),
+    ("", ""),
+])
+def test_the_persian_state_line_pinned(state, want):
+    assert templates.state_line(state, lang="fa") == want
+
+
+def test_the_english_state_line_is_the_state():
+    for s in ("Checked", "Partly done: 2 of 5", "Done, not fully checked: lexicon; known mode"):
+        assert templates.state_line(s, lang="en") == s
+
+
+def test_check_notes_in_persian_pinned():
+    def entry(code, **params):
+        return {"code": code, "params": params}
+    assert templates.note(entry("left_out_undated", n="12"), "EN", lang="fa") == \
+        "کنار گذاشته شد: ۱۲ " \
+        "ردیف بدون تاریخ"
+    got = templates.note(entry("sources_disagree", x="10", b="B7", y="20", gap="5"), "EN", lang="fa")
+    assert got == "منبع‌ها با هم " \
+        "نمی‌خوانند: این فایل " \
+        "۱۰ را نشان می‌دهد و B7 " \
+        "عدد ۲۰ را؛ اختلاف ۵ " \
+        "توضیحی ندارد"  # b keeps its digit; the others change
+    assert templates.note(entry("left_out_undated", n=12), "EN", lang="fa") == \
+        templates.note(entry("left_out_undated", n="12"), "EN", lang="fa")
+    assert templates.note(entry("left_out_undated", n="12"), "EN", lang="en") == "EN"
+    assert templates.note(entry("no_such_code", n="12"), "EN", lang="fa") == "EN"
+
+
+# 3. language()
+
+def test_the_profile_language_wins_when_a_template_file_exists(h):
+    set_profile(h, language="fa")
+    say(h, "How much did we sell in March?", "t1")
+    assert templates.language(ctx_of(h)) == "fa"
+    set_profile(h, language="en")
+    say(h, "فروش اسفن چقدر بود؟", "t2")
+    assert templates.language(ctx_of(h)) == "en"
+
+
+def test_a_profile_language_without_a_template_file_is_ignored(h):
+    set_profile(h, language="zz")
+    assert templates.language(ctx_of(h)) == "en"
+    say(h, "فروش اسفن چقدر بود؟", "t1")
+    assert templates.language(ctx_of(h)) == "fa"
+
+
+@pytest.mark.parametrize("text,want", [
+    ("فروش اسفن", "fa"),
+    ("abc ابجد", "fa"),       # 4 Arabic-script letters against 3 Latin
+    ("abcde ابج", "en"),           # 3 against 5
+    ("ab اب", "en"),                    # a tie goes to the base language
+    ("12 34 ... ?", "en"),                        # no letters at all
+    ("۱۲۳ x", "fa"),               # Persian digits fall in the Arabic block: 3 against 1
+])
+def test_the_language_of_a_turn_follows_the_letter_counts(h, text, want):
+    say(h, text, "t1")
+    assert templates.language(ctx_of(h)) == want
+
+
+def test_no_turn_gives_the_base_language(h):
+    assert templates.language(ctx_of(h)) == "en"
+    assert templates.language(None) == "en"
+
+
+def test_a_broken_live_pack_never_breaks_the_language_or_a_number(h):
+    say(h, "فروش اسفن", "t1")
+    put(h, "broken.json", b"{")
+    c = ctx_of(h)
+    assert templates.language(c) == "fa"
+    assert templates.render("more.calls", c, n=1234) == "۱٬۲۳۴" + FA_MORE
+    assert templates.state_line("Done, not fully checked: lexicon; known mode", c) == \
+        STATE_FA + R_LEXICON + SEMI + R_KNOWN
+    assert templates.note({"code": "left_out_undated", "params": {"n": "12"}}, "EN", c, "fa").endswith(
+        "بدون تاریخ")
+
+
+def test_the_view_is_read_once_per_public_call(h, monkeypatch):
+    c = ctx_of(h)
+    say(h, "فروش", "t1")
+    calls = count_views(monkeypatch)
+    templates.render("stopped_budget", c, lang="fa", done=1, total=2, more="x")
+    assert len(calls) == 1
+    calls.clear()
+    templates.language(c)
+    assert len(calls) == 1
+    calls.clear()
+    templates.state_line("Done, not fully checked: lexicon; known mode; x", c, "fa")
+    assert len(calls) == 1
+    calls.clear()
+    templates.note({"code": "left_out_undated", "params": {"n": "12"}}, "EN", c, "fa")
+    assert len(calls) == 1
+
+
+# 4. a new language with no change in the code
+
+def test_a_new_language_needs_two_data_files_and_no_code(h, tmp_path, monkeypatch):
+    template_dir(tmp_path, monkeypatch, el=EL_TEXT)
+    say(h, "Γειά σου κόσμε", "g1")
+    put(h, "el.json", pack("el", render=EL_RENDER))
+    c = ctx_of(h)
+    assert templates.langs() == ["en", "el", "fa"]
+    assert templates.language(c) == "el"                                   # a turn in its script
+    assert templates.render("more.calls", c, n=1234567) == "₁·₂₃₄·₅₆₇ calls"
+    assert templates.render("more.calls", c, n=12.5) == "₁₂.₅ calls"   # decimal: the default mark
+    assert templates.render("more.calls", c, n="12") == "12 calls"
+    assert templates.state_line("Checked", c, "el") == "OK-el"
+    assert templates.state_line("Partly done: 2 of 5", c, "el") == "P ₂/₅"
+    assert templates.state_line("Done, not fully checked: lexicon; Known--Mode!; odd one", c, "el") == \
+        "NF: R-LEX / R-KM / odd one"
+    entry = {"code": "sources_disagree", "params": {"x": "10", "b": "B7", "y": "20", "gap": "5"}}
+    assert templates.note(entry, "EN", c, "el") == "₁₀|B7|₂₀|₅"
+    assert business.parse_value("language", "EL") == "el"
+    say(h, "\u03b1\u0627", "g2")  # one letter of each script, no Latin: el and fa tie, the first in langs() order wins
+    assert templates.language(c) == "el"
+    say(h, "\u03b1\u03b2\u0627 x", "g3")  # el 2, fa 1, en 1
+    assert templates.language(c) == "el"
+    say(h, "\u03b1\u0627\u0628", "g4")  # el 1, fa 2
+    assert templates.language(c) == "fa"
+    # a changed pack is seen by the next call in the same process
+    put(h, "el.json", pack("el", render={"el": dict(EL_RENDER["el"], digits="ABCDEFGHIJ", joiner=" + ")}))
+    assert templates.render("more.calls", ctx_of(h), lang="el", n=12) == "BC calls"
+    assert templates.state_line("Done, not fully checked: lexicon; known mode", ctx_of(h), "el") == "NF: R-LEX + R-KM"
+
+
+def test_a_new_language_is_checked_by_the_lint(tmp_path, monkeypatch):
+    en = json.loads((SHIPPED_TEMPLATES / "en.json").read_text("utf-8"))
+    template_dir(tmp_path, monkeypatch, el=dict(en, handoff="Hello ς there"))
+    shipped_with(tmp_path, monkeypatch, "el", {"render": EL_RENDER})
+    assert lint_text.lint() == ["el:handoff: final sigma"]
+
+
+# 5. numbers
+
+def test_a_language_with_only_a_group_mark_keeps_ascii_digits(h, tmp_path, monkeypatch):
+    template_dir(tmp_path, monkeypatch, qq={"x": "<{n}>"})
+    put(h, "qq.json", pack("qq", render={"qq": {"group": "'"}}))
+    c = ctx_of(h)
+    assert templates.render("x", c, lang="qq", n=1234567) == "<1'234'567>"
+    assert templates.render("x", c, lang="qq", n=1234.5) == "<1'234.5>"
+    assert templates.render("x", c, lang="qq", n=Decimal("1234.25")) == "<1'234.25>"
+    assert templates.render("x", c, lang="qq", n=True) == "<True>"
+
+
+def test_decimal_only_and_digits_only_languages(h, tmp_path, monkeypatch):
+    template_dir(tmp_path, monkeypatch, qq={"x": "<{n}>"}, rr={"x": "<{n}>"})
+    put(h, "qq.json", pack("qq", render={"qq": {"decimal": ","}}))
+    put(h, "rr.json", pack("rr", render={"rr": {"digits": "abcdefghij"}}))
+    c = ctx_of(h)
+    assert templates.render("x", c, lang="qq", n=12.5) == "<12,5>"
+    assert templates.render("x", c, lang="rr", n=1234.5) == "<b,cde.f>"
+    assert templates.render("x", c, lang="rr", n="12") == "<12>"
+
+
+def test_a_language_with_no_number_key_returns_the_value_unchanged(h, tmp_path, monkeypatch):
+    template_dir(tmp_path, monkeypatch, qq={"x": "<{n}>"}, ss={"x": "<{n}>"})
+    put(h, "qq.json", pack("qq", render={"qq": {"joiner": "|", "direction": "ltr"}}))  # ss has no pack at all
+    c = ctx_of(h)
+    for lang in ("qq", "ss"):
+        assert templates.render("x", c, lang=lang, n=1234567.5) == "<1234567.5>"
+        assert templates.render("x", c, lang=lang, n=Decimal("1234567.5")) == "<1234567.5>"
+    assert templates.render("more.calls", c, lang="en", n=1234567.5) == "1234567.5 more steps"
+
+
+def test_without_a_joiner_the_reasons_are_joined_with_a_semicolon(h, tmp_path, monkeypatch):
+    template_dir(tmp_path, monkeypatch, qq={"state.not_fully": "{what}", "reason.lexicon": "L"})
+    put(h, "qq.json", pack("qq", render={"qq": {"group": "'"}}))
+    assert templates.state_line("Done, not fully checked: lexicon; other", ctx_of(h), "qq") == "L; other"
+
+
+# 6. lint
+
+def _fa_with(monkeypatch, **changes):
+    real = templates.load
+    monkeypatch.setattr(templates, "load", lambda lang: dict(real(lang), **changes) if lang == "fa" else real(lang))
+
+
+@pytest.mark.parametrize("ch,msg", [
+    ("ي", "Arabic ي or ك instead of Persian ی or ک"),
+    ("ك", "Arabic ي or ك instead of Persian ی or ک"),
+    ("–", "a dash in Persian prose"),
+    ("—", "a dash in Persian prose"),
+])
+def test_each_forbidden_persian_character_gives_its_message(monkeypatch, ch, msg):
+    _fa_with(monkeypatch, handoff="سلام " + ch + " دنیا")
+    assert lint_text.lint() == [f"fa:handoff: {msg}"]
+
+
+@pytest.mark.parametrize("text,bad", [
+    ("Hello {n} \u0633\u0644\u0627\u0645", True),
+    ("\u03b1\u03b2 {n} \u0633\u0644\u0627\u0645", True),          # any left-to-right letter, not only A-Z
+    ("{n} Hello \u0633\u0644\u0627\u0645", True),                  # placeholders are removed first
+    ("{n} \u0633\u0644\u0627\u0645 Hello", False),
+    ("  \u0633\u0644\u0627\u0645 {n} Hello", False),
+    ("123 {n} \u0633\u0644\u0627\u0645", False),
+])
+def test_a_right_to_left_text_must_not_start_with_a_left_to_right_letter(monkeypatch, text, bad):
+    _fa_with(monkeypatch, **{"more.calls": text})
+    want = ["fa:more.calls: starts with a left-to-right letter (renders left to right)"] if bad else []
+    assert lint_text.lint() == want
+
+
+def test_the_same_text_in_a_left_to_right_language_is_fine(tmp_path, monkeypatch):
+    fa = json.loads((SHIPPED_TEMPLATES / "fa.json").read_text("utf-8"))
+    template_dir(tmp_path, monkeypatch, el=dict(fa, handoff="Hello world"))
+    shipped_with(tmp_path, monkeypatch, "el", {"render": {"el": {"direction": "ltr"}}})
+    assert lint_text.lint() == []
+    shipped_with(tmp_path, monkeypatch, "el", {"render": {"el": {"direction": "rtl"}}}, name="rtl")
+    assert lint_text.lint() == ["el:handoff: starts with a left-to-right letter (renders left to right)"]
+
+
+def test_a_language_without_render_data_gets_only_the_general_rules(tmp_path, monkeypatch):
+    en = json.loads((SHIPPED_TEMPLATES / "en.json").read_text("utf-8"))
+    xx = dict(en)
+    xx["refused"] = "The gate refused this."
+    xx["more.calls"] = "{m} more"
+    xx["opening.T0"] = "A ي — ك x"
+    del xx["handoff"]
+    template_dir(tmp_path, monkeypatch, xx=xx)
+    assert sorted(lint_text.lint()) == sorted([
+        "xx:refused: internal term 'gate'",
+        "xx:more.calls: placeholders ['m'] differ from en ['n']",
+        "xx: missing handoff"])
+
+
+# 7. business
+
+def test_the_language_field_accepts_the_languages_of_the_template_files():
+    assert business.parse_value("language", "fa") == "fa"
+    assert business.parse_value("language", " EN ") == "en"
+    with pytest.raises(Denied) as e:
+        business.parse_value("language", "zz")
+    assert str(e.value) == "language is one of: en, fa"
+
+
+# 10. import order
+
+@pytest.mark.parametrize("first", ["business", "templates", "locales"])
+def test_each_module_imports_first_in_a_fresh_process(first):
+    code = f"import sys; sys.path.insert(0, {str(ROOT / 'lib')!r}); import harness_core.{first}"
+    r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr

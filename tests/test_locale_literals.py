@@ -82,6 +82,14 @@ PERMANENT = {
 }
 
 
+# Pairs (path, rule) that a task has cleared: they are gone from ALLOWED and must not come back.
+CLEARED = {
+    ("lib/harness_core/lint_text.py", "lang"), ("lib/harness_core/lint_text.py", "region"),
+    ("lib/harness_core/lint_text.py", "script"), ("lib/harness_core/templates.py", "region"),
+    ("lib/harness_core/business.py", "lang"),
+}
+
+
 def differences(found: dict, recorded: dict):
     rows = []
     for path in sorted(set(found) | set(recorded)):
@@ -102,6 +110,13 @@ def test_the_permanent_hits_are_recorded_and_explained():
     for (path, rule), reason in PERMANENT.items():
         assert ALLOWED.get(path, {}).get(rule, 0) > 0, (path, rule)
         assert isinstance(reason, str) and reason.strip(), (path, rule)
+
+
+def test_a_cleared_literal_is_not_allowed_again():
+    for path, rule in sorted(CLEARED):
+        assert (ROOT / path).is_file(), path
+        assert rule in PATTERNS or rule == "script", (path, rule)
+        assert rule not in ALLOWED.get(path, {}), (path, rule)
 
 
 def test_every_allowed_count_is_positive_and_names_a_known_rule():
