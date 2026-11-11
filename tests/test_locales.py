@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 
 import pytest
 
@@ -192,7 +193,7 @@ BAD_CONTENT = [
     ("upper.json", {"schema": SCHEMA, "id": "Upper"}),
     ("dot.dot.json", {"schema": SCHEMA, "id": "dot.dot"}),
     ("a" * 33 + ".json", {"schema": SCHEMA, "id": "a" * 33}),
-    ("café.json", {"schema": SCHEMA, "id": "café"}),
+    ("caf\u00e9.json", {"schema": SCHEMA, "id": "caf\u00e9"}),
 ]
 
 
@@ -231,6 +232,26 @@ def _sized(pid, size):
     head = '{"schema": "harness/locale@1", "id": "%s", "name": "' % pid
     tail = '"}'
     return (head + "x" * (size - len(head) - len(tail)) + tail).encode("utf-8")
+
+
+def _deep(pid, opener, closer, leaf, depth):
+    head = '{"schema": "harness/locale@1", "id": "%s", "words": ' % pid
+    return (head + opener * depth + leaf + closer * depth + "}").encode("utf-8")
+
+
+@pytest.mark.parametrize("name,data", [
+    ("deep.json", _deep("deep", '{"a": ', "}", "1", 5000)),
+    ("arrays.json", b"[" * 100000),
+    ("wordarr.json", _deep("wordarr", "[", "]", "1", 5000)),
+], ids=["objects", "unclosed-arrays", "arrays"])
+def test_a_pack_nested_too_deep_is_a_locale_error_that_names_the_file(h, L, LocaleError, name, data):
+    assert len(data) < L.MAX_BYTES
+    put(h, name, data)
+    set_profile(h, locales=["fa"])
+    for fn in (L.installed, L.active, L.view):
+        with pytest.raises(LocaleError) as e:
+            fn(ctx_of(h))
+        assert name in str(e.value)
 
 
 def test_a_pack_one_byte_over_the_limit_is_refused(h, L, LocaleError):
@@ -329,6 +350,14 @@ def test_merge_first_scalar_wins_even_when_it_is_falsy(L):
     a = ("a", {"s": "", "n": 0, "b": False, "z": None, "t": "a"})
     b = ("b", {"s": "b", "n": 2, "b": True, "z": "x", "t": 1, "late": 0})
     assert L.merge([a, b]) == {"s": "", "n": 0, "b": False, "z": None, "t": "a", "late": 0}
+
+
+def test_merge_keeps_the_first_list_as_written_and_skips_what_is_already_there(L):
+    assert L.merge([("a", {"l": [1, 1]})]) == {"l": [1, 1]}
+    assert L.merge([("a", {"l": [1, 1]}), ("b", {"l": [1, 2, 2]})]) == {"l": [1, 1, 2]}
+    objs = [{"k": 1}, {"k": 1}]
+    assert L.merge([("a", {"l": objs}), ("b", {"l": [{"k": 1}, {"k": 2}, {"k": 2}]})]) == \
+        {"l": [{"k": 1}, {"k": 1}, {"k": 2}]}
 
 
 def test_merge_of_one_pack_is_an_equal_copy(L):
@@ -476,12 +505,18 @@ def test_two_packs_keep_the_order_they_were_added_in(h, L):
     assert L.active(ctx_of(h)) == ["ir", "fa", "en"]
 
 
-def test_an_unknown_pack_is_refused_and_nothing_is_written(h, L):
+def test_an_unknown_pack_is_refused_when_the_owner_types_it(h, L):
     shown = typed(h, "/dynamic-harness:business add locales zz", "b1")
-    if "confirm" in shown:  # refused when offered, or when confirmed: either way nothing is written
-        shown = confirm(h, "business", shown, "b2")
     assert "unknown locale pack 'zz'; installed: en, fa, ir" in shown
-    assert "Done." not in shown and "locales" not in business.profile(ctx_of(h))
+    assert not re.search(r"confirm \d{6}", shown), shown  # no code is offered
+    assert "Nothing is waiting" in typed(h, "/dynamic-harness:business confirm 000000", "b2")
+    assert business.profile(ctx_of(h)) == {} and not (h["data"] / "business" / "profile.json").exists()
+
+
+def test_the_check_at_confirm_time_refuses_too(h, L):
+    with pytest.raises(Denied) as e:
+        business.change_list(ctx_of(h), "locales", "zz", True)
+    assert "unknown locale pack 'zz'; installed: en, fa, ir" in str(e.value)
     assert not (h["data"] / "business" / "profile.json").exists()
 
 
@@ -502,6 +537,15 @@ def test_an_unknown_pack_leaves_the_profile_as_it_was(h, L):
     with pytest.raises(Denied):
         business.change_list(ctx_of(h), "locales", "zz", True)
     assert path.read_bytes() == before and business.profile(ctx_of(h))["locales"] == ["fa"]
+
+
+def test_the_owner_removes_an_id_whose_pack_is_gone(h, L):
+    put(h, "xx.json", pack("xx"))
+    confirm(h, "business", typed(h, "/dynamic-harness:business add locales xx", "b1"), "b2")
+    (live_dir(h) / "xx.json").unlink()
+    assert L.active(ctx_of(h)) == SHIPPED  # the list names a pack that is not installed: every pack applies
+    assert "Done." in confirm(h, "business", typed(h, "/dynamic-harness:business remove locales xx", "b3"), "b4")
+    assert business.profile(ctx_of(h))["locales"] == []
 
 
 def test_the_owner_removes_a_pack(h, L):

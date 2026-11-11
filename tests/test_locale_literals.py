@@ -116,12 +116,12 @@ HITS = [
     ("jalali", {"calendar": 1}), ("Esfand 30", {"calendar": 1}), ("Persian digits", {"region": 1}),
     ("news.example.ir", {"tld": 1}), ('"fa"', {"lang": 1}), ("label_fa", {"lang": 1}),
     ("CURRENCY_FA", {"lang": 1}), ("lang=fa,", {"lang": 1}),
-    ("ا", {"script": 1}),  # a Persian letter
-    ("۱", {"script": 1}),  # a Persian digit
-    ("IRT IRR", {"currency": 2}), ("اب x ۱", {"script": 3}),
+    ("\u0627", {"script": 1}),  # a Persian letter
+    ("\u06f1", {"script": 1}),  # a Persian digit
+    ("IRT IRR", {"currency": 2}), ("\u0627\u0628 x \u06f1", {"script": 3}),
 ]
 MISSES = ["default", "dirt", "dir", "first", "x.iri", "0xfa", "trial", "material",
-          "—", "§", "→", "", "plain ASCII text 123"]
+          "\u2014", "\u00a7", "\u2192", "", "plain ASCII text 123"]  # em dash, section sign, arrow
 
 
 @pytest.mark.parametrize("text,expected", HITS)
@@ -132,3 +132,11 @@ def test_a_literal_is_counted_by_its_rule(text, expected):
 @pytest.mark.parametrize("text", MISSES)
 def test_a_look_alike_is_not_counted(text):
     assert count(text) == {}
+
+
+def test_the_scan_reads_code_in_all_four_folders_and_no_test_or_data_file():
+    files = [p.relative_to(ROOT).as_posix() for p in scanned_files(ROOT)]
+    assert "tools/release_hashes.py" in files and "hooks/hooks.json" in files
+    assert "lib/harness_core/locales.py" in files and any(f.startswith("bin/") for f in files)
+    for f in files:
+        assert not f.startswith(("tests/", "control/", "templates/", "schema/", "skills/")), f
