@@ -665,8 +665,11 @@ its last `file_sha`, appends the row, then appends an event carrying
   sha256 equal to the manifest's), `hash_entries(pack_dir)`. A check id is registered by exactly one pack.
   `tools/release_hashes.py <label>` re-hashes manifests and approves shipped skills.
 - `checklib`: a check reads `{check_id, unit, attempt, args, inputs[{name, path, sha256}], work, run, business,
-  card, today}` on stdin, with `inputs/`, `work/` and `run/` in its cwd, and prints
-  `{result: pass|fail, values, notes}`. `checklib.main(fn)` with `fn(req) -> (result, values, notes)`.
+  card, today, locale: {fold}}` on stdin, with `inputs/`, `work/` and `run/` in its cwd, and prints
+  `{result: pass|fail, values, notes}`. `checklib.main(fn)` with `fn(req) -> (result, values, notes)`; before `fn`
+  it hands `req["locale"]["fold"]` to `localize.use_fold`. `run.apply` sets `locale.fold` to the `fold` of
+  `locales.view(ctx, every=True)` (`{}` when no pack has one): the sandbox cannot read the live packs, and the gate
+  replays a check with the recorded request, so the fold must travel in it to give the replay the same table.
 - `run.apply(req, ctx, evt)` (event `run`, `harness-hook PostToolUse --run`, 300 s) -> `{check_id, unit,
   attempt, result, sha256, values, notes}`; `Outputs.record(..., extra, blobs)` keeps `inputs[{source, sha256}]`,
   `stdin_sha`, `work_sha`, `notes`, `pack`, `entry_sha` and the stdin and input blobs.
@@ -674,9 +677,17 @@ its last `file_sha`, appends the row, then appends an event carrying
 - `oracle.py` (run by fold_ledger in done mode): replays every output a PASS gate row cites, on
   `outputs/submitted/`; exit 0 only when result and values match. `gatehook._oracle` sets `oracle_cmd` when the
   card's oracle is an executable registered check.
-- `localize`: `digits`, `fold_name`, `to_gregorian`, `to_jalali`, `is_leap_jalali`, `month_length`,
-  `parse_date`, `parse_amount`, `currency_of`, `to_unit`, `period(spec, profile)`, `prior_period`, `label_fa`.
+- `localize`: `decimals`, `digits`, `use_fold`, `fold_name`, `to_gregorian`, `to_jalali`, `is_leap_jalali`,
+  `month_length`, `parse_date`, `parse_amount`, `currency_of`, `to_unit`, `period(spec, profile)`, `prior_period`,
+  `label_fa`.
   `tables.read(path) -> (headers, rows)` (CSV/TSV, stdlib XLSX; DTDs refused). `bin/harness-normalize`.
+  `decimals(text)`: every character that has a Unicode decimal value becomes that ASCII digit, for every script.
+  `digits(text)`: NFC, `decimals`, and U+066B (Arabic decimal separator) becomes `.`. `fold_name(text)`: `digits`,
+  the letter folds, every format character (category `Cf`) a space, marks (`Mn`) removed, white space collapsed,
+  casefolded. The letter folds are those given to `use_fold(fold)` (a check request's `locale.fold`); otherwise
+  (a request without `locale`, `harness-normalize`, `model_cmd`, `business.parse_value`, a direct call) the
+  `fold.letters` of the shipped packs, `locales.view(None, every=True)`, read once per process on first use
+  (`locales` is imported then, not at the import of `localize`; tests reset it with `localize._fold = None`).
 - Packs: `finance` (`finance.reconcile|kpi|bridge|list`, `finance.py`), `research` (`research.check|report`,
   `research.py`), `model` (`model.recalc|checks|report|workbook`, `model.py`), `operations` (`doc.check`,
   `decide.score_flip`, `operations.py`).
@@ -709,7 +720,7 @@ its last `file_sha`, appends the row, then appends an event carrying
 ## P1: locale packs (`harness_core/locales.py`)
 
 - Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words, render, state_lexicon,
-  question_marks}`, `schema` and `id` required, no other top-level key. Shipped packs
+  question_marks, fold}`, `schema` and `id` required, no other top-level key. Shipped packs
   `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
   `${CLAUDE_PLUGIN_DATA}/control/locales/<id>.json` (in the control hash). The id equals the file stem,
   `[a-z0-9_-]{1,32}`; a file is regular, not a symlink, at most `MAX_BYTES` (256 KiB). Any violation raises
@@ -739,8 +750,16 @@ its last `file_sha`, appends the row, then appends an event carrying
   `state_lexicon`: closed object `{terms, template_lines}`, lists of non-empty strings.
   `question_marks`: list of strings of exactly 1 character. The shipped words of 0.4.0 are split between `en`
   (ASCII entries and `€ £ ✓ ✔`), `ir` (the nine currency words of one country) and `fa` (the others).
-- `EVERY = ("render", "state_lexicon", "question_marks")`: the keys that every installed pack supplies. `words` are
-  read from the active packs only.
+- `fold`: closed object `{letters}`; `letters` maps one character to one character (checked at load, `LocaleError`
+  naming the file and `fold.letters`): key and value are each exactly 1 letter (category `L*`), the key is not
+  ASCII, the key differs from its value, and no value is also a key of the same pack (no chain). Before text is
+  compared, `probe`, the stop gate and `localize.fold_name` replace each key by its value. Only `fa` ships a
+  `fold` (the nine pairs of 0.4.0's `fold_name`). Across packs the first pack wins per key; a chain across two
+  packs (`a -> b` in one, `b -> c` in another) is applied once and not resolved (`a` becomes `b`). Digits and format
+  characters are not pack data: they fold by Unicode property in code (`localize.decimals`; `probe._norm` removes
+  every `Cf` character, `fold_name` turns it into a space).
+- `EVERY = ("render", "state_lexicon", "question_marks", "fold")`: the keys that every installed pack supplies.
+  `words` are read from the active packs only.
 - `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, the first list stays as
   written and a later one adds items not yet present, the first scalar wins, a kind conflict raises `LocaleError`
   naming the dotted key and both ids);
@@ -750,9 +769,10 @@ its last `file_sha`, appends the row, then appends an event carrying
   installed id sorted); `view(ctx=None, every=False) -> dict` (merge of the active packs without `schema`, `id`,
   `name`; `every=True` then adds only the `EVERY` keys of the other installed packs, sorted by id). Files are read on
   every call.
-- `probe.words(ctx) -> dict` with the keys `verbs`, `verbs_anywhere`, `imperative_lead`, `imperative_join`,
-  `question_lead`, `money_words`, `quantity_words`, `decision_keywords`, `continuation`, `file_extensions`,
-  `question_marks`: one `locales.view(ctx, every=True)` and one read of `probe.json`. A list is the pack list, then
+- `probe.words(ctx, view=None) -> dict` with the keys `verbs`, `verbs_anywhere`, `imperative_lead`,
+  `imperative_join`, `question_lead`, `money_words`, `quantity_words`, `decision_keywords`, `continuation`,
+  `file_extensions`, `question_marks`: one `locales.view(ctx, every=True)` (none when the caller passes the `view`
+  it read) and one read of `probe.json`. A list is the pack list, then
   the entries of the same key in `probe.json` (the owner's own extra words; a key it lacks is empty), duplicates
   dropped. An owner verb goes to `verbs` when a pack lists it under `verbs`, else to `verbs_anywhere`.
   `file_extensions` is the list of `probe.json` (the shipped list when the live file lacks the key). A hand-edited
@@ -760,10 +780,16 @@ its last `file_sha`, appends the row, then appends an event carrying
   in `probe.json` are not read: those two come from the packs only (an owner verb that no pack lists is matched
   anywhere). A file that is not an object, or a wrong kind of a key, raises `HarnessError` naming `probe.json` and
   the key. A question mark that `probe._norm` folds to nothing is ignored. `probe.run` calls it once.
-- `gate.lexicon(ctx) -> {terms, template_lines}`: the `state_lexicon` of `view(ctx, every=True)`, then a live
-  `control/state_lexicon.json` placed by hand in 0.4.0 (flattened), duplicates dropped; a file that is not an
-  object, or a `terms` / `template_lines` that is neither a list of strings nor an object of such lists, raises
-  `HarnessError` naming `state_lexicon.json`. `stopgate.lexicon_hits` and `gate._lexicon` use it.
+  `probe._norm(s, fold)`: NFC, `localize.decimals`, every `Cf` character removed, the letter table `fold`
+  (`probe._letters(view)`, built from `fold.letters` once per public call), casefolded. `probe.run`, `probe.words`,
+  `stopgate.lexicon_hits` and the stop gate's money check each read the table from their own `view` call, so two
+  contexts in one process each use their own packs.
+- `gate.lexicon(ctx, view=None) -> {terms, template_lines}`: the `state_lexicon` of `view(ctx, every=True)` (or of
+  the `view` the caller passes), then a live `control/state_lexicon.json` placed by hand in 0.4.0 (flattened),
+  duplicates dropped; a file that is not an object, or a `terms` / `template_lines` that is neither a list of
+  strings nor an object of such lists, raises `HarnessError` naming `state_lexicon.json`. `stopgate.lexicon_hits`
+  (which passes its own view, for the letter folds too) and `gate._lexicon` use it. `lexicon_hits` returns the hits
+  in folded form.
   `stopgate.asks(ctx, msg) -> bool`: a line of `msg` ends with a `question_marks` entry of an installed pack, white
   space may follow.
 - `business.list_entry(ctx, field, value, add) -> str`: the checked list entry (`admin` calls it before offering a

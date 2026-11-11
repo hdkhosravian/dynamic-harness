@@ -107,8 +107,10 @@ locale packs that apply, in this order, plus the base pack `en`; when it is empt
 not installed, every installed pack applies). This list chooses the words the harness matches in your
 requests: verbs, question words, money words and the like. The pack that writes your `language` is always
 active, so you keep the words of the language you write in. How a language is written (its digits and
-separators), the words that state a result ("checked", "verified") and the marks that end a question come
-from every installed pack, whatever the list names. `metric remove <id>` deletes a metric definition.
+separators, and the letter forms it reads as one letter, `fold.letters`), the words that state a result
+("checked", "verified") and the marks that end a question come from every installed pack, whatever the list
+names. Digits of every script count as the same digits, and invisible format characters are ignored when text
+is compared. `metric remove <id>` deletes a metric definition.
 
 ### `/dynamic-harness:memory`
 

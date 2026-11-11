@@ -25,7 +25,8 @@ python3 -m pytest -q
 
 Lint the harness's own user-facing text (internal terms, missing keys, placeholders, and the rules of
 `render.<lang>.lint` in the shipped locale packs). Every file in `templates/` is a language; a new language needs
-`templates/<lang>.json` plus `render.<lang>` in a locale pack:
+`templates/<lang>.json` plus `render.<lang>` in a locale pack, and `fold.letters` there if some of its letter forms
+must compare as one (digits and format characters need nothing: they fold by Unicode property in code):
 
 ```bash
 bin/harness-lint-user-text
