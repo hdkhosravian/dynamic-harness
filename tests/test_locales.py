@@ -155,10 +155,10 @@ def test_a_live_pack_with_a_shipped_id_adds_and_never_replaces(h, L):
 
 
 def test_a_live_pack_with_the_base_id_cannot_remove_the_base(h, L):
-    put(h, "en.json", pack("en", name="Other", words={"zz_probe": ["y"]}))
+    put(h, "en.json", pack("en", name="Other", words={"money_words": ["y"]}))
     c = ctx_of(h)
     assert L.installed(c)["en"]["name"] == "English" and L.active(c)[0] == "en"
-    assert L.installed(c)["en"]["words"]["zz_probe"] == ["y"]
+    assert L.installed(c)["en"]["words"]["money_words"][-1] == "y"  # added after what the shipped pack holds
     set_profile(h, locales=["fa"])
     assert L.active(ctx_of(h)) == ["fa", "en"]
 
@@ -533,11 +533,11 @@ def test_merge_does_not_change_its_inputs_or_share_their_lists(L):
 def test_a_pack_written_after_the_first_call_is_seen_by_the_second(h, L):
     c = ctx_of(h)
     assert sorted(L.installed(c)) == SHIPPED and L.active(c) == SHIPPED
-    put(h, "xx.json", pack("xx", words={"zz_a": ["one"]}))
+    put(h, "xx.json", pack("xx", words={"money_words": ["one"]}))
     assert sorted(L.installed(c)) == SHIPPED + ["xx"] and L.active(c)[-1] == "xx"
-    assert L.view(c)["words"]["zz_a"] == ["one"]
-    put(h, "xx.json", pack("xx", words={"zz_a": ["one", "two"]}))
-    assert L.view(c)["words"]["zz_a"] == ["one", "two"]
+    assert L.view(c)["words"]["money_words"][-1:] == ["one"]  # xx is the last active pack
+    put(h, "xx.json", pack("xx", words={"money_words": ["one", "two"]}))
+    assert L.view(c)["words"]["money_words"][-2:] == ["one", "two"]
     (live_dir(h) / "xx.json").unlink()
     assert sorted(L.installed(c)) == SHIPPED
 
@@ -564,18 +564,18 @@ def test_view_has_none_of_the_pack_header_keys(h, L):
 
 
 def test_view_merges_the_active_packs_in_the_order_of_active(h, L):
-    put(h, "xx.json", pack("xx", words={"zz_label": "from xx", "zz_l": ["xx"]}))
-    put(h, "fa.json", pack("fa", words={"zz_label": "from fa", "zz_l": ["fa"]}))
+    put(h, "xx.json", pack("xx", words={"money_words": ["w-xx"]}, render={"zz": {"joiner": "from xx"}}))
+    put(h, "fa.json", pack("fa", words={"money_words": ["w-fa"]}, render={"zz": {"joiner": "from fa"}}))
     set_profile(h, locales=["xx", "fa"])
-    assert L.view(ctx_of(h))["words"]["zz_label"] == "from xx"
-    assert L.view(ctx_of(h))["words"]["zz_l"] == ["xx", "fa"]
+    assert L.view(ctx_of(h))["render"]["zz"]["joiner"] == "from xx"
+    assert [w for w in L.view(ctx_of(h))["words"]["money_words"] if w.startswith("w-")] == ["w-xx", "w-fa"]
     set_profile(h, locales=["fa", "xx"])
-    assert L.view(ctx_of(h))["words"]["zz_label"] == "from fa"
-    assert L.view(ctx_of(h))["words"]["zz_l"] == ["fa", "xx"]
+    assert L.view(ctx_of(h))["render"]["zz"]["joiner"] == "from fa"
+    assert [w for w in L.view(ctx_of(h))["words"]["money_words"] if w.startswith("w-")] == ["w-fa", "w-xx"]
 
 
 def test_view_leaves_out_a_pack_that_is_not_active(h, L):
-    put(h, "xx.json", pack("xx", words={"zz_l": ["only-in-xx"]}))
+    put(h, "xx.json", pack("xx", words={"money_words": ["only-in-xx"]}))
     set_profile(h, locales=["fa"])
     assert "only-in-xx" not in json.dumps(L.view(ctx_of(h)))
     set_profile(h, locales=["xx"])
@@ -596,19 +596,25 @@ def test_view_every_adds_the_installed_packs_the_profile_list_leaves_out(h, L):
 
 
 def test_view_every_takes_the_active_packs_first_then_the_others_sorted(h, L):
-    put(h, "xx.json", pack("xx", words={"zz_label": "from xx", "zz_l": ["xx"]}))
-    put(h, "aa.json", pack("aa", words={"zz_label": "from aa", "zz_l": ["aa"], "zz_only_aa": "a"}))
-    put(h, "fa.json", pack("fa", words={"zz_label": "from fa", "zz_l": ["fa"], "zz_only_aa": "f"}))
+    def lang(label, **render):  # render and state_lexicon are two of the keys that every installed pack supplies
+        return dict(render=dict({"zz": {"joiner": label}}, **render), state_lexicon={"terms": [label]})
+
+    def mine(view):
+        return [t for t in view["state_lexicon"]["terms"] if t in ("xx", "aa", "fa")]
+    put(h, "xx.json", pack("xx", **lang("xx")))
+    put(h, "aa.json", pack("aa", **lang("aa", zz_only_aa={"joiner": "a"})))
+    put(h, "fa.json", pack("fa", **lang("fa", zz_only_aa={"joiner": "f"})))
     set_profile(h, locales=["xx"])
     c = ctx_of(h)
     assert L.active(c) == ["xx", "en"]
-    assert L.view(c)["words"]["zz_l"] == ["xx"]  # the default is unchanged
-    got = L.view(c, every=True)["words"]
-    assert got["zz_label"] == "from xx"          # an active pack wins
-    assert got["zz_l"] == ["xx", "aa", "fa"]     # then aa, fa, ir by id
-    assert got["zz_only_aa"] == "a"              # of the others, the first by id wins
+    assert mine(L.view(c)) == ["xx"] and "zz_only_aa" not in L.view(c)["render"]  # the default is unchanged
+    got = L.view(c, every=True)
+    assert got["render"]["zz"]["joiner"] == "xx"   # an active pack wins
+    assert mine(got) == ["xx", "aa", "fa"]         # then aa, fa, ir by id
+    assert got["render"]["zz_only_aa"]["joiner"] == "a"  # of the others, the first by id wins
     set_profile(h, locales=["fa", "xx"])
-    assert L.view(ctx_of(h), every=True)["words"]["zz_label"] == "from fa"
+    assert L.view(ctx_of(h), every=True)["render"]["zz"]["joiner"] == "fa"
+    assert L.view(ctx_of(h), every=True)["render"]["zz_only_aa"]["joiner"] == "f"  # fa is active now
 
 
 def test_view_every_still_refuses_an_invalid_pack(h, L, LocaleError):
@@ -729,3 +735,183 @@ def test_business_show_lists_the_packs_when_they_are_set(h, L):
 
 def test_the_list_is_named_in_list_fields():
     assert business.LIST_FIELDS["locales"] == "the active locale packs (ids of installed packs)"
+
+
+# --- 14. matching words, state words and question marks (task P1-T2) ----------------------------------------------
+
+GOOD_WORDS = {"money_words": ["a"]}
+# (id, a pack part that loads, the same part with one fault)
+BAD_PARTS = [
+    ("words-key", {"words": GOOD_WORDS}, {"words": {"zz_probe": ["a"]}}),
+    ("verbs-class", {"words": {"verbs": {"money": ["a"]}}}, {"words": {"verbs": {"zz_class": ["a"]}}}),
+    ("verbs-anywhere-class", {"words": {"verbs_anywhere": {"money": ["a"]}}},
+     {"words": {"verbs_anywhere": {"zz_class": ["a"]}}}),
+    ("entry-int", {"words": GOOD_WORDS}, {"words": {"money_words": ["a", 1]}}),
+    ("entry-null", {"words": GOOD_WORDS}, {"words": {"quantity_words": [None]}}),
+    ("verb-entry-int", {"words": {"verbs": {"money": ["a"]}}}, {"words": {"verbs": {"money": [1]}}}),
+    ("anywhere-entry-list", {"words": {"verbs_anywhere": {"money": ["a"]}}},
+     {"words": {"verbs_anywhere": {"money": [["a"]]}}}),
+    ("decision-entry-int", {"words": {"decision_keywords": {"tax": ["a"]}}},
+     {"words": {"decision_keywords": {"tax": [2]}}}),
+    ("mark-entry-int", {"question_marks": ["?"]}, {"question_marks": [1]}),
+    ("term-entry-int", {"state_lexicon": {"terms": ["a"]}}, {"state_lexicon": {"terms": [1]}}),
+    ("line-entry-int", {"state_lexicon": {"template_lines": ["a"]}}, {"state_lexicon": {"template_lines": [1]}}),
+    ("list-is-string", {"words": GOOD_WORDS}, {"words": {"money_words": "a"}}),
+    ("verbs-is-list", {"words": {"verbs": {"money": ["a"]}}}, {"words": {"verbs": ["a"]}}),
+    ("verbs-class-is-string", {"words": {"verbs": {"money": ["a"]}}}, {"words": {"verbs": {"money": "a"}}}),
+    ("decision-class-is-string", {"words": {"decision_keywords": {"tax": ["a"]}}},
+     {"words": {"decision_keywords": {"tax": "a"}}}),
+    ("marks-is-string", {"question_marks": ["?"]}, {"question_marks": "?"}),
+    ("state-lexicon-is-list", {"state_lexicon": {"terms": ["a"]}}, {"state_lexicon": ["a"]}),
+    ("empty-word", {"words": GOOD_WORDS}, {"words": {"money_words": ["a", ""]}}),
+    ("empty-join", {"words": {"imperative_join": ["a"]}}, {"words": {"imperative_join": [""]}}),
+    ("empty-verb", {"words": {"verbs": {"money": ["a"]}}}, {"words": {"verbs": {"money": [""]}}}),
+    ("empty-anywhere-verb", {"words": {"verbs_anywhere": {"money": ["a"]}}},
+     {"words": {"verbs_anywhere": {"money": [""]}}}),
+    ("empty-decision-word", {"words": {"decision_keywords": {"zz_class": ["a"]}}},
+     {"words": {"decision_keywords": {"zz_class": [""]}}}),
+    ("empty-term", {"state_lexicon": {"terms": ["a"]}}, {"state_lexicon": {"terms": ["a", ""]}}),
+    ("empty-line", {"state_lexicon": {"template_lines": ["a"]}}, {"state_lexicon": {"template_lines": [""]}}),
+    ("mark-of-2-characters", {"question_marks": ["?"]}, {"question_marks": ["?", "ab"]}),
+    ("mark-empty", {"question_marks": ["?"]}, {"question_marks": [""]}),
+    ("state-lexicon-key", {"state_lexicon": {"terms": ["a"]}}, {"state_lexicon": {"terms": ["a"], "zz": []}}),
+]
+
+
+@pytest.mark.parametrize("name,good,bad", BAD_PARTS, ids=[b[0] for b in BAD_PARTS])
+def test_a_pack_part_that_breaks_a_rule_is_refused_naming_the_file(h, L, LocaleError, name, good, bad):
+    put(h, "xx.json", pack("xx", **good))
+    assert "xx" in L.installed(ctx_of(h))  # the same part without the fault loads
+    put(h, "xx.json", pack("xx", **bad))
+    with pytest.raises(LocaleError) as e:
+        L.installed(ctx_of(h))
+    assert "xx.json" in str(e.value)
+
+
+def test_any_class_name_is_accepted_under_decision_keywords_and_the_five_under_verbs(h, L):
+    classes = ["external_message", "money", "destructive", "automation_create", "local_reversible"]
+    put(h, "xx.json", pack("xx", words={"decision_keywords": {"zz_class": ["blorp"], "Any Name": ["glorp"]},
+                                       "verbs": {c: [c + " it"] for c in classes},
+                                       "verbs_anywhere": {c: [c + " now"] for c in classes}}))
+    got = L.view(ctx_of(h))["words"]
+    assert got["decision_keywords"]["zz_class"] == ["blorp"] and got["decision_keywords"]["Any Name"] == ["glorp"]
+    assert all(c + " it" in got["verbs"][c] and c + " now" in got["verbs_anywhere"][c] for c in classes)
+
+
+def test_a_pack_can_hold_every_new_key_and_a_mark_counts_characters_not_bytes(h, L):
+    words = {"verbs": {"money": ["a"]}, "verbs_anywhere": {"money": ["b"]}, "imperative_lead": ["c"],
+             "imperative_join": ["d"], "question_lead": ["e"], "money_words": ["f"], "quantity_words": ["g"],
+             "decision_keywords": {"tax": ["h"]}, "continuation": ["i"]}
+    put(h, "xx.json", pack("xx", words=words, state_lexicon={"terms": ["t"], "template_lines": ["l"]},
+                           question_marks=["\u2e2e", "\u061f"]))
+    got = L.installed(ctx_of(h))["xx"]
+    assert got["words"] == words and got["question_marks"] == ["\u2e2e", "\u061f"]
+    assert got["state_lexicon"] == {"terms": ["t"], "template_lines": ["l"]}
+
+
+# --- 14b. EVERY and view(ctx, every=True) --------------------------------------------------------------------------
+
+
+def test_every_names_the_keys_that_apply_for_every_installed_pack(L):
+    assert L.EVERY == ("render", "state_lexicon", "question_marks")
+
+
+def test_view_every_adds_only_the_every_keys_of_a_pack_the_profile_does_not_name(h, L):
+    put(h, "xx.json", pack("xx", words={"money_words": ["zloty"]}, render={"xx": {"joiner": "|"}},
+                           state_lexicon={"terms": ["blorped"], "template_lines": ["Blorp."]},
+                           question_marks=["\u2e2e"]))
+    set_profile(h, locales=["fa"])
+    c = ctx_of(h)
+    assert L.active(c) == ["fa", "en"]
+    default, every = L.view(c), L.view(c, every=True)
+    assert "xx" not in default["render"] and "blorped" not in default["state_lexicon"]["terms"]
+    assert "\u2e2e" not in default["question_marks"]
+    assert every["render"]["xx"] == {"joiner": "|"}
+    assert every["state_lexicon"]["terms"][-1] == "blorped" and every["state_lexicon"]["template_lines"][-1] == "Blorp."
+    assert every["question_marks"][-1] == "\u2e2e"
+    assert every["words"] == default["words"]  # none of the words of xx, none of the words of ir
+    assert "zloty" not in json.dumps(every["words"]) and "toman" not in json.dumps(every["words"])
+
+
+def test_view_every_keeps_the_whole_content_of_the_active_packs(h, L):
+    put(h, "xx.json", pack("xx", words={"money_words": ["zloty"]}))
+    set_profile(h, locales=["xx"])
+    c = ctx_of(h)
+    assert "zloty" in L.view(c, every=True)["words"]["money_words"]
+    assert "toman" not in L.view(c, every=True)["words"]["money_words"]
+    assert L.view(None, every=True)["state_lexicon"]["terms"][0] == "checked"
+
+
+def _plain(pid, **more):
+    return dict({"schema": SCHEMA, "id": pid, "name": pid}, **more)
+
+
+def test_a_kind_conflict_under_words_with_a_pack_that_is_not_active_breaks_no_view_call(h, L, LocaleError, monkeypatch):
+    # No two valid packs can disagree on the kind of a words key (the schema fixes it), so the packs are handed over
+    # as they would be if they could: en is active, xx is not.
+    packs = {"en": _plain("en", words={"money_words": ["a"]}), "xx": _plain("xx", words={"money_words": {"k": 1}})}
+    monkeypatch.setattr(L, "installed", lambda ctx=None: packs)
+    set_profile(h, locales=["en"])
+    c = ctx_of(h)
+    assert L.active(c) == ["en"]
+    assert L.view(c)["words"]["money_words"] == ["a"]
+    assert L.view(c, every=True)["words"]["money_words"] == ["a"]
+    set_profile(h, locales=["xx"])  # both active: the conflict is still an error
+    with pytest.raises(LocaleError) as e:
+        L.view(ctx_of(h))
+    assert "words.money_words" in str(e.value)
+
+
+# --- 14c. the pack of the profile language is active (R7 item 3) ---------------------------------------------------
+
+
+def _fa_holder(h):
+    put(h, "zz.json", pack("zz", render={"fa": {"joiner": "|"}}))
+
+
+@pytest.mark.parametrize("prof,live_zz,expected", [
+    (dict(locales=["ir"], language="fa"), False, ["ir", "fa", "en"]),
+    (dict(locales=["ir"], language="fa"), True, ["ir", "fa", "zz", "en"]),
+    (dict(locales=["en", "ir"], language="fa"), False, ["en", "ir", "fa"]),
+    (dict(locales=["ir"]), False, ["ir", "en"]),
+    (dict(locales=["ir"]), True, ["ir", "en"]),
+    (dict(locales=["fa"], language="fa"), True, ["fa", "zz", "en"]),
+    (dict(locales=["ir", "fa"], language="fa"), False, ["ir", "fa", "en"]),
+    (dict(locales=["ir"], language="en"), False, ["ir", "en"]),
+    (dict(locales=["en"], language="en"), False, ["en"]),
+    (dict(locales=["ir"], language="de"), False, ["ir", "en"]),     # no pack holds render.de
+    (dict(locales=["ir"], language=""), False, ["ir", "en"]),
+    (dict(locales=["ir"], language=7), False, ["ir", "en"]),
+    (dict(locales=["ir"], language=["fa"]), False, ["ir", "en"]),
+    (dict(language="fa"), False, SHIPPED),                           # no list in force: every pack is active
+    (dict(language="fa"), True, SHIPPED + ["zz"]),
+    (dict(locales=[], language="fa"), False, SHIPPED),
+    (dict(locales=["nope"], language="fa"), False, SHIPPED),
+])
+def test_the_pack_of_the_profile_language_is_active_with_the_list_that_leaves_it_out(h, L, prof, live_zz, expected):
+    if live_zz:
+        _fa_holder(h)
+    set_profile(h, **prof)
+    assert L.active(ctx_of(h)) == expected
+
+
+def test_the_words_of_the_profile_language_pack_are_in_the_view(h, L):
+    pay = "\u067e\u0631\u062f\u0627\u062e\u062a \u06a9\u0646"
+    set_profile(h, locales=["ir"], language="fa")
+    words = L.view(ctx_of(h))["words"]
+    assert pay in words["verbs_anywhere"]["money"] and "toman" in words["money_words"] and "pay" in words["verbs"]["money"]
+    set_profile(h, locales=["ir"])
+    words = L.view(ctx_of(h))["words"]
+    assert "verbs_anywhere" not in words and "toman" in words["money_words"] and "pay" in words["verbs"]["money"]
+    set_profile(h, locales=["en"], language="fa")
+    assert pay in L.view(ctx_of(h))["words"]["verbs_anywhere"]["money"]
+
+
+def test_the_profile_language_rule_follows_a_profile_change_in_the_same_process(h, L):
+    c = ctx_of(h)
+    set_profile(h, locales=["ir"])
+    assert L.active(c) == ["ir", "en"]
+    set_profile(h, locales=["ir"], language="fa")
+    assert L.active(c) == ["ir", "fa", "en"]
+    set_profile(h, locales=["ir"], language="de")
+    assert L.active(c) == ["ir", "en"]

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "verbs": {
+    "external_message": ["send", "email", "e-mail", "mail", "post", "publish", "tweet", "message", "text", "reply", "forward", "sign", "submit", "file",
+                         "بفرست", "ارسال کن", "ارسال کنید", "ایمیل کن", "ایمیل بزن", "پست کن", "منتشر کن", "امضا کن", "جواب بده", "پیام بده"],
+    "money": ["pay", "transfer", "refund", "buy", "purchase", "order", "charge", "wire",
+              "پرداخت کن", "واریز کن", "بخر", "خرید کن", "سفارش بده", "انتقال بده"],
+    "destructive": ["delete", "remove", "erase", "wipe", "cancel", "drop",
+                    "حذف کن", "پاک کن", "لغو کن"],
+    "automation_create": ["schedule", "automate", "remind", "every day", "every week", "every month",
+                          "زمان‌بندی کن", "خودکار کن", "یادآوری کن", "هر روز", "هر هفته", "هر ماه"],
+    "local_reversible": ["write", "save", "create", "make", "edit", "update", "change", "fix", "rename", "move", "add", "draft", "prepare", "build", "export",
+                         "ذخیره کن", "بنویس", "بساز", "ویرایش کن", "تغییر بده", "به‌روز کن", "اضافه کن", "آماده کن", "تهیه کن"]
+  },
+  "imperative_lead": ["please", "kindly", "can you", "could you", "would you", "will you", "i want you to", "i need you to", "go ahead and", "and", "then", "also", "now"],
+  "question_lead": ["what", "which", "who", "whom", "whose", "how", "why", "when", "where", "is", "are", "was", "were", "do", "does", "did", "can", "could", "should", "would", "will",
+                    "چه", "چرا", "چطور", "چگونه", "کدام", "آیا", "کی", "کجا", "چند", "چقدر", "چی"],
+  "money_words": ["$", "€", "£", "﷼", "toman", "tomans", "rial", "rials", "usd", "eur", "irr", "irt", "dollar", "dollars", "euro", "euros",
+                  "price", "prices", "cost", "costs", "revenue", "profit", "invoice", "invoices", "payment", "payments", "salary", "budget", "discount", "debt", "owe", "owed",
+                  "تومان", "ریال", "دلار", "یورو", "قیمت", "هزینه", "درآمد", "سود", "فاکتور", "پرداخت", "حقوق", "بودجه", "تخفیف", "بدهی", "طلب", "بدهکار"],
+  "quantity_words": ["how many", "how much", "total", "sum", "average", "mean", "count", "percent", "percentage", "forecast", "growth", "rate",
+                     "چند", "چقدر", "مجموع", "جمع", "میانگین", "تعداد", "درصد", "پیش‌بینی", "رشد", "نرخ"],
+  "decision_keywords": {
+    "financial": ["invest", "investment", "loan", "credit", "mortgage", "stock", "shares", "portfolio", "سرمایه‌گذاری", "وام", "اعتبار", "سهام", "پرتفوی"],
+    "tax": ["tax", "taxes", "vat", "مالیات", "ارزش افزوده", "اظهارنامه"],
+    "legal": ["contract", "lawsuit", "legal", "liability", "sue", "court", "قرارداد", "دعوی", "حقوقی", "شکایت", "دادگاه"],
+    "employment": ["hire", "hiring", "fire", "firing", "dismiss", "layoff", "lay off", "employment", "استخدام", "اخراج", "تعدیل"],
+    "medical": ["dose", "dosage", "medication", "medicine", "diagnosis", "diagnose", "symptom", "دارو", "دوز", "تشخیص", "علائم"],
+    "safety": ["weapon", "explosive", "bomb", "poison", "سلاح", "منفجره", "بمب", "سم"]
+  },
+  "continuation": ["continue", "keep going", "now also", "also add", "go on", "resume", "ادامه", "ادامه بده", "همچنین", "ادامه بدید"],
+  "file_extensions": ["csv", "tsv", "xlsx", "xls", "json", "txt", "md", "pdf", "docx", "doc", "pptx", "py", "sql", "xml", "yaml", "yml"]
+}
