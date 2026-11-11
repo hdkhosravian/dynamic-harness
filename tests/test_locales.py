@@ -9,6 +9,8 @@ import json
 import os
 import re
 import sys
+import unicodedata
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +21,10 @@ from test_p3_hooks import ctx_of, h  # noqa: F401  (fixture h)
 
 SCHEMA = "harness/locale@1"
 SHIPPED = ["en", "fa", "ir"]
+# the nine letter pairs of fa.json, by code point (alef madda, alef hamza above, waw hamza, alef hamza below, yeh hamza,
+# teh marbuta, alef maksura, Arabic yeh, Arabic kaf -> alef, alef, waw, alef, Farsi yeh, heh, Farsi yeh, Farsi yeh, keheh)
+NINE = {"\u0622": "\u0627", "\u0623": "\u0627", "\u0624": "\u0648", "\u0625": "\u0627", "\u0626": "\u06cc",
+        "\u0629": "\u0647", "\u0643": "\u06a9", "\u0649": "\u06cc", "\u064a": "\u06cc"}
 
 
 @pytest.fixture
@@ -815,7 +821,7 @@ def test_a_pack_can_hold_every_new_key_and_a_mark_counts_characters_not_bytes(h,
 
 
 def test_every_names_the_keys_that_apply_for_every_installed_pack(L):
-    assert L.EVERY == ("render", "state_lexicon", "question_marks")
+    assert set(L.EVERY) == {"render", "state_lexicon", "question_marks", "fold"} and len(L.EVERY) == 4
 
 
 def test_view_every_adds_only_the_every_keys_of_a_pack_the_profile_does_not_name(h, L):
@@ -924,3 +930,129 @@ def test_the_packs_added_for_the_profile_language_are_sorted_by_id(h, L):
     put(h, "aa.json", pack("aa", render={"fa": {"joiner": "|"}}))
     set_profile(h, locales=["ir"], language="fa")
     assert L.active(ctx_of(h)) == ["ir", "aa", "bb", "fa", "en"]  # not the order in which the packs are installed
+
+
+# --- 15. the pack key fold (P1-T2b, R1 to R3) ------------------------------------------------------------------------
+
+YO, YE = "\u0451", "\u0435"  # Cyrillic yo and ie: a pair of another script
+
+
+def test_a_pack_with_a_valid_fold_loads(h, L):
+    put(h, "xx.json", pack("xx", fold={"letters": {YO: YE, "\u0401": "\u0415"}}))
+    assert L.installed(ctx_of(h))["xx"]["fold"] == {"letters": {YO: YE, "\u0401": "\u0415"}}
+    put(h, "xx.json", pack("xx", fold={"letters": {}}))  # no pair is a valid pack
+    assert L.installed(ctx_of(h))["xx"]["fold"] == {"letters": {}}
+
+
+BAD_FOLD = [
+    ("unknown-key-under-fold", {"digits": {}}),
+    ("letters-not-an-object", {"letters": [YO]}),
+    ("value-not-a-string", {"letters": {YO: 5}}),
+    ("key-of-two-characters", {"letters": {YO + YO: YE}}),
+    ("value-of-two-characters", {"letters": {YO: YE + YE}}),
+    ("empty-value", {"letters": {YO: ""}}),
+    ("empty-key", {"letters": {"": YE}}),
+    ("digit-as-key", {"letters": {"\u0663": YE}}),
+    ("digit-as-value", {"letters": {YO: "\u0663"}}),
+    ("ascii-digit-as-value", {"letters": {YO: "3"}}),
+    ("ascii-key", {"letters": {"a": YE}}),
+    ("key-equals-value", {"letters": {YO: YO}}),
+    ("value-is-also-a-key", {"letters": {YO: YE, YE: "\u044d"}}),
+    ("value-is-a-key-in-the-same-pair-set", {"letters": {YO: YE, "\u0401": YO}}),
+    ("a-format-character-as-key", {"letters": {"\u200c": YE}}),
+    ("a-mark-as-value", {"letters": {YO: "\u064e"}}),
+]
+
+
+@pytest.mark.parametrize("name,fold", BAD_FOLD, ids=[n for n, _ in BAD_FOLD])
+def test_a_bad_fold_is_refused_and_names_the_file_and_the_key(h, L, LocaleError, name, fold):
+    put(h, "xx.json", pack("xx", fold={"letters": {YO: YE}}))
+    assert "xx" in L.installed(ctx_of(h))  # the key itself is known
+    put(h, "xx.json", pack("xx", fold=fold))
+    with pytest.raises(LocaleError) as e:
+        L.installed(ctx_of(h))
+    msg = str(e.value)
+    assert "xx.json" in msg and "fold" in msg
+    if name not in ("unknown-key-under-fold", "letters-not-an-object", "value-not-a-string"):
+        assert "fold.letters" in msg  # the rules the schema cannot say name the key path
+
+
+def test_a_bad_fold_in_a_pack_the_profile_does_not_name_still_stops_the_loader(h, L, LocaleError):
+    put(h, "xx.json", pack("xx", fold={"letters": {YO: YE}}))
+    assert "xx" in L.installed(ctx_of(h))
+    put(h, "xx.json", pack("xx", fold={"letters": {YO: YO}}))
+    set_profile(h, locales=["en"])
+    for fn in (L.installed, L.view):
+        with pytest.raises(LocaleError) as e:
+            fn(ctx_of(h))
+        assert "xx.json" in str(e.value)
+
+
+def test_fold_is_in_the_closed_schema_and_a_misspelling_is_refused(h, L, LocaleError):
+    put(h, "xx.json", pack("xx", fold={"letters": {YO: YE}}))
+    assert "xx" in L.installed(ctx_of(h))
+    put(h, "xx.json", pack("xx", flod={"letters": {YO: YE}}))
+    with pytest.raises(LocaleError) as e:
+        L.installed(ctx_of(h))
+    assert "xx.json" in str(e.value)
+
+
+def test_fa_holds_exactly_the_nine_pairs_and_en_and_ir_hold_no_fold():
+    shipped = Path(__file__).resolve().parents[1] / "control" / "defaults" / "locales"
+    fa = json.loads((shipped / "fa.json").read_text("utf-8"))
+    assert fa["fold"] == {"letters": NINE}
+    assert len(NINE) == 9 and all(len(k) == 1 and len(v) == 1 for k, v in NINE.items())
+    for pid in ("en", "ir"):
+        assert "fold" not in json.loads((shipped / f"{pid}.json").read_text("utf-8")), pid
+
+
+def test_no_digit_and_no_format_character_is_in_a_shipped_pack():
+    shipped = Path(__file__).resolve().parents[1] / "control" / "defaults" / "locales"
+    for f in sorted(shipped.glob("*.json")):
+        letters = json.loads(f.read_text("utf-8")).get("fold", {}).get("letters", {})
+        assert all(unicodedata.category(c)[0] == "L" for kv in letters.items() for c in kv), f.name
+
+
+def test_the_loaded_shipped_packs_hold_the_fold(L):
+    assert L.installed()["fa"]["fold"] == {"letters": NINE}
+    assert "fold" not in L.installed()["en"] and "fold" not in L.installed()["ir"]
+
+
+def test_view_every_holds_the_nine_pairs_whatever_the_profile_names(h, L):
+    set_profile(h, locales=["en"])
+    c = ctx_of(h)
+    assert L.active(c) == ["en"]
+    assert "fold" not in L.view(c)                        # fa is not active, and fold is no active-only key ...
+    assert L.view(c, every=True)["fold"]["letters"] == NINE  # ... it applies for every installed pack
+    assert L.view(None, every=True)["fold"]["letters"] == NINE
+    set_profile(h, locales=["ir"], language="fa")
+    assert L.view(ctx_of(h), every=True)["fold"]["letters"] == NINE
+
+
+def test_view_every_adds_the_pair_of_a_live_pack_the_profile_does_not_name(h, L):
+    put(h, "xx.json", pack("xx", fold={"letters": {YO: YE}}))
+    set_profile(h, locales=["en"])
+    c = ctx_of(h)
+    assert L.active(c) == ["en"]
+    assert L.view(c, every=True)["fold"]["letters"] == dict(NINE, **{YO: YE})
+    assert "fold" not in L.view(c)
+    (h["data"] / "control" / "locales" / "xx.json").unlink()  # no cache: the next call sees the change
+    assert L.view(ctx_of(h), every=True)["fold"]["letters"] == NINE
+
+
+def test_the_first_pack_wins_per_key_and_the_active_packs_come_first(h, L):
+    put(h, "xx.json", pack("xx", fold={"letters": {"\u0643": "\u043a", YO: YE}}))  # kaf -> Cyrillic ka
+    put(h, "yy.json", pack("yy", fold={"letters": {YO: "\u044f"}}))
+    set_profile(h, locales=["xx"])
+    got = L.view(ctx_of(h), every=True)["fold"]["letters"]
+    assert got["\u0643"] == "\u043a" and got[YO] == YE          # xx is active: it wins over fa and over yy
+    assert {k: v for k, v in got.items() if k not in ("\u0643", YO)} == {k: v for k, v in NINE.items() if k != "\u0643"}
+    set_profile(h, locales=["en"])                              # none of them active: by id, fa < xx < yy
+    got = L.view(ctx_of(h), every=True)["fold"]["letters"]
+    assert got["\u0643"] == "\u06a9" and got[YO] == YE
+
+
+def test_a_shipped_fold_cannot_be_removed_by_a_live_pack_of_the_same_id(h, L):
+    put(h, "fa.json", pack("fa", fold={"letters": {YO: YE}}))  # adds, never replaces
+    got = L.view(ctx_of(h), every=True)["fold"]["letters"]
+    assert got == dict(NINE, **{YO: YE})
