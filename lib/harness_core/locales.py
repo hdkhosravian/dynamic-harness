@@ -137,7 +137,11 @@ def active(ctx=None) -> list:
     return _order(ctx, installed(ctx))
 
 
-def view(ctx=None) -> dict:
-    """The merged content of the active packs, without the header keys."""
+def view(ctx=None, every=False) -> dict:
+    """The merged content of the active packs, without the header keys; ``every=True`` then adds the other installed
+    packs, sorted by id."""
     packs = installed(ctx)
-    return merge([(i, {k: v for k, v in packs[i].items() if k not in HEADER}) for i in _order(ctx, packs)])
+    order = _order(ctx, packs)
+    if every:
+        order += sorted(i for i in packs if i not in order)
+    return merge([(i, {k: v for k, v in packs[i].items() if k not in HEADER}) for i in order])

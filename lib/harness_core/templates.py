@@ -40,12 +40,13 @@ def load(lang) -> dict:
 
 
 def _data(ctx) -> dict:
-    """``render`` of the merged locale view; the shipped packs when the live view cannot be read (text for the
-    owner is not a gate, above all the message that reports a broken file)."""
+    """``render`` of every installed pack (the profile list ``locales`` does not choose how a language is written);
+    the shipped packs when the live view cannot be read (text for the owner is not a gate, above all the message
+    that reports a broken file)."""
     try:
-        return locales.view(ctx).get("render", {})
-    except HarnessError:
-        return locales.view(None).get("render", {})
+        return locales.view(ctx, every=True).get("render", {})
+    except (HarnessError, OSError):
+        return locales.view(None, every=True).get("render", {})
 
 
 def language(ctx=None, _given=None) -> str:
@@ -63,12 +64,14 @@ def language(ctx=None, _given=None) -> str:
     except Exception:
         last = None
     text = (last or {}).get("text_norm") or ""
+    if not text:
+        return locales.BASE
     data = _data(ctx) if _given is None else _given
     counts = {n: sum(1 for c in text if any(r[0] <= c <= r[1] for r in data[n]["script"]))
               for n in names if data.get(n, {}).get("script")}
     best = max(counts.values(), default=0)
     tied = [n for n, k in counts.items() if k == best]
-    return locales.BASE if not best or locales.BASE in tied else tied[0]
+    return locales.BASE if not best else tied[0]
 
 
 def _fmt(v, spec):
@@ -90,6 +93,8 @@ def _render(key, lang, data, values) -> str:
 
 
 def render(key, ctx=None, lang=None, **values) -> str:
+    if not values:  # no number to write: only the language guess may need pack data
+        return _render(key, lang or language(ctx), {}, values)
     data = _data(ctx)
     return _render(key, lang or language(ctx, data), data, values)
 

@@ -725,13 +725,15 @@ its last `file_sha`, appends the row, then appends an event carrying
   | `lint` | list of `{"chars": <non-empty string>, "message": <non-empty string>}` | characters that must not appear in harness text of this language, and the message of the lint |
 
   A number is written with `digits`, `group` and `decimal` only when one of them is set. `templates` reads the
-  view of the context (the shipped packs when it cannot be read); `lint_text` reads the shipped packs.
+  view of the context (the shipped packs when it cannot be read); `lint_text` reads the shipped packs. `render` is
+  read from every installed pack (`view(ctx, every=True)`: the active packs in order, then the others sorted by
+  id), whatever the profile list `locales` names.
 - `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, the first list stays as
   written and a later one adds items not yet present, the first scalar wins, a kind conflict raises `LocaleError`
   naming the dotted key and both ids);
   `installed(ctx=None) -> {pack_id: pack}` (shipped, then a live pack of the same id merged on top);
   `active(ctx=None) -> [pack_id]` (profile list `locales` without repeats, then `BASE`; any other value: `BASE`, then
-  every other installed id sorted); `view(ctx=None) -> dict` (merge of the active packs without `schema`, `id`,
-  `name`). Files are read on every call.
+  every other installed id sorted); `view(ctx=None, every=False) -> dict` (merge of the active packs without `schema`,
+  `id`, `name`; `every=True` then adds the other installed packs, sorted by id). Files are read on every call.
 - `business.list_entry(ctx, field, value, add) -> str`: the checked list entry (`admin` calls it before offering a
   code, `change_list` before writing); `business add locales <id>` needs an installed id.

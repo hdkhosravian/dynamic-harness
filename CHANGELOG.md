@@ -6,7 +6,7 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
 
 - **Locale packs.** Words and regional facts get a data format (`harness/locale@1`, `control/defaults/locales/`,
   live packs in `<data>/control/locales/`) and the profile list `locales` (`business add locales <id>`); with no
-  list every installed pack applies, as in 0.4.0. No word or pattern has moved into a pack yet.
+  list every installed pack applies, as in 0.4.0. No word used for matching has moved into a pack yet.
 - **Languages from files.** The language list is the set of files in `templates/`, and digits, separators, script
   ranges and lint rules of a language come from `render.<lang>` in a locale pack; `business set language` accepts
   any language with a template file. The text an owner sees in English or Persian is unchanged.

@@ -104,7 +104,8 @@ Your business settings.
 Lists you can `add` to and `remove` from: `own_accounts` (transfers between them are not revenue),
 `do_not_contact`, `protected_terms` (names that never go into a web search), `locales` (the ids of installed
 locale packs that apply, in this order, plus the base pack `en`; when it is empty, or names a pack that is
-not installed, every installed pack applies). `metric remove <id>` deletes a metric definition.
+not installed, every installed pack applies; how a
+language is written, its digits and separators, always comes from every installed pack). `metric remove <id>` deletes a metric definition.
 
 ### `/dynamic-harness:memory`
 
