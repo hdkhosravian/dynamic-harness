@@ -33,22 +33,23 @@ STALL_BLOCKS = 3
 RUNNING = ("running", "pending", "in_progress", "started")
 
 
-def _fold(text) -> str:
+def _fold(text, fold) -> str:
     """Format characters (zero-width joiners, bidi marks) removed, then the probe's folding."""
-    return probe._norm("".join(ch for ch in text if unicodedata.category(ch) != "Cf"))
+    return probe._norm("".join(ch for ch in text if unicodedata.category(ch) != "Cf"), fold)
 
 
 def lexicon_hits(ctx, text, allowed=()) -> list:
     """State words outside lines the harness itself rendered (``allowed``: only the receipt's state line)."""
-    lex = gate.lexicon(ctx)
-    terms = [_fold(t) for t in lex["terms"] if t]
+    view = locales.view(ctx, every=True)
+    lex, fold = gate.lexicon(ctx, view), probe._letters(view)
+    terms = [_fold(t, fold) for t in lex["terms"] if t]
     pats = [re.compile(("(?<!\\w)" if re.match(r"\w", t) else "") + re.escape(t) + ("(?!\\w)" if re.search(r"\w$", t)
                        else "")) for t in terms]
     # fixed harness sentences (template_lines) are never model-influenced, so they are always allowed
-    ok = {_fold(a).strip() for a in list(allowed) + lex["template_lines"] if a}
+    ok = {_fold(a, fold).strip() for a in list(allowed) + lex["template_lines"] if a}
     hits = []
     for line in (text or "").splitlines():
-        s = _fold(line)
+        s = _fold(line, fold)
         if s.strip() in ok:
             continue
         hits += [m.group() for p in pats for m in p.finditer(s)]
@@ -115,8 +116,10 @@ def _t0(evt, ctx, sid, st, msg) -> dict:
     hits = lexicon_hits(ctx, msg)
     if hits:
         return _block(ctx, sid, st, "lexicon", f"a quick answer may not use state words {hits}; rephrase without them")
-    text = probe._norm(msg)  # digits of other scripts are folded to ASCII here
-    money = probe._hits(text, probe.words(ctx)["money_words"])
+    view = locales.view(ctx, every=True)
+    fold = probe._letters(view)
+    text = probe._norm(msg, fold)  # digits of other scripts are folded to ASCII here
+    money = probe._hits(text, probe.words(ctx, view)["money_words"], fold)
     if money and re.search(r"\d", text):  # R-11 is about figures: "net margin is net income over revenue" has none
         turn = st.get("request_turn")
         sessionstate.update(ctx, sid, pending_card={"floor": "T1", "reason": f"money in the answer: {money}",

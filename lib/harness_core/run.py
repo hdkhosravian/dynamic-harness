@@ -25,7 +25,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import business, canon, packs, protected, sandbox_exec
+from . import business, canon, locales, packs, protected, sandbox_exec
 from .errors import Denied, HarnessError, TamperError
 from .events import EventLog
 from .ledger import Ledger, Outputs
@@ -190,6 +190,8 @@ def apply(req, ctx, evt, runner=None) -> dict:
             "inputs": [{k: r[k] for k in ("name", "path", "sha256")} for r in rows],
             "business": business.snapshot(ctx), "today": time.strftime("%Y-%m-%d"),
             "card": {k: card.get(k) for k in ("task_type", "deliverable", "oracle", "decision_class", "requester")},
+            # the check cannot read the live packs, and the replay must fold as this run did: the fold travels here
+            "locale": {"fold": locales.view(ctx, every=True).get("fold", {})},
         })
         timeout = min(int(s.get("timeout") or DEFAULT_TIMEOUT), packs.TIMEOUT_MAX)
         code, out, err = execute(entry, box, stdin, timeout, ctx, runner)

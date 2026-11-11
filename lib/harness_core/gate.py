@@ -150,10 +150,11 @@ def _flat(v) -> list:
     """The legacy live state_lexicon.json keeps terms per language code ({code: [...]}); the gate wants one list."""
     return [str(x) for x in (sum((list(x) for x in v.values()), []) if isinstance(v, dict) else list(v or []))]
 
-def lexicon(ctx) -> dict:
+def lexicon(ctx, view=None) -> dict:
     """State words and fixed harness sentences: those of every installed locale pack, then those of a live
-    control/state_lexicon.json that an owner placed by hand in 0.4.0 (duplicates dropped, the first kept)."""
-    lex = locales.view(ctx, every=True).get("state_lexicon", {})
+    control/state_lexicon.json that an owner placed by hand in 0.4.0 (duplicates dropped, the first kept).
+    ``view``: the caller's ``locales.view(ctx, every=True)``, if read."""
+    lex = (locales.view(ctx, every=True) if view is None else view).get("state_lexicon", {})
     terms, lines = list(lex.get("terms", [])), list(lex.get("template_lines", []))
     data_root = getattr(ctx, "data_root", None)
     live = Path(data_root) / "control" / "state_lexicon.json" if data_root else None

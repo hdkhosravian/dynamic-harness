@@ -8,7 +8,7 @@ its cwd laid out as::
     run/                the run-state files the manifest's run_files names
 
 and one JSON object on stdin: ``{check_id, unit, attempt, args, inputs: [{name, path, sha256}], work, run,
-business, card, today}``. It prints one JSON line last: ``{"result": "pass" | "fail", "values": {...},
+business, card, today, locale: {fold}}``. It prints one JSON line last: ``{"result": "pass" | "fail", "values": {...},
 "notes": [...], "note_codes": [...]}`` and exits 0; any other exit is an error. Earlier lines may carry
 attachments (``{"attachment": "rows", "headers": [...], "rows": [...]}``), kept with the recorded output. ``values`` holds numbers the report may cite
 (R-11: every aggregate is computed here, never by the model); ``notes`` holds plain-language findings
@@ -78,7 +78,11 @@ def emit(result: str, values: dict, notes=()) -> None:
 def main(fn) -> None:
     """Run ``fn(request) -> (result, values, notes)``; an exception is an error exit (never a pass)."""
     try:
-        out = fn(read_request())
+        req = read_request()
+        if "locale" in req:  # the letter folds of the run's packs; without the key, fold_name reads the shipped ones
+            from . import localize
+            localize.use_fold(req["locale"]["fold"])
+        out = fn(req)
     except Exception as e:  # the runner records exit 3 as an error, never as a check result
         print(f"check error: {type(e).__name__}: {e}", file=sys.stderr)
         raise SystemExit(3)

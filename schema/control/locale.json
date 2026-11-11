@@ -1,6 +1,18 @@
 {
   "additionalProperties": false,
   "properties": {
+    "fold": {
+      "additionalProperties": false,
+      "properties": {
+        "letters": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "id": {
       "type": "string"
     },

@@ -24,41 +24,47 @@ import re
 import unicodedata
 from pathlib import Path
 
-from . import canon, locales, pii, protected, schema
+from . import canon, locales, localize, pii, protected, schema
 from .errors import HarnessError
 
 MAX_CHARS = 20000
 CLASSES = ("external_message", "money", "destructive", "automation_create", "local_reversible")
 LISTS = ("imperative_lead", "imperative_join", "question_lead", "money_words", "quantity_words", "continuation")
-_FOLD = str.maketrans({"ي": "ی", "ك": "ک", "‌": "", "‍": "", "۰": "0", "۱": "1", "۲": "2", "۳": "3",
-                       "۴": "4", "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9", "٠": "0", "١": "1", "٢": "2",
-                       "٣": "3", "٤": "4", "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9"})
 
 
-def _norm(s: str) -> str:
-    return unicodedata.normalize("NFC", s).translate(_FOLD).casefold()
+def _letters(view) -> dict:
+    """The translate table of the letter folds (``fold.letters``) of a locale view."""
+    return str.maketrans(view.get("fold", {}).get("letters", {}))
 
 
-def _kw(word: str) -> str:
+def _norm(s: str, fold) -> str:
+    """NFC, digits of every script ASCII, format characters (Cf) removed, the letter folds ``fold``, casefolded."""
+    t = localize.decimals(unicodedata.normalize("NFC", s))
+    if not t.isascii():
+        t = "".join(ch for ch in t if unicodedata.category(ch) != "Cf").translate(fold)
+    return t.casefold()
+
+
+def _kw(word: str, fold) -> str:
     """A keyword as a regex: whole words (letters of every script count as word characters); symbols as is."""
-    w = re.escape(_norm(word))
-    return w if not re.match(r"\w", _norm(word)[:1] or "x") else rf"(?<!\w){w}(?!\w)"
+    w = re.escape(_norm(word, fold))
+    return w if not re.match(r"\w", _norm(word, fold)[:1] or "x") else rf"(?<!\w){w}(?!\w)"
 
 
-def _hits(text: str, words) -> list:
-    return sorted({w for w in words if re.search(_kw(w), text)})
+def _hits(text: str, words, fold) -> list:
+    return sorted({w for w in words if re.search(_kw(w, fold), text)})
 
 
-def _alt(words) -> str:
-    return "|".join(re.escape(_norm(x)) for x in sorted(words, key=len, reverse=True))
+def _alt(words, fold) -> str:
+    return "|".join(re.escape(_norm(x, fold)) for x in sorted(words, key=len, reverse=True))
 
 
-def _imperative(text: str, verb: str, leads, joins) -> bool:
+def _imperative(text: str, verb: str, leads, joins, fold) -> bool:
     """``verb`` at an instruction position: a sentence start or a join word, then any number of leads."""
-    v = (rf"(?:(?:{_alt(leads)})\s+)*" if leads else "") + rf"{re.escape(_norm(verb))}(?!\w)"
+    v = (rf"(?:(?:{_alt(leads, fold)})\s+)*" if leads else "") + rf"{re.escape(_norm(verb, fold))}(?!\w)"
     if re.search(rf"(?:^|[.!;?\n:]\s*){v}", text):
         return True
-    return bool(joins) and bool(re.search(rf"(?<!\w)(?:{_alt(joins)})\s+{v}", text))
+    return bool(joins) and bool(re.search(rf"(?<!\w)(?:{_alt(joins, fold)})\s+{v}", text))
 
 
 def _strings(v, name: str) -> list:
@@ -74,22 +80,23 @@ def _classes(live: dict, key: str) -> dict:
     return {cls: _strings(x, f"{key}.{cls}") for cls, x in v.items()}
 
 
-def words(ctx) -> dict:
+def words(ctx, view=None) -> dict:
     """The keyword lists in force: the ``words`` of the locale packs, then the entries of the live ``probe.json``
     (duplicates dropped, the first kept). An owner verb that a pack lists under ``verbs`` stays a position verb;
-    any other owner verb is matched anywhere."""
-    view = locales.view(ctx, every=True)
+    any other owner verb is matched anywhere. ``view``: the caller's ``locales.view(ctx, every=True)``, if read."""
+    view = locales.view(ctx, every=True) if view is None else view
+    fold = _letters(view)
     w = view.get("words", {})
     live = protected.load_control("probe.json", ctx)
     if not isinstance(live, dict):
         raise HarnessError("probe.json: the file must hold an object")
     out = {k: list(dict.fromkeys(w.get(k, []) + _strings(live.get(k, []), k))) for k in LISTS}
     mine = _classes(live, "verbs")
-    pos = {_norm(v) for vs in w.get("verbs", {}).values() for v in vs}
+    pos = {_norm(v, fold) for vs in w.get("verbs", {}).values() for v in vs}
     for key, keep in (("verbs", True), ("verbs_anywhere", False)):
         pack = w.get(key, {})
         out[key] = {cls: list(dict.fromkeys(pack.get(cls, []) + [v for v in mine.get(cls, [])
-                                                                 if (_norm(v) in pos) == keep]))
+                                                                 if (_norm(v, fold) in pos) == keep]))
                     for cls in dict.fromkeys(CLASSES + tuple(pack) + tuple(mine))}
     dec, own = w.get("decision_keywords", {}), _classes(live, "decision_keywords")
     out["decision_keywords"] = {cls: list(dict.fromkeys(dec.get(cls, []) + own.get(cls, [])))
@@ -119,7 +126,7 @@ def _in_workspace(name: str, ctx, cwd) -> Path:
     return Path(real)
 
 
-def _connectors(text: str, ctx):
+def _connectors(text: str, ctx, fold):
     """Connector (MCP server) names in the text, and those with any non-read scope in the registry."""
     reg = _registry(ctx)
     servers = {}
@@ -127,7 +134,8 @@ def _connectors(text: str, ctx):
         parts = tool.split("__")
         if len(parts) >= 3 and parts[0] == "mcp":
             servers.setdefault(parts[1], set()).add(scope)
-    named = sorted(s for s in servers if re.search(_kw(s.replace("_", " ")), text) or re.search(_kw(s), text))
+    named = sorted(s for s in servers
+                   if re.search(_kw(s.replace("_", " "), fold), text) or re.search(_kw(s, fold), text))
     write = sorted(s for s in named if any(sc != "read" for sc in servers[s]))
     return named, write
 
@@ -146,18 +154,21 @@ def _registry(ctx) -> dict:
 
 def run(request, ctx, cwd=None) -> dict:
     raw = request if isinstance(request, str) else ""
-    text = _norm(raw[:MAX_CHARS])
-    k = words(ctx)
-    pos = {cls: _hits(text, ws) for cls, ws in k["verbs"].items()}
-    anywhere = {cls: _hits(text, ws) for cls, ws in k["verbs_anywhere"].items()}
+    view = locales.view(ctx, every=True)
+    fold = _letters(view)
+    text = _norm(raw[:MAX_CHARS], fold)
+    k = words(ctx, view)
+    pos = {cls: _hits(text, ws, fold) for cls, ws in k["verbs"].items()}
+    anywhere = {cls: _hits(text, ws, fold) for cls, ws in k["verbs_anywhere"].items()}
     action_verbs = sorted({v for d in (pos, anywhere) for vs in d.values() for v in vs})
     leads, joins = k["imperative_lead"], k["imperative_join"]
     imperative = {cls for cls, vs in anywhere.items() if vs}
-    imperative |= {cls for cls, vs in pos.items() if any(_imperative(text, v, leads, joins) for v in vs)}
+    imperative |= {cls for cls, vs in pos.items() if any(_imperative(text, v, leads, joins, fold) for v in vs)}
     irreversible = sorted(c for c in imperative if c not in ("local_reversible",))
     first = re.split(r"\s+", text.strip(), maxsplit=1)[0] if text.strip() else ""
-    marks = tuple(m for m in map(_norm, k["question_marks"]) if m)  # a mark that folds to nothing ends every text
-    asks = text.rstrip().endswith(marks) or first in {_norm(q) for q in k["question_lead"]}
+    # a mark that folds to nothing ends every text
+    marks = tuple(m for q in k["question_marks"] if (m := _norm(q, fold)))
+    asks = text.rstrip().endswith(marks) or first in {_norm(q, fold) for q in k["question_lead"]}
     question_only = bool(asks and not imperative)
     files = _files(raw[:MAX_CHARS], k["file_extensions"])
     writes_files = bool(imperative & {"local_reversible", "destructive"})
@@ -169,11 +180,11 @@ def run(request, ctx, cwd=None) -> dict:
         if p is not None and p.is_file():
             data_classes |= set(pii.scan(p))
         data_file = data_file or name.lower().endswith((".csv", ".tsv", ".xlsx", ".xls", ".json"))
-    money = _hits(text, k["money_words"])
+    money = _hits(text, k["money_words"], fold)
     numbers = sorted(set(re.findall(r"\d+(?:[.,]\d+)*", text)))[:20]
-    quantity = _hits(text, k["quantity_words"])
-    decision = {cls: hits for cls, ws in k["decision_keywords"].items() if (hits := _hits(text, ws))}
-    connectors, write_conn = _connectors(text, ctx)
+    quantity = _hits(text, k["quantity_words"], fold)
+    decision = {cls: hits for cls, ws in k["decision_keywords"].items() if (hits := _hits(text, ws, fold))}
+    connectors, write_conn = _connectors(text, ctx, fold)
     floor = "T2" if irreversible else "T1" if (write_targets or write_conn) else "T0"
     out = {
         "schema": "harness/probe@1",
@@ -190,7 +201,7 @@ def run(request, ctx, cwd=None) -> dict:
         "quantitative": bool(money or quantity or numbers or data_file),
         "data_classes": sorted(data_classes),
         "decision_hits": decision,
-        "continuation": bool(_hits(text, k["continuation"])),
+        "continuation": bool(_hits(text, k["continuation"], fold)),
         "floor_tier": floor,
     }
     schema.check(out, "probe")

@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 from . import protected
@@ -22,7 +23,7 @@ MAX_BYTES = 256 * 1024    # size limit of one pack file
 CONTRACT = Path(__file__).resolve().parents[2] / "schema" / "control" / "locale.json"
 HEADER = ("schema", "id", "name")
 ID = r"[a-z0-9_-]{1,32}"  # the form of a pack id and of a language code
-EVERY = ("render", "state_lexicon", "question_marks")  # supplied by every installed pack, active or not
+EVERY = ("render", "state_lexicon", "question_marks", "fold")  # supplied by every installed pack, active or not
 
 
 def _pack(f: Path) -> dict:
@@ -42,6 +43,7 @@ def _pack(f: Path) -> dict:
         validate(pack, json.loads(CONTRACT.read_text("utf-8")))
         _check_render(pack.get("render", {}))
         _check_words(pack)
+        _check_fold(pack.get("fold", {}).get("letters", {}))
         merge([(f.name, pack)])  # one walk now, so a pack too deep to merge is named here, not in view()
     except (SchemaError, LocaleError) as e:
         raise LocaleError(f"locale pack {f}: {e}") from e
@@ -82,6 +84,19 @@ def _check_words(pack: dict) -> None:
         if len(m) != 1:
             raise LocaleError(f"question_marks: {m!r} is not exactly 1 character")
 
+
+def _check_fold(letters: dict) -> None:
+    """What the schema cannot say about ``fold.letters``: one letter to another, the key not ASCII, no chain."""
+    for k, v in letters.items():
+        for c in (k, v):
+            if len(c) != 1 or not unicodedata.category(c).startswith("L"):
+                raise LocaleError(f"fold.letters: {c!r} is not exactly 1 letter")
+        if k.isascii():
+            raise LocaleError(f"fold.letters: the key {k!r} is an ASCII character")
+        if k == v:
+            raise LocaleError(f"fold.letters: {k!r} folds to itself")
+        if v in letters:
+            raise LocaleError(f"fold.letters: {v!r} is a value and a key (a chain)")
 
 def _read(d: Path) -> dict:
     if not d.is_dir():

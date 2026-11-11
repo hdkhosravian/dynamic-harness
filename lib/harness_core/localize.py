@@ -16,9 +16,8 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 
-_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٫", "01234567890123456789.")
-_LETTERS = str.maketrans({"ي": "ی", "ى": "ی", "ئ": "ی", "ك": "ک", "ة": "ه", "أ": "ا", "إ": "ا", "آ": "ا", "ؤ": "و"})
-_FORMAT = {"‌", "‍", "‎", "‏", "؜", "﻿"}
+_DECIMAL = re.compile(r"(?![0-9])\d")  # \d of a str pattern: every character that has a Unicode decimal value
+_fold = None  # the letter table of fold_name: the request's (use_fold), else the shipped packs'
 BREAKS = (-61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181, 1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456,
           3178)
 JALALI_MONTHS = ("Farvardin", "Ordibehesht", "Khordad", "Tir", "Mordad", "Shahrivar", "Mehr", "Aban", "Azar", "Dey",
@@ -27,14 +26,32 @@ JALALI_MONTHS_FA = ("فروردین", "اردیبهشت", "خرداد", "تیر"
                     "اسفند")
 
 
+def decimals(text: str) -> str:
+    """Every character that has a Unicode decimal value as that ASCII digit, for every script."""
+    return text if text.isascii() else _DECIMAL.sub(lambda m: str(unicodedata.decimal(m.group())), text)
+
+
 def digits(text) -> str:
-    return unicodedata.normalize("NFC", str(text)).translate(_DIGITS)
+    return decimals(unicodedata.normalize("NFC", str(text))).replace("\u066b", ".")  # the Arabic decimal separator
+
+
+def use_fold(fold: dict) -> None:
+    """The ``locale.fold`` of a check request: from now on ``fold_name`` in this process folds letters with it."""
+    global _fold
+    _fold = str.maketrans(fold.get("letters", {}))
 
 
 def fold_name(text) -> str:
-    """Matching key: ی/ي, ک/ك and alef forms unified, ZWNJ and diacritics removed, digits ASCII, casefolded."""
-    t = digits(text).translate(_LETTERS)
-    t = "".join(" " if ch in _FORMAT else ch for ch in t if unicodedata.category(ch) != "Mn")
+    """Matching key: letters unified by the ``fold.letters`` of the locale packs (shipped: ی/ي, ک/ك, alef forms),
+    format characters a space, diacritics removed, digits ASCII, casefolded."""
+    global _fold
+    if _fold is None:  # not in a check that got a fold: the shipped packs, read once per process
+        from . import locales
+        _fold = str.maketrans(locales.view(None, every=True).get("fold", {}).get("letters", {}))
+    t = digits(text)
+    if not t.isascii():
+        t = "".join(" " if unicodedata.category(ch) == "Cf" else ch for ch in t.translate(_fold)
+                    if unicodedata.category(ch) != "Mn")
     return " ".join(t.split()).casefold()
 
 
