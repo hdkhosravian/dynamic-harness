@@ -32,7 +32,9 @@ from .safeio import atomic_write, safe_open
 
 MIN_LOOP_CONTRACT = (1, 1, 0)  # fold_ledger flags the gate adapter passes
 MIN_CC_VERSION = (2, 1, 295)  # hooks' onFailure: "block" (fail closed) needs this (OQ-4 spike S1)
-SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git"}  # shortcut: caches unhashed; plugin root is write-protected
+# shortcut: caches unhashed; plugin root is write-protected. ".in_use" holds Claude Code's per-session markers
+# (one file per running session) in an installed plugin's cache folder: hashing it would flag every new session
+SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git", ".in_use"}
 
 
 def tree_hash(root) -> str:
@@ -161,6 +163,30 @@ def loop_contract_version(root):
     return tuple(int(x) for x in m.groups()) if m else None
 
 
+# what the gate passes to fold_ledger (gate.py); a loop-contract that says 1.1.0 but predates them would let every
+# task run up to the gate and then fail there, so the script's own text is checked, not only its version
+GATE_FLAGS = ("--receipt", "--events-head", "--sources", "--fetch-log", "--snapshots", "--numbers-trace", "--outputs",
+              "--require-logs", "--include", "--lint-lexicon", "--assumptions", "--oracle-timeout")
+
+
+def loop_contract_problem(root):
+    """None when loop-contract at ``root`` can serve the gate, else what is wrong, in words for the owner."""
+    need = ".".join(map(str, MIN_LOOP_CONTRACT))
+    lv = loop_contract_version(root)
+    if lv is None or lv < MIN_LOOP_CONTRACT:
+        return f"loop-contract {'.'.join(map(str, lv)) if lv else 'unknown'} < {need}"
+    fold = Path(root) / "skills" / "loop-contract" / "scripts" / "fold_ledger.py"
+    try:
+        text = safe_open(fold, [root]).decode("utf-8", "replace")
+    except Exception:
+        return f"loop-contract at {root} has no readable fold_ledger.py"
+    missing = [f for f in GATE_FLAGS if f not in text]
+    if missing:
+        return (f"loop-contract at {root} says {'.'.join(map(str, lv))} but its fold_ledger.py lacks the gate flags "
+                f"{', '.join(missing)}: update loop-contract")
+    return None
+
+
 def on_start(evt, ctx) -> dict:
     evt = evt if isinstance(evt, dict) else {}
     sid = evt.get("session_id")
@@ -192,11 +218,10 @@ def _checks(evt, ctx) -> dict:
     if not ctx.loop_contract_root:
         return _block("REFUSED", "this folder is not set up (loop-contract location unknown): "
                                  "type /dynamic-harness:setup; tasks above T0 are refused", ctx)
-    lv = loop_contract_version(ctx.loop_contract_root)
-    if lv is None or lv < MIN_LOOP_CONTRACT:
-        need = ".".join(map(str, MIN_LOOP_CONTRACT))
-        return _block("REFUSED", f"loop-contract {'.'.join(map(str, lv)) if lv else 'unknown'} < {need}: "
-                                 "tasks above T0 are refused", ctx)
+    problem = loop_contract_problem(ctx.loop_contract_root)
+    if problem:
+        return _block("REFUSED", f"{problem} (if you have updated it, type /dynamic-harness:setup to record where it "
+                                 "is now): tasks above T0 are refused", ctx)
     log_path = Path(ctx.data_root or "/nonexistent") / "config_log.jsonl"
     if not log_path.is_file():
         return _block("REFUSED", "this folder is not set up (no release baseline in config_log.jsonl): type /dynamic-harness:setup; tasks above T0 are refused", ctx)

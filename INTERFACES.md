@@ -676,7 +676,7 @@ its last `file_sha`, appends the row, then appends an event carrying
   `parse_date`, `parse_amount`, `currency_of`, `to_unit`, `period(spec, profile)`, `prior_period`, `label_fa`.
   `tables.read(path) -> (headers, rows)` (CSV/TSV, stdlib XLSX; DTDs refused). `bin/harness-normalize`.
 - Packs: `finance` (`finance.reconcile|kpi|bridge|list`, `finance.py`), `research` (`research.check|report`,
-  `research.py`), `model` (`model.recalc|checks|report`, `model.py`), `operations` (`doc.check`,
+  `research.py`), `model` (`model.recalc|checks|report|workbook`, `model.py`), `operations` (`doc.check`,
   `decide.score_flip`, `operations.py`).
 - `business`: `profile`, `dictionary`, `sources`, `snapshot`, `parse_value`, `set_field`, `change_list`,
   `define_metric`, `remove_metric`, `register_source`, `guard(ctx, layers)` (the layer still equals its
@@ -692,7 +692,7 @@ its last `file_sha`, appends the row, then appends an event carrying
   opener)`, `page_text`, `log_search`, `apply_cite` (`cites.jsonl {unit, claims, load_bearing}`), `claim_row`.
   `bin/harness-claims fetch URL | cite --unit U --claims N,M [--load-bearing N]`. `fold._claims` projects
   `gate/claims.jsonl`.
-- `model_cmd.apply` for `harness-model assume|register|scenario|import`; `registry(ctx)`
+- `model_cmd.apply` for `harness-model assume|register|scenario|import|workbook`; `registry(ctx)`
   (`${CLAUDE_PLUGIN_DATA}/models/registry.json`). `compile.apply(req, ctx, evt, scenario_parent=None,
   job_id=None)`: only `model_cmd.scenario` passes the last two.
 - `templates.render(key, ctx=None, lang=None, **values)`, `language(ctx)`, `state_line(state, ctx)`,

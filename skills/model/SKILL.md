@@ -1,6 +1,6 @@
 ---
 name: model
-description: Model-checks pack for dynamic-harness forecasts, what-ifs and break-even (task type 6). Use when a task card's oracle is model.recalc, model.checks or model.report.
+description: Model-checks pack for dynamic-harness forecasts, what-ifs and break-even (task type 6). Use when a task card's oracle is model.recalc, model.checks, model.report or model.workbook.
 ---
 
 # Model-checks pack
@@ -9,7 +9,7 @@ Assumptions are parameters, not questions. Every number in the report comes from
 
 ## Steps
 
-1. Record each assumption: `harness-model assume <id> <value> --unit IRT|ratio|percent|index --period month|once
+1. Record each assumption: `harness-model assume <id> <value> --unit IRT|ratio|percent|index --period month|year|once
    --source history|benchmark|guess|owner`. Defaults come from the data first (trailing growth, seasonal index),
    then benchmarks, then a labelled guess. A seasonality is a list of 12 monthly factors (JSON).
 2. Show the owner the assumption sheet: `harness-contact assumption_sheet`. Only the top 3 by sensitivity are worth

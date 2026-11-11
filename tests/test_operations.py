@@ -45,6 +45,16 @@ def test_placeholders_missing_items_footer_and_blocked_recipients_fail(h):
         assert want in joined
 
 
+
+def test_an_empty_footer_arg_does_not_waive_the_owners_footer(h):
+    job = compiled(h, card=DOC, text="draft the proposal for the client")
+    _profile(h, footer="Karimi Trading, Tehran")
+    p, log = log_of(h, job)
+    (p.work / "proposal.md").write_text("Dear client,\nPrice and delivery date are below.\n")
+    res = run_req(h, check="doc.check", inputs=(), period=None, document="proposal.md",
+                  required=["price", "delivery date"], footer="")
+    assert res["result"] == "fail" and any("footer" in n for n in res["notes"])
+
 DECISION = {"criteria": [{"id": "price", "weight": 5, "source": "owner"}, {"id": "quality", "weight": 4,
                                                                             "source": "owner"}],
             "options": [{"id": "vendor_a", "scores": {"price": 9, "quality": 5}},

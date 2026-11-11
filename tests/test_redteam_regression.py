@@ -16,7 +16,7 @@ def _measure(script):
     return mod.measure()
 
 
-@pytest.mark.parametrize("script,min_hit", [("redteam_measure", 133), ("redteam2_measure", 188)])
+@pytest.mark.parametrize("script,min_hit", [("redteam_measure", 144), ("redteam2_measure", 188)])
 def test_redteam_recall_and_false_denies(script, min_hit):
     r = _measure(script)
     assert not r["errors"], r["errors"]

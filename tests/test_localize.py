@@ -85,3 +85,19 @@ def test_xlsx_reader_reads_strings_numbers_and_dates(tmp_path):
     headers, rows = tables.read(f)
     assert headers == ["date", "amount"] and rows == [[45371, 1500]]
     assert tables.excel_date(45371) == dt.date(2024, 3, 20)
+
+
+def test_a_fiscal_year_is_numbered_in_the_calendar_its_start_day_uses():
+    jal = {"fiscal_year_start": "01-01"}
+    assert str(L.period({"fiscal_year": 1403}, jal)["start"]) == "2024-03-20"
+    assert str(L.period({"fiscal_year": 1403}, jal)["end"]) == "2025-03-20"  # 30 Esfand 1403: a leap year
+    with pytest.raises(ValueError, match="number the fiscal year in that calendar"):
+        L.period({"fiscal_year": 2025}, jal)
+    assert str(L.period({"fiscal_year": 2025}, {"calendar": "gregorian", "fiscal_year_start": "04-01"})["start"]) \
+        == "2025-04-01"
+
+
+def test_a_comma_that_is_not_thousands_grouping_is_unreadable_not_a_bigger_number():
+    assert L.parse_amount("1,5") is None and L.parse_amount("12,50") is None
+    assert L.parse_amount("1,500,000") == 1500000 and L.parse_amount("۱٬۵۰۰ تومان") == 1500
+    assert L.parse_amount("(1,200.50)") == Decimal("-1200.50")

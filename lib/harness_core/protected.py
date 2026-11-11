@@ -46,13 +46,32 @@ def resolve(path, ctx, cwd=None) -> str:
 
 
 def _norm(s: str) -> str:
-    """Canonical form used to compare a path against protected patterns.
+    """Canonical form used to compare a path against protected patterns (never to open a file).
 
-    TODO(human): fold look-alike characters so `СLAUDE.md` (Cyrillic С) matches
-    `CLAUDE.md` (see tests/test_homoglyph.py, red-team rt106/rt107), while keeping
-    Persian names distinct and folding Arabic ي/ك to Persian ی/ک.
+    Folding only ever widens a match: NFKC maps fullwidth and styled letters to plain ones,
+    combining marks and zero-width characters are dropped, Cyrillic and Greek look-alikes become
+    Latin, and Arabic ي/ك/ى become Persian ی/ک/ی. Persian letters are never mapped to Latin.
     """
+    s = "".join(ch if "/" in (d := unicodedata.normalize("NFKD", ch)) else d for ch in s)  # never invent a "/"
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    return unicodedata.normalize("NFC", s).translate(_CONFUSABLES).casefold()
+
+
+def _strict(s: str) -> str:
+    """Exceptions match exactly (bar case and NFC): folding them would widen what the agent may write."""
     return unicodedata.normalize("NFC", s).casefold()
+
+
+# Look-alikes of Latin letters (upper and lower are listed apart: Greek Η looks like H, η like n).
+_PAIRS = (
+    "Аa Вb Сc Еe Нh Іi Јj Кk Мm Оo Рp Ѕs Тt Хx Уy "          # Cyrillic capitals
+    "аa сc еe һh іi јj кk мm нh оo рp ѕs тt уy хx ԁd ԛq ԝw ӏl "  # Cyrillic small
+    "Αa Βb Εe Ζz Ηh Ιi Κk Μm Νn Οo Ρp Τt Υy Χx "               # Greek capitals
+    "αa εe ιi κk νv οo ρp τt υu χx "                            # Greek small
+    "ıi ȷj ɑa ɡg يی كک ىی"                                       # Latin variants; Arabic → Persian
+)
+_CONFUSABLES = str.maketrans({**{p[0]: p[1] for p in _PAIRS.split()},
+                              **{z: "" for z in "​‌‍⁠﻿­"}})
 
 
 def _vars(ctx) -> dict:
@@ -103,11 +122,11 @@ def _glob_re(pattern: str):
     return re.compile("^" + "".join(out) + "$", re.S)
 
 
-def _matches(real: str, patterns, ctx) -> bool:
-    n = _norm(real)
+def _matches(real: str, patterns, ctx, norm=_norm) -> bool:
+    n = norm(real)
     for pat in patterns:
         e = _expand(pat, ctx)
-        if e is not None and _glob_re(_norm(e)).match(n):
+        if e is not None and _glob_re(norm(e)).match(n):
             return True
     return False
 
@@ -117,12 +136,12 @@ def is_protected(path, ctx, cwd=None) -> bool:
     pats = load_patterns(ctx)
     if _matches(real, pats.get("always_protected", []), ctx):
         return True
-    return _matches(real, pats["write_protected"], ctx) and not _matches(real, pats.get("write_exceptions", []), ctx)
+    return _matches(real, pats["write_protected"], ctx) and not _matches(real, pats.get("write_exceptions", []), ctx, _strict)
 
 
 def is_scratch(path, ctx, cwd=None) -> bool:
     """Under a job's agent-writable ``work/`` or ``requests/`` folder."""
-    return _matches(resolve(path, ctx, cwd), load_patterns(ctx).get("write_exceptions", []), ctx)
+    return _matches(resolve(path, ctx, cwd), load_patterns(ctx).get("write_exceptions", []), ctx, _strict)
 
 
 def is_read_protected(path, ctx, cwd=None) -> bool:

@@ -302,6 +302,9 @@ def checks(req):
         elif row["unit"] in ("ratio", "percent") and row["period"] not in ("month", "once"):
             notes.append(f"assumption {k} is a {row['period']} rate in a monthly model")
             fail = True
+        elif row["unit"] == unit and row["period"] not in ("month", "once"):  # yearly rent read as a month's
+            notes.append(f"assumption {k} is a {row['period']} amount in a monthly model: record it per month")
+            fail = True
     # 3. metamorphic tests
     zero = {k: 0 for k in A if any(ln.get("growth") == {"assumption": k} for ln in model["lines"])}
     flat = run(model, A, over=zero)
@@ -320,9 +323,15 @@ def checks(req):
     if a.get("table"):
         from .checklib import safe_path
         got = _table(safe_path(req.get("work", "work"), a["table"]))
-        bad = [k for k, v in base["cells"].items() if k in got and abs(got[k] - v) > max(abs(v) * TOL, Decimal(1))]
-        if bad or not got:
-            notes.append(f"the delivered table differs from the model at {bad[:5] or 'every cell (none read)'}")
+        key = lambda line, p: f"{L.fold_name(line)}@{L.digits(p).strip()}"  # the same folding as _table
+        want = {key(*k.split("@", 1)): v for k, v in base["cells"].items()}
+        bad = [k for k, v in want.items() if k in got and abs(got[k] - v) > max(abs(v) * TOL, Decimal(1))]
+        missing = [k for k in (key(ln, p) for ln in base["lines"] for p in base["periods"]) if k not in got]
+        if bad:
+            notes.append(f"the delivered table differs from the model at {bad[:5]}")
+            fail = True
+        if missing:  # a table that matches nothing is not a cross-check
+            notes.append(f"the delivered table lacks {len(missing)} model cells, e.g. {missing[:5]}")
             fail = True
     else:
         notes.append("no delivered table to cross-check against the model")
@@ -403,7 +412,8 @@ def report(req):
     if len(named) < len(drivers):
         notes.append(f"name the top drivers: {', '.join(d for d in drivers if d not in named)}")
     f = flip(model, A)
-    if f["month"] and f["month"] not in text and str(f["fall_pct"]) not in text:
+    plain = L.digits(text).replace("٪", "%")
+    if f["month"] and f["month"] not in plain and f"{f['fall_pct']}%" not in plain:  # "0" alone appears anywhere
         notes.append(f"state the flip point: cash runs out in {f['month']} if {f['driver']} falls more than "
                      f"{f['fall_pct']}%")
     return ("fail" if notes else "pass"), {"drivers_named": len(named)}, notes

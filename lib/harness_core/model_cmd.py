@@ -100,6 +100,12 @@ def assume(req, ctx, p, log) -> dict:
         raise Denied(f"--source is one of {', '.join(SOURCES)}")
     if len(unit) > 20 or not re.fullmatch(r"[\w%./ -]+", unit):
         raise Denied("--unit is a short unit name (IRT, ratio, percent, index)")
+    if unit.casefold() in ("percent", "%"):  # the engine multiplies by a fraction: 5 percent is stored as 0.05
+        if isinstance(value, list):
+            raise Denied("a seasonality is a list of 12 factors (1.0 = an average month), not percentages")
+        value, unit, entered = value / 100, "ratio", f"{value} percent"
+    else:
+        entered = None
     label = str(req.get("label") or aid)
     if len(label) > 80 or any(ord(c) < 32 for c in label):
         raise Denied("--label is one line of at most 80 characters")
@@ -108,7 +114,7 @@ def assume(req, ctx, p, log) -> dict:
     confirmed = False
     row = {"id": aid, "value": value, "unit": unit, "period": period, "source": source,
            "as_of": req.get("as_of") or time.strftime("%Y-%m-%d"), "owner_confirmed": confirmed,
-           "label": label, "late": contacts.progress(ctx) >= 0.5,
+           "label": label, "late": contacts.progress(ctx) >= 0.5, **({"entered": entered} if entered else {}),
            "expires_at": time.strftime("%Y-%m-%d", time.gmtime(time.time() + 90 * 86400))}
     with log.lock():
         rows = [r for r in _rows(p, log) if r["id"] != aid] + [row]
@@ -122,8 +128,8 @@ def sheet_text(rows, ctx) -> str:
     for r in rows:
         v = r["value"] if not isinstance(r["value"], list) else "monthly factors " + ", ".join(map(str, r["value"]))
         # free text is quoted, so a label cannot pose as another line of the sheet
-        lines.append(f"- {json.dumps(r['label'], ensure_ascii=False)}: {v} {json.dumps(r['unit'], ensure_ascii=False)}"
-                     f" per {r['period']} (from {r['source']})")
+        shown = f"{v} {json.dumps(r['unit'], ensure_ascii=False)}" + (f" ({r['entered']})" if r.get("entered") else "")
+        lines.append(f"- {json.dumps(r['label'], ensure_ascii=False)}: {shown} per {r['period']} (from {r['source']})")
     return "\n".join(lines)
 
 

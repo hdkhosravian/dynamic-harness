@@ -60,7 +60,12 @@ def apply(req, ctx, evt) -> dict:
     unit = next((u for u in Ledger(p, log).sanctioned_scope() if u["id"] == req.get("unit")), None)
     if unit is None:
         raise Denied(f"unit {req.get('unit')!r} is not in the frozen scope")
-    mine = [o for o in Outputs(p, log).rows() if o["unit"] == unit["id"] and o["check_id"] in HEADER_CHECKS]
+    every = [o for o in Outputs(p, log).rows() if o["unit"] == unit["id"]]
+    named = next((o for o in every if o["sha256"] == req.get("output")), None)
+    if named is not None and named["check_id"] not in HEADER_CHECKS:  # say what is wrong, not "not recorded"
+        raise Denied(f"an answer header describes one figure from {', '.join(HEADER_CHECKS)}; output "
+                     f"{named['sha256'][:12]} is a {named['check_id']} run: re-run the figure with finance.reconcile")
+    mine = [o for o in every if o["check_id"] in HEADER_CHECKS]
     out = next((o for o in mine if o["sha256"] == req.get("output")), None)
     if out is None:
         raise Denied(f"output {req.get('output')!r} is not a recorded output of {unit['id']}")
@@ -109,7 +114,8 @@ def apply(req, ctx, evt) -> dict:
         codes = out.get("note_codes") or []
         reason = templates.note(codes[0] if codes else None, texts[0], ctx, lang)
         line3 = templates.render("header.not_checked", ctx, lang, reason=reason.rstrip("."))
-        card = store.read_json(p.run, log, "card.v1.json", None) or {}
+        from .record import _cards
+        card = (_cards(p, log) or [{}])[-1]  # the latest version: a correction can make a task financial
         if card.get("decision_class") in ("financial", "tax"):
             line3 += " " + templates.render("header.not_for_tax", ctx, lang)
     text = "\n".join([line1, line2, line3]) + "\n"

@@ -12,6 +12,7 @@ import pytest
 
 from harness_core import hookmain, setup
 from harness_core.safety import Ctx
+from harness_core.session import GATE_FLAGS
 
 SID = "s1"
 
@@ -23,6 +24,8 @@ def ctx(tmp_path):
         d.mkdir(parents=True)
     (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "dynamic-harness"}')
     (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
+    (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     return Ctx(workspace=ws, data_root=data, plugin_root=plugin, home=home, loop_contract_root=lc)
 
 
@@ -44,9 +47,9 @@ def code_of(out):
     return m.group(1)
 
 
-def apply(ctx):
+def apply(ctx, scope="global"):
     out = prompt(ctx, "/dynamic-harness:setup")
-    return prompt(ctx, f"/dynamic-harness:setup confirm {code_of(out)}")
+    return prompt(ctx, f"/dynamic-harness:setup confirm {code_of(out)}" + (" global" if scope == "global" else ""))
 
 
 # --- plan: shows, never writes ---
@@ -200,7 +203,8 @@ def test_undo_without_a_backup_says_so(ctx):
 
 def test_verify_lists_what_is_missing(ctx):
     probs = setup.verify(ctx)
-    assert any("sandbox.enabled" in p for p in probs) and any("strictAllowlist" in p for p in probs)
+    assert any("sandbox.enabled" in p for p in probs)
+    assert not any("strictAllowlist" in p for p in probs)  # global part is only checked once the owner chose it
 
 
 def test_local_settings_win_over_a_project_file_that_turns_the_sandbox_off(ctx):
@@ -461,3 +465,73 @@ def test_unicode_normal_forms_match_on_macos(ctx, tmp_path):
     prot.mkdir()
     entry = str(tmp_path / unicodedata.normalize("NFC", "DÉJÀ") / "x")
     assert setup._inside(entry, str(prot), setup._home(ctx))
+
+
+# --- scope: folder only unless the owner types "global" ---
+
+
+def test_plan_shows_folder_and_global_parts_apart(ctx):
+    r = prompt(ctx, "/dynamic-harness:setup")["reason"]
+    code = code_of({"reason": r})
+    assert f"/dynamic-harness:setup confirm {code}\n" in r + "\n" or f"confirm {code}\n" in r
+    assert f"/dynamic-harness:setup confirm {code} global" in r
+    assert r.index("This folder only") < r.index("GLOBAL")
+
+
+def test_folder_only_confirm_never_touches_global_settings(ctx):
+    out = apply(ctx, scope="folder")
+    assert out["reason"].startswith("Applied:"), out["reason"]
+    assert not files(ctx)["user"].exists()
+    assert load(files(ctx)["local"])["sandbox"]["enabled"] is True
+    assert setup.chosen_scope(ctx) == "folder" and setup.verify(ctx) == []
+
+
+def test_global_confirm_is_then_checked_by_verify(ctx):
+    apply(ctx)
+    assert setup.chosen_scope(ctx) == "global" and setup.verify(ctx) == []
+    files(ctx)["user"].write_text("{}")
+    assert any("strictAllowlist" in p for p in setup.verify(ctx))
+
+
+def test_global_entries_that_weaken_the_sandbox_need_the_global_option(ctx):
+    files(ctx)["user"].parent.mkdir(parents=True, exist_ok=True)
+    files(ctx)["user"].write_text('{"sandbox": {"excludedCommands": ["docker"]}}')
+    r = prompt(ctx, "/dynamic-harness:setup")["reason"]
+    assert "folder-only setup is not possible" in r
+    code = code_of({"reason": r})
+    refused = prompt(ctx, f"/dynamic-harness:setup confirm {code}")["reason"]
+    assert "no folder-only option" in refused and load(files(ctx)["user"]) == {"sandbox": {"excludedCommands": ["docker"]}}
+    assert prompt(ctx, f"/dynamic-harness:setup confirm {code} global")["reason"].startswith("Applied:")
+    assert setup._get(load(files(ctx)["user"]), ("sandbox", "excludedCommands")) == []
+
+
+def test_a_loop_contract_that_lacks_the_gate_flags_is_refused_up_front(ctx):
+    # the published loop-contract said 1.1.0 before its fold_ledger learned the gate's flags (live, 2026-11-11)
+    (ctx.loop_contract_root / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text("--ledger --out")
+    r = prompt(ctx, "/dynamic-harness:setup")["reason"]
+    assert "lacks the gate flags" in r and "--receipt" in r
+    assert all(not p.exists() for p in files(ctx).values())
+
+
+def test_setup_finds_the_updated_loop_contract_when_the_recorded_one_is_stale(ctx, tmp_path):
+    new = tmp_path / "cache" / "loop-contract" / "1.2.0"
+    (new / ".claude-plugin").mkdir(parents=True)
+    (new / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.2.0"}')
+    (new / "skills" / "loop-contract" / "scripts").mkdir(parents=True)
+    (new / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
+    (ctx.home / ".claude" / "plugins").mkdir(parents=True, exist_ok=True)
+    (ctx.home / ".claude" / "plugins" / "installed_plugins.json").write_text(
+        json.dumps({"plugins": {"loop-contract@loop-contract": [{"installPath": str(new)}]}}))
+    (ctx.loop_contract_root / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text("--ledger")
+    assert setup.find_loop_contract(ctx) == os.path.realpath(new)
+
+
+def test_undo_after_a_rerun_that_only_rerecorded_the_release_reverses_the_real_setup(ctx):
+    # live: a re-run after a plugin update left an empty backup, and undo then restored nothing
+    apply(ctx, scope="folder")
+    (ctx.plugin_root / "changed.txt").write_text("an update")
+    assert apply(ctx, scope="folder")["reason"].startswith("Applied:")
+    out = prompt(ctx, "/dynamic-harness:setup undo")
+    assert "sandbox.enabled" in out["reason"]
+    prompt(ctx, f"/dynamic-harness:setup confirm {code_of(out)}")
+    assert not files(ctx)["local"].exists()

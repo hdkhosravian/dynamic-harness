@@ -110,8 +110,9 @@ def _t0(evt, ctx, sid, st, msg) -> dict:
     hits = lexicon_hits(ctx, msg)
     if hits:
         return _block(ctx, sid, st, "lexicon", f"a quick answer may not use state words {hits}; rephrase without them")
-    money = probe._hits(probe._norm(msg), protected.load_control("probe.json", ctx)["money_words"])
-    if money:
+    text = probe._norm(msg)  # Persian and Arabic digits are folded to ASCII here
+    money = probe._hits(text, protected.load_control("probe.json", ctx)["money_words"])
+    if money and re.search(r"\d", text):  # R-11 is about figures: "net margin is net income over revenue" has none
         turn = st.get("request_turn")
         sessionstate.update(ctx, sid, pending_card={"floor": "T1", "reason": f"money in the answer: {money}",
                                                     "turn_id": turn})

@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from harness_core import setup, hookmain, sandbox_exec, session
+from harness_core.session import GATE_FLAGS
 
 ROOT = Path(__file__).resolve().parents[1]
 SID = "e2e-1"
@@ -29,6 +30,8 @@ def h(tmp_path):
     (plugin / "bin" / "harness-hook").write_text("#!/usr/bin/python3 -I\n")
     shutil.copytree(ROOT / "skills", plugin / "skills")  # the packs that register card oracles
     (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
+    (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     (ws / "old.py").write_text("print('pre-existing')\n")
     env = {"CLAUDE_PLUGIN_DATA": str(data), "CLAUDE_PLUGIN_ROOT": str(plugin), "HOME": str(home),
            "CLAUDE_PROJECT_DIR": str(ws)}

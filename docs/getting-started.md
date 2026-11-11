@@ -45,12 +45,14 @@ run there.
 
    The hook shows every change it would make, grouped by file, plus a one-time code. Nothing changes yet,
    and Claude never sees this exchange.
-3. Read the plan. To apply it, type:
+3. Read the plan. It lists the changes to this folder and, apart, the optional change to your global
+   settings. To change this folder only, type:
 
    ```text
    /dynamic-harness:setup confirm <code>
    ```
 
+   To also make the global change, add the word `global`: `/dynamic-harness:setup confirm <code> global`.
    The code works once, in this session, for 10 minutes.
 4. Quit and start a new Claude Code session in the folder. The sandbox and the session checks apply from then
    on.
@@ -71,11 +73,13 @@ Undo does not touch a value you changed after setup, and it keeps every other ed
 
 ### What setup changes
 
-- **`~/.claude/settings.json`**: the key `sandbox.network.strictAllowlist`. It acts only in projects that turn
-  the sandbox on: there, commands reach only the domains that project allows, with no prompt to add one.
-  Some lists apply to every project: allowed network domains, sandbox-exempt commands, socket allowances and
-  custom proxy ports. If your user settings set any of these, setup removes them there too, and other
-  projects lose them. The plan says so before you confirm.
+- **`~/.claude/settings.json`**, only if you confirm with `global`: the key `sandbox.network.strictAllowlist`.
+  It acts only in projects that turn the sandbox on: there, commands reach only the domains that project
+  allows, with no prompt to add one. Without it, Claude Code asks you before a command reaches a website the
+  folder does not allow. Some lists apply to every project: allowed network domains, sandbox-exempt commands,
+  socket allowances and custom proxy ports. If your user settings set any of these, a folder-only setup is not
+  possible, and the plan says so: remove them yourself, or confirm with `global` and setup removes them (other
+  projects lose them too).
 - **This folder's `.claude/settings.local.json`**:
   - the sandbox is on, and commands do not run if it cannot start;
   - no command may run outside the sandbox, and commands get no network access;

@@ -2,8 +2,8 @@
 """harness-compile --card FILE [--second-draft FILE | --reunderstand TURN_ID]: print a compile request.
 
 Only prints. The PostToolUse writer (compile.apply) re-validates the card, selects the tier and writes
-the run state; nothing here touches a protected path. Put drafts under .claude/loops/<job>/requests/
-or any workspace file."""
+the run state; nothing here touches a protected path. Before a card compiles, the only file you may write is
+a .json directly in .claude/loops/drafts/; put the draft there."""
 import json
 import sys
 

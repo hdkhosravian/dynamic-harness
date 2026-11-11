@@ -42,9 +42,9 @@ def doc_check(req):
     holes = sorted({m.group(0) for m in PLACEHOLDER.finditer(text)})
     if holes:
         notes.append(f"placeholders left: {', '.join(holes[:8])}")
-    footer = a.get("footer", prof.get("footer"))
-    if footer and L.fold_name(footer) not in L.fold_name(text[-max(len(footer) * 3, 400):]):
-        notes.append("the required footer is not at the end of the document")
+    for footer in dict.fromkeys(f for f in (prof.get("footer"), a.get("footer")) if f):  # args add, never replace
+        if L.fold_name(footer) not in L.fold_name(text[-max(len(footer) * 3, 400):]):
+            notes.append("the required footer is not at the end of the document")
     blocked = [n for n in prof.get("do_not_contact") or [] if L.fold_name(n) and L.fold_name(n) in folded]
     if blocked:
         notes.append(f"the document names someone on the do-not-contact list: {', '.join(blocked)}")

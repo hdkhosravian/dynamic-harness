@@ -3,13 +3,13 @@
   "procedures": [
     {
       "path": "skills/finance/SKILL.md",
-      "sha256": "824113ee1e8657df5410af0d2c1eb997a759fbca0701018b32d56b70ca18e3ee",
-      "approver": "release 0.4.0"
+      "sha256": "2ab7bca98037f840879c0a2a26d8022cccf0b212940075197406310d4457fc0e",
+      "approver": "unreleased (after 0.4.0)"
     },
     {
       "path": "skills/model/SKILL.md",
-      "sha256": "d5a8c8ebe690ec9eddeafaa5ed640b2a7bada2329b79e2e3a3dafdd97c699936",
-      "approver": "release 0.4.0"
+      "sha256": "99f286aaef80f37b604b4323f98bff195d338274b9913adf9b2921d72435676f",
+      "approver": "unreleased (after 0.4.0)"
     },
     {
       "path": "skills/operations/SKILL.md",
@@ -23,8 +23,8 @@
     },
     {
       "path": "skills/task-card/SKILL.md",
-      "sha256": "322bf19a7809b5e038fc5bd5d8de66c7b922cf8b43f5b74ad090303a24b3133b",
-      "approver": "release 0.4.0"
+      "sha256": "e41b0e94662895d5a271d51f4d3c468fd7c76f911f183314460a64e60767fae3",
+      "approver": "unreleased (after 0.4.0)"
     }
   ]
 }

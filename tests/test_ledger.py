@@ -126,6 +126,16 @@ def test_supported_needs_research_check_exit_zero(h):
     assert h["led"].state("h1") == "SUPPORTED"
 
 
+
+def test_supported_refuses_a_research_check_that_exited_zero_with_a_fail(h):
+    # checklib exits 0 for a "fail" result: the exit code alone is not a pass
+    bad = _ok(h, unit="h1", check="research.check", code=0, result="fail", data=b"r3")
+    with pytest.raises(Denied):
+        h["led"].append_row("verdict", {"id": "h1", "attempt": 1, "verdict": "SUPPORTED", "outputs": [bad["sha256"]]})
+    old = _ok(h, unit="h1", check="research.check", attempt=1, data=b"r4")
+    with pytest.raises(Denied):
+        h["led"].append_row("verdict", {"id": "h1", "attempt": 2, "verdict": "SUPPORTED", "outputs": [old["sha256"]]})
+
 # --- 2nd FAIL rule ------------------------------------------------------------------
 
 def _fail(h, attempt, unit="u1", check="recon.totals"):

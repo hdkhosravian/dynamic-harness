@@ -1,5 +1,5 @@
 ---
-description: Export decision records as a CSV file in this folder.
+description: Export decision records as a CSV file in this folder's exports/ subfolder.
 argument-hint: "--task <job> | --period <YYYY-MM>[:<YYYY-MM>]"
 disable-model-invocation: true
 ---

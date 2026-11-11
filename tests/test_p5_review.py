@@ -179,6 +179,17 @@ def test_a_currency_change_converts_toman_and_rial_limits(h):
     assert business.profile(ctx_of(h))["caps"] == {"task": 5000000, "currency": "IRR"}
 
 
+
+def test_a_currency_change_converts_the_rate_and_risk_threshold_too(h):
+    for i, cmd in enumerate(("currency IRT", "fx.USD 90000", "thresholds.money_at_stake_high 1000000",
+                             "currency IRR")):
+        confirm(h, "business", typed(h, f"/dynamic-harness:business set {cmd}", f"c{i}a"), f"c{i}b")
+    prof = business.profile(ctx_of(h))
+    assert prof["fx"]["USD"] == 900000 and prof["thresholds"]["money_at_stake_high"] == 10000000
+    confirm(h, "business", typed(h, "/dynamic-harness:business set currency EUR", "d1"), "d2")
+    prof = business.profile(ctx_of(h))
+    assert "USD" not in prof["fx"] and "money_at_stake_high" not in prof["thresholds"]
+
 # 12 (medium): fetch details
 def test_an_unknown_charset_does_not_crash_the_fetch(h, inv):
     res = fetch(h, PLAN["urls"][0], opener(headers={"content-type": "text/html; charset=x-unknown-9"}))

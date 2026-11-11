@@ -24,8 +24,12 @@ the check in a sandbox, records its output, and prints the output sha and values
 - A `fail` result names the gap in its notes (rows left out, data ending early, sources that disagree, a jump
   of ten times or more against the prior period). Show those notes to the owner next to the figure. Never pick
   one of two disagreeing sources.
-- After a `pass`, append the unit's ledger row with `"outputs": ["<sha>"]` and the same attempt number. After a
-  `fail`, append a `FAIL` row citing the output; a second failure ends the unit as "done, not fully checked".
+- After a `pass`, append the unit's ledger row citing the output, with the same attempt number:
+  `harness-ledger append --kind unit --row '{"id": "u1", "attempt": 1, "verdict": "PASS", "outputs": ["<sha>"]}'`.
+  After a `fail`, append the same row with `"verdict": "FAIL"`; a second failure ends the unit as "done, not
+  fully checked".
 - Cite only the values the check printed: `total`, `total_millions`, `total_other_unit`, `rows_used`, and so on.
-- For a figure the owner relies on, run `harness-answer header --unit <id> --output <sha>` before the gate. It
+- For every money figure in the answer, compute it with `finance.reconcile` and a confirmed `metric_id` (confirm
+  the definition first with `harness-contact definition_confirm --metric <file>`), then run
+  `harness-answer header --unit <id> --output <sha>` before the gate. The header takes no `finance.kpi` run. It
   also writes the rows behind the figure as `work/rows-<unit>.xlsx`; attach it to the answer.

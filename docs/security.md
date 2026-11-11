@@ -137,6 +137,10 @@ The design spec states these as numbered requirements. All of them are built in 
 - Claude Code's own sandbox on Linux has not been verified live; the harness's own sandbox has.
 - Not yet verified on a real Ubuntu 24.04 host with AppArmor's unprivileged-namespace restriction on, on other
   distributions, or on WSL2.
+- A nested `.claude/` folder or `.mcp.json` (below the workspace root) is protected by the harness's own hook,
+  not by the sandbox's write-deny list that setup writes.
+- The gate needs a loop-contract whose `fold_ledger.py` has the 1.1.0 gate flags. Setup and session start
+  refuse one without them; until such a loop-contract is published, tasks above T0 cannot finish.
 - Every release needs a fresh held-out red-team round. Earlier rounds are now regression tests, so they no
   longer measure unseen attacks.
 

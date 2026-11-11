@@ -133,14 +133,16 @@ def check(req):
     if bearing and not independent:
         notes.append("the load-bearing claims have fewer than 2 independent sources (copies of one article count once)")
         fail = True
-    renders = {r.get("prompt_sha") for r in _jsonl(run / "renders.jsonl")
+    renders = {r.get("prompt_sha"): r for r in _jsonl(run / "renders.jsonl")
                if r.get("kind") == "verifier" and r.get("unit") == unit}
     verdicts = [s for s in _jsonl(run / "subagents.jsonl")
                 if s.get("agent_type") == "dynamic-harness:verifier" and s.get("prompt_sha") in renders]
+    answers = verdicts[-1].get("answers") or [] if verdicts else []
+    asked = renders[verdicts[-1]["prompt_sha"]].get("criteria") if verdicts else None
     if not verdicts:
         notes.append(f"no verifier verdict is recorded for {unit} (harness-critic render, then the verifier)")
         fail = True
-    elif not verdicts[-1].get("answers") or "no" in verdicts[-1]["answers"]:
+    elif not answers or any(a != "yes" for a in answers) or (isinstance(asked, int) and len(answers) != asked):
         notes.append(f"the verifier did not answer yes to every criterion for {unit}: the sources may not support "
                      "the claim")
         fail = True

@@ -214,8 +214,10 @@ class Ledger:
                     raise Denied(f"{row['id']}: cited output {o['sha256'][:12]} is not a clean pass "
                                  f"of registered check {unit.get('check_id')!r}")
         if v in ("SUPPORTED", "REFUTED"):
-            if not any(o["check_id"] == "research.check" and o["exit_code"] == 0 for o in self._cited(row)):
-                raise Denied(f"{row['id']}: {v} needs a research.check output with exit 0")
+            # research.check grades the evidence, not the conclusion: both verdicts need its clean pass
+            if not any(o["check_id"] == "research.check" and o["exit_code"] == 0 and o["result"] == "pass"
+                       and o["attempt"] == row["attempt"] for o in self._cited(row)):
+                raise Denied(f"{row['id']}: {v} needs a passing research.check output from attempt {row['attempt']}")
         if v == "FAIL":
             fails = sum(1 for k, r in self.rows() if k in ROW_SCHEMA and r["id"] == row["id"] and r["verdict"] == "FAIL")
             if fails >= 1:  # this is the 2nd FAIL

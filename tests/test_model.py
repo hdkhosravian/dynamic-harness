@@ -85,6 +85,22 @@ def test_a_number_in_the_owners_words_is_not_a_confirmation(h, sim):
     assert res["owner_confirmed"] is False  # only the rendered sheet, approved by the owner, confirms
 
 
+
+def test_a_percent_assumption_is_stored_as_a_fraction(h, sim):
+    model_cmd.apply({"tool": "model", "sub": "assume", "id": "sales_growth", "value": 5, "unit": "percent",
+                     "period": "month", "source": "owner"}, ctx_of(h), {"session_id": SID})
+    p, log = log_of(h, sim)
+    row = next(r for r in store.read_json(p.run, log, "assumptions.json")["assumptions"] if r["id"] == "sales_growth")
+    assert row["value"] == 0.05 and row["unit"] == "ratio" and row["entered"] == "5 percent"
+    assert "(5 percent)" in model_cmd.sheet_text([row], ctx_of(h))
+
+
+def test_a_yearly_amount_in_a_monthly_model_fails_checks(h, sim):
+    model_cmd.apply({"tool": "model", "sub": "assume", "id": "rent", "value": 2400000, "unit": "IRT",
+                     "period": "year", "source": "owner"}, ctx_of(h), {"session_id": SID})
+    res = checks(h)
+    assert res["result"] == "fail" and any("year amount in a monthly model" in n for n in res["notes"])
+
 def test_the_sheet_quotes_free_text(h, sim):
     with pytest.raises(Denied):
         model_cmd.apply({"tool": "model", "sub": "assume", "id": "x", "value": 1, "unit": "IRT", "period": "once",
@@ -118,6 +134,13 @@ def test_a_delivered_table_that_differs_fails(h, sim):
     res = checks(h)
     assert res["result"] == "fail" and any("delivered table differs" in n for n in res["notes"])
 
+
+
+def test_a_delivered_table_that_matches_no_model_cell_fails(h, sim):
+    p, log = log_of(h, sim)
+    (p.work / "model_table.csv").write_text("line,1405/09\nSales total,500000\n")
+    res = checks(h)
+    assert res["result"] == "fail" and any("lacks" in n for n in res["notes"])
 
 def test_a_bank_export_with_a_missing_row_fails_the_back_cast(h, sim):
     (h["ws"] / "bank.csv").write_text(BANK.replace("1405/07/10,sale,40000,1000000\n", ""))

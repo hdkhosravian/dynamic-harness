@@ -143,7 +143,7 @@ def test_claim_rows_carry_the_ledger_fields(h, inv):
     assert rows[0]["status"] == "OK" and rows[0]["source_date"] == TODAY
 
 
-def _cite_and_verify(h, bearing="1,2"):
+def _cite_and_verify(h, bearing="1,2", reply="1. yes, the quotes say so"):
     out = writers.on_post({"tool_name": "Bash", "session_id": SID, "tool_input": {"command": "harness-claims cite"},
                            "tool_response": {"stdout": json.dumps({"tool": "claims", "sub": "cite", "unit": "u1",
                                                                     "claims": [1, 2],
@@ -151,7 +151,7 @@ def _cite_and_verify(h, bearing="1,2"):
                                                                                      if x]})}}, ctx_of(h))
     assert "cites claims" in out["hookSpecificOutput"]["additionalContext"], out
     _spawn_and_stop(h, "dynamic-harness:verifier", "harness-critic render u1",
-                    {"tool": "critic", "sub": "render", "unit": "u1"}, "agent-ver-1", "1. yes, the quotes say so")
+                    {"tool": "critic", "sub": "render", "unit": "u1"}, "agent-ver-1", reply)
 
 
 def test_research_check_passes_on_two_independent_sources(h, inv):
@@ -161,6 +161,15 @@ def test_research_check_passes_on_two_independent_sources(h, inv):
     assert res["result"] == "pass", res["notes"]
     assert res["values"]["independent_sources"] == 2 and res["values"]["confidence"] == "Medium"
 
+
+
+@pytest.mark.parametrize("reply", ["1. **No**, the second page disagrees", "1. Partially", "1. Not supported",
+                                   "1. yes\n2. yes, an answer to a criterion nobody asked", "The quotes look fine."])
+def test_a_verifier_reply_that_is_not_one_yes_per_criterion_fails(h, inv, reply):
+    _research(h, inv)
+    _cite_and_verify(h, reply=reply)
+    res = run_req(h, check="research.check", inputs=(), period=None)
+    assert res["result"] == "fail" and any("did not answer yes" in n for n in res["notes"]), res["notes"]
 
 def test_a_syndicated_copy_is_not_a_second_source(h, inv):
     same = {u: PAGES["https://a.example.com/p"] for u in PLAN["urls"]}  # one article on two sites

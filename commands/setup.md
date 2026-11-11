@@ -1,6 +1,6 @@
 ---
 description: Set up dynamic-harness for this folder (sandbox and permissions). Shows the plan first; nothing changes until you confirm.
-argument-hint: "[confirm <code> | undo | status]"
+argument-hint: "[confirm <code> [global] | undo | status]"
 disable-model-invocation: true
 ---
 The dynamic-harness setup hook did not handle this command, so nothing was changed.

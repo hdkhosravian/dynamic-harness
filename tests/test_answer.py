@@ -48,6 +48,14 @@ def test_an_unconfirmed_metric_has_no_header(h, job):
         header(h, res["sha256"])
 
 
+
+def test_a_header_for_a_kpi_run_says_to_use_reconcile(h, job):
+    # live: the model ran finance.kpi for one figure and was told only "not a recorded output"
+    res = run_req(h, check="finance.kpi", kpis=[{"id": "s", "amount_col": "amount (Toman)",
+                                                 "period": {"month": "1402-12"}}])
+    with pytest.raises(Denied, match="re-run the figure with finance.reconcile"):
+        header(h, res["sha256"])
+
 def test_a_failed_check_says_what_was_not_checked(h, job):
     (h["ws"] / "bank.csv").write_text("date,amount (Toman)\n1402/12/02,3900\n", encoding="utf-8")
     res = run_req(h, inputs=("sales.csv", "bank.csv"), metric_id="revenue",

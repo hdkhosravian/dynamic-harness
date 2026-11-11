@@ -82,7 +82,9 @@ def on_subagent_stop(evt, ctx) -> dict:
     rec = {"ts": now(), "agent_type": agent_type, "agent_id": evt.get("agent_id"), "prompt_sha": spawn.get("prompt_sha"),
            "verdict_sha": canon.sha256_bytes(msg.encode("utf-8"))}
     if agent_type == "dynamic-harness:verifier":  # its answers, so research.check can require every one is yes
-        rec["answers"] = [m.group(1).lower() for m in re.finditer(r"(?im)^\s*\d+[.)]\s*(yes|no)\b", msg)]
+        # every numbered line counts; "**No**", "Not supported" or "Partially" are never a yes
+        found = re.findall(r"(?m)^\s*\d+[.)]\s*[*_`~]*\s*([^\W\d_]+)", msg)
+        rec["answers"] = [w.lower() if w.lower() in ("yes", "no") else "unclear" for w in found]
     if agent_type == RESEARCHER:
         flog = {(r.get("url"), r.get("snapshot_sha")): r for r in store.read_jsonl(p.run, log, "fetch_log.jsonl")
                 if r.get("status") == "OK"}

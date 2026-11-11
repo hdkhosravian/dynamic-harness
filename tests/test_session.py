@@ -9,6 +9,7 @@ import pytest
 
 from harness_core import setup, safety, session
 from harness_core.safety import Ctx
+from harness_core.session import GATE_FLAGS
 
 
 class Log:
@@ -25,6 +26,8 @@ def ctx(tmp_path):
     for d in (ws, data / "control", data / "business", root / "lib", lc / ".claude-plugin", home):
         d.mkdir(parents=True)
     (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
+    (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     (data / "control" / "budgets.json").write_text("{}")
     (data / "control" / "gate.json").write_text('{"timeout": 1790}')
     (data / "business" / "profile.json").write_text('{"currency": "IRR"}')
@@ -390,3 +393,15 @@ def test_a_symlinked_skill_directory_is_unapproved(ctx, tmp_path):
     baseline(ctx)
     out = session.on_start({"session_id": "s1"}, ctx)
     assert out["state"] == "STOPPED_TAMPER" and "skills/evil" in out["reason"]
+
+
+def test_claude_codes_in_use_markers_do_not_change_a_plugin_hash(tmp_path):
+    from harness_core import session as S
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "skills" / "SKILL.md").write_text("x")
+    before = S.tree_hash(tmp_path)
+    (tmp_path / ".in_use").mkdir()
+    (tmp_path / ".in_use" / "4242").write_text("session marker")  # written per running session (live, 2.1.296)
+    assert S.tree_hash(tmp_path) == before
+    (tmp_path / "skills" / "SKILL.md").write_text("y")
+    assert S.tree_hash(tmp_path) != before

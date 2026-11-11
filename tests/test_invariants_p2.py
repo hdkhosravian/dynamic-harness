@@ -9,6 +9,7 @@ import pytest
 
 from harness_core import classes, safety, session, setup
 from harness_core.safety import RESEARCHER, Ctx
+from harness_core.session import GATE_FLAGS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -156,6 +157,8 @@ def test_r6_out_of_band_write_detected(ctx, tmp_path):
     lc = tmp_path / "loop-contract"
     (lc / ".claude-plugin").mkdir(parents=True)
     (lc / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "loop-contract", "version": "1.1.0"}))
+    (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
+    (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     ctx.loop_contract_root = lc
     (ctx.data_root / "control" / "classes.json").write_text(
         (ROOT / "control" / "defaults" / "classes.json").read_text())

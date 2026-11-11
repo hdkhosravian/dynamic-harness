@@ -164,15 +164,22 @@ def set_field(ctx, field, value) -> None:
     else:
         old = prof.get("currency")
         prof[field] = value
-        if field == "currency" and isinstance(prof.get("caps"), dict) and old != value:
-            caps = dict(prof["caps"], currency=value)
-            for k in ("task", "month"):  # a limit keeps its worth: Toman <-> Rial converts, anything else is dropped
-                if isinstance(caps.get(k), (int, float)):
-                    if {old, value} == {"IRT", "IRR"}:
-                        caps[k] = caps[k] * 10 if value == "IRR" else caps[k] / 10
-                    else:
-                        caps.pop(k)
-            prof["caps"] = caps
+        if field == "currency" and old != value:
+            # every amount in the owner's currency keeps its worth: Toman <-> Rial converts, any other change drops
+            # it (no cap, no rate, the default risk threshold), which the harness then treats as unset
+            factor = (10 if value == "IRR" else 0.1) if {old, value} == {"IRT", "IRR"} else None
+            for head, keys in (("caps", ("task", "month")), ("thresholds", ("money_at_stake_high",)),
+                               ("fx", [k for k in (prof.get("fx") or {}) if k != "as_of"])):
+                if not isinstance(prof.get(head), dict):
+                    continue
+                sub = dict(prof[head], **({"currency": value} if head == "caps" else {}))
+                for k in keys:
+                    if isinstance(sub.get(k), (int, float)) and not isinstance(sub.get(k), bool):
+                        if factor is None:
+                            sub.pop(k)
+                        else:
+                            sub[k] = sub[k] * 10 if factor == 10 else sub[k] / 10
+                prof[head] = sub
     prof["schema"] = "harness/business_profile@1"
     _write(ctx, FILES["profile"], prof)
     baseline(ctx, f"business set {field}")

@@ -67,7 +67,9 @@ If the harness says the task is refused, tell the owner exactly the line it give
 
 - Record milestones once a `work/` file exists: `harness-ledger append --kind milestone --row
   '{"milestone": "draft", "file": "draft.md"}'` (outline, draft, final). Record each unit's result with
-  `--kind unit`. BLOCKED needs a reason, and PASS needs a cited output of the unit's registered check.
+  `--kind unit --row '{"id": "u1", "attempt": 1, "verdict": "PASS", "outputs": ["<sha>"]}'` (the fields are `id`,
+  `attempt`, `verdict` and `outputs`). BLOCKED needs a reason, and PASS needs a cited output of the unit's
+  registered check.
 - To have a unit checked, run `harness-critic render <unit_id>` and spawn `dynamic-harness:verifier` with
   exactly the prompt it prints.
 - In an investigation, after the owner accepts the plan, run `harness-research render` and spawn
@@ -81,7 +83,7 @@ Corrections the owner sends during a task are logged as evidence. Announce the r
 ## 6. Checks, the report and the gate
 
 - An executable oracle must be a registered check: `finance.reconcile`, `finance.kpi`, `finance.bridge`,
-  `finance.list`, `research.check`, `research.report`, `model.recalc`, `model.checks`, `model.report`,
+  `finance.list`, `research.check`, `research.report`, `model.recalc`, `model.checks`, `model.report`, `model.workbook`,
   `doc.check` or `decide.score_flip`. Each pack's skill (`finance`, `research`, `model`, `operations`) says how
   to call it. A script you write is evidence, never the oracle.
 - Never add up numbers yourself. Run the unit's check: `harness-run <check> --unit <id> --attempt <n>

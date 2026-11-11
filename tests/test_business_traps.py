@@ -49,6 +49,15 @@ def test_r11_money_never_t0(h):
     assert sessionstate.load(ctx_of(h), SID)["pending_card"]["floor"] == "T1"
 
 
+
+def test_a_definition_that_names_money_without_a_figure_is_a_quick_answer(h):
+    # the getting-started example; live, the Stop hook used to demand a card for it
+    say(h, "What is the difference between gross margin and net margin?", "q2")
+    msg = "Gross margin is revenue minus the cost of goods sold. Net margin is profit after every cost."
+    assert stopgate.on_stop({"session_id": SID, "last_assistant_message": msg}, ctx_of(h)) == {}
+    msg_fa = "حاشیه سود ناخالص یعنی درآمد منهای بهای کالا؛ مثلاً ۴۰ درصد."
+    assert stopgate.on_stop({"session_id": SID, "last_assistant_message": msg_fa}, ctx_of(h))["decision"] == "block"
+
 # --- own data (finance.reconcile) --------------------------------------------------------------------------------
 def test_toman_rial_x10_is_reported(h, job):
     sales(h, "date,amount (Toman)\n" + "".join(f"1402/11/{d:02d},1000\n" for d in (1, 2, 3)) +
@@ -170,3 +179,13 @@ def test_contradicting_sources_are_reported(h):
     res = run_req(h, check="research.check", inputs=(), period=None)
     assert "1 contradiction(s) are recorded for u1; the report must show them" in notes(res)
     assert json.dumps(res["values"]).count("contradictions") == 1
+
+
+def test_agent_args_cannot_drop_the_owners_accounts_or_currency(tmp_path):
+    from harness_core import finance
+    f = tmp_path / "s.csv"
+    f.write_text("date,description,account,amount (Toman)\n1402/12/01,invoice 7,,1000\n"
+                 "1402/12/10,deposit,0101-22,5000\n")
+    prof = {"currency": "IRT", "own_accounts": ["0101-22"]}
+    agg = finance.aggregate(f, {"own_accounts": ["9999"], "currency": "IRR", "unit": "IRR"}, prof)
+    assert agg["total"] == 1000 and agg["unit"] == "IRT" and agg["unit_in"] == "IRT"

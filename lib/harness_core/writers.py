@@ -28,9 +28,28 @@ JOB_SCOPED = ("contact", "ledger", "research", "critic", "answer", "claims")
 _OPERATORS = re.compile(r"[;&|<>`$()\n\\]")
 
 
+def _outside_quotes(command):
+    """The command with quoted text removed; None when a double-quoted part still expands ($, `, \\)."""
+    out, quote = [], None
+    for ch in command:
+        if quote == "'":
+            quote = None if ch == "'" else quote
+        elif quote == '"':
+            if ch in "$`\\":
+                return None
+            quote = None if ch == '"' else quote
+        elif ch in "'\"":
+            quote = ch
+        else:
+            out.append(ch)
+    return None if quote else "".join(out)
+
+
 def _lone_harness(command):
-    """``(tool, args)`` for a lone ``harness-<tool>`` invocation, else None."""
-    if not isinstance(command, str) or _OPERATORS.search(command):
+    """``(tool, args)`` for a lone ``harness-<tool>`` invocation, else None. Operator characters inside quotes
+    are text ("--text 'a; b (c)'"), not shell syntax."""
+    bare = _outside_quotes(command) if isinstance(command, str) else None
+    if bare is None or _OPERATORS.search(bare):
         return None
     try:
         words = shlex.split(command)
@@ -111,8 +130,15 @@ def on_post(evt, ctx) -> dict:
         return {}
     if tool != "Bash":
         return {}
-    parsed = _lone_harness((evt.get("tool_input") or {}).get("command"))
-    if parsed is None or parsed[0] not in WRITERS:
+    cmd = (evt.get("tool_input") or {}).get("command")
+    parsed = _lone_harness(cmd)
+    if parsed is None:
+        m = re.match(r"\s*(?:\S*/)?harness-(\w[\w-]*)", cmd) if isinstance(cmd, str) else None
+        if m and m.group(1) in WRITERS:  # otherwise the model believes it was recorded
+            return _context(f"harness: harness-{m.group(1)} was not recorded: run it as a command of its own, "
+                            "with no ;, |, &&, redirection or $( ) outside quotes")
+        return {}
+    if parsed[0] not in WRITERS:
         return {}
     name = parsed[0]
     try:

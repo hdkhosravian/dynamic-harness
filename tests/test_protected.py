@@ -34,6 +34,8 @@ def ctx(tmp_path):
         "ws/.claude/settings.json",
         "ws/.claude/loops/j1/state.json",
         "ws/.mcp.json",
+        "ws/sub/.claude/skills/x/SKILL.md",
+        "ws/a/b/.mcp.json",
         "ws/CLAUDE.md",
         "ws/sub/CLAUDE.md",
         "ws/.git/config",

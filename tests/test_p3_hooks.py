@@ -11,6 +11,7 @@ from harness_core import canon, compile as compile_, hookmain, lanes, prompt, se
 from harness_core.events import EventLog
 from harness_core.paths import job_paths
 from harness_core.turns import Turns
+from harness_core.session import GATE_FLAGS
 
 ROOT = Path(__file__).resolve().parents[1]
 SID = "p3"
@@ -22,6 +23,8 @@ def h(tmp_path):
     for d in (ws, data, home, lc / ".claude-plugin"):
         d.mkdir(parents=True)
     (lc / ".claude-plugin" / "plugin.json").write_text('{"name": "loop-contract", "version": "1.1.0"}')
+    (lc / "skills" / "loop-contract" / "scripts").mkdir(parents=True, exist_ok=True)  # the gate flags
+    (lc / "skills" / "loop-contract" / "scripts" / "fold_ledger.py").write_text(" ".join(GATE_FLAGS))
     (ws / "orders.csv").write_text("Customer Name,Email,Amount\nA,a@x.example,10\n")
     env = {"CLAUDE_PLUGIN_DATA": str(data), "CLAUDE_PLUGIN_ROOT": str(ROOT), "HOME": str(home),
            "CLAUDE_PROJECT_DIR": str(ws), "LOOP_CONTRACT_ROOT": str(lc)}

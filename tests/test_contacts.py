@@ -188,7 +188,7 @@ def test_dispatcher_records_a_contact_from_the_cli_request(ctx):
 ])
 def test_only_a_lone_harness_command_reaches_a_writer(ctx, cmd):
     req = {"tool": "contact", "type": "question", "text": "x"}
-    assert writers.on_post(bash(cmd, json.dumps(req)), ctx) == {}
+    assert "decision" not in writers.on_post(bash(cmd, json.dumps(req)), ctx)  # at most a "not recorded" note
     assert contacts.state(ctx)["count"] == 0
 
 
@@ -264,3 +264,17 @@ def test_only_a_reply_that_is_an_approval_accepts_the_plan(ctx, text, ok):
 def test_the_plan_the_owner_sees_lists_every_query_and_url(ctx):
     row = C(ctx, "plan", text="x", plan=dict(PLAN, queries=["acme price list 2026"]))
     assert "acme price list 2026" in row["text"] and "https://news.example.ir/a" in row["text"]
+
+
+def test_shell_characters_inside_the_quoted_text_still_record_the_contact(ctx):
+    # live: a question listing options "(a) ...; (b) ..." was silently never recorded, so Stop stalled
+    req = {"tool": "contact", "type": "question", "text": "x"}
+    cmd = "harness-contact question --text \"the gate failed; options: (a) fix it [suggested]; (b) stop\""
+    out = writers.on_post(bash(cmd, json.dumps(req)), ctx)
+    assert "recorded" in out["hookSpecificOutput"]["additionalContext"] and contacts.state(ctx)["count"] == 1
+
+
+def test_a_harness_command_that_is_not_alone_says_it_was_not_recorded(ctx):
+    req = {"tool": "contact", "type": "question", "text": "x"}
+    out = writers.on_post(bash("harness-contact question; echo hi", json.dumps(req)), ctx)
+    assert "was not recorded" in out["hookSpecificOutput"]["additionalContext"] and contacts.state(ctx)["count"] == 0

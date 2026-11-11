@@ -106,10 +106,11 @@ def aggregate(path, args, profile, period=None) -> dict:
     desc_i = _find(headers, args.get("desc_col"), DESC_WORDS)
     acct_i = _find(headers, args.get("account_col"), ACCOUNT_WORDS)
     detected = L.currency_of(headers[amt_i])
-    target = args.get("currency") or profile.get("currency") or args.get("unit") or detected
-    unit = args.get("unit") or detected or target
-    own = {L.fold_name(str(a)) for a in (args.get("own_accounts") or profile.get("own_accounts") or [])}
-    exclude_transfers = args.get("exclude_transfers", True)
+    # the owner's profile and the file's own header outrank the agent's args
+    target = profile.get("currency") or args.get("currency") or args.get("unit") or detected
+    unit = detected or args.get("unit") or target
+    own = {L.fold_name(str(a)) for a in [*(profile.get("own_accounts") or []), *(args.get("own_accounts") or [])]}
+    exclude_transfers = args.get("exclude_transfers", True) is not False
     per = period
     s = {"rows_total": 0, "rows_used": 0, "undated": 0, "unparsable": 0, "outside_period": 0, "filtered_out": 0,
          "transfers": 0, "total_rows_in_file": 0}
@@ -216,6 +217,9 @@ def reconcile(req):
             values[f"rows_left_out_{k}"] = st[k]
             notes.append(N(f"left_out_{k}", f"left out: {st[k]} rows with {what}", n=st[k]))
             fail = True
+    if a.get("exclude_transfers") is False:
+        values["transfers_included"] = True
+        notes.append(N("transfers_included", "transfers between your own accounts were counted, not excluded"))
     if st["transfers"]:
         values.update(transfers_excluded=st["transfers"], transfers_amount=agg["transfers_amount"])
         notes.append(N("transfers", f"{st['transfers']} transfers between your own accounts were excluded",

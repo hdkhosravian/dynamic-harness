@@ -165,8 +165,11 @@ def parse_amount(value):
         neg, s = True, s[1:-1]
     if s.endswith("-") and not s.startswith("-"):
         neg, s = True, s[:-1]
-    s = re.sub(r"[,٬،\s‌]", "", s)
+    s = re.sub(r"[\s‌]", "", s)
     s = re.sub(r"(?i)(ریال|تومان|toman|rials?|irr|irt)$", "", s)
+    if re.search(r"[,٬،]", s) and not re.fullmatch(r"[-+]?\d{1,3}([,٬،]\d{3})+(\.\d+)?", s):
+        return None  # "1,5" is a decimal comma, not 15: unreadable is reported, a wrong number is not
+    s = re.sub(r"[,٬،]", "", s)
     if not re.fullmatch(r"[-+]?\d+(\.\d+)?", s):
         return None
     try:
@@ -225,6 +228,11 @@ def period(spec, profile=None) -> dict:
     elif "fiscal_year" in spec:
         y = int(digits(spec["fiscal_year"]))
         fm, fd = _fy_start(profile)
+        cal = "gregorian" if (profile or {}).get("calendar") == "gregorian" else "jalali"
+        if (profile or {}).get("fiscal_year_start") and (y < 1700) != (cal == "jalali"):
+            # the start day is a date in the owner's calendar: it cannot be read in the other one
+            raise ValueError(f"your fiscal year starts on {profile['fiscal_year_start']} in the {cal} calendar, so "
+                             f"number the fiscal year in that calendar too (not {y})")
         if y < 1700:
             start = to_gregorian(y, fm, fd)
             end = to_gregorian(y + 1, fm, fd) - dt.timedelta(days=1)

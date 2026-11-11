@@ -47,13 +47,16 @@ See [Requirements](#requirements).
    /dynamic-harness:setup
    ```
 
-   The harness shows every change it would make and a one-time code. Nothing changes yet.
+   The harness shows every change it would make and a one-time code. Nothing changes yet. Changes to
+   this folder and the one optional change to your global settings are listed apart.
 
-3. Apply the plan:
+3. Apply the plan to this folder only:
 
    ```text
    /dynamic-harness:setup confirm <code>
    ```
+
+   Add the word `global` (`confirm <code> global`) only if you also accept the global change.
 
 4. Start a new Claude Code session in the folder.
 
@@ -174,7 +177,7 @@ owner commands. See the [changelog](CHANGELOG.md).
 ## Status and roadmap
 
 - **Release 0.4.0** covers the full v1 scope of the [design](dynamic_harness_design_spec.md). The test suite (about
-  1,680 tests) passes on macOS and on Ubuntu 22.04 and 24.04; see [development](docs/development.md).
+  1,700 tests) passes on macOS and on Ubuntu 22.04 and 24.04; see [development](docs/development.md).
 - **Being verified:** a live, end-to-end `claude -p` run from a request to a signed "Checked" in a set-up folder.
 - **Next (v2):** write connectors with an approval outbox, an approval matrix, scheduled automations and a
   learning editor.

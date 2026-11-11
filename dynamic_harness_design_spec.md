@@ -1205,7 +1205,7 @@ owner's currency and shown before a long task begins.
 - where managed settings are used, the harness hooks are installed there before `allowManagedHooksOnly` is set.
 
 The harness refuses to start a task above T0 if setup has not been done.
-As built (P5), setup writes the user file only for `strictAllowlist` and
+As built (P5), setup writes the user file only for `strictAllowlist`, and only when the owner confirms with `global`, and
 puts everything else in the workspace's `.claude/settings.local.json`; see
 §Build decisions (P5 setup).
 
@@ -2031,7 +2031,7 @@ mode it logs what it would have done without blocking anything.
 
 | Command | Arguments | Writes | Confirmation |
 | --- | --- | --- | --- |
-| `/dynamic-harness:setup` | — / `confirm <code>` / `undo` / `status` | As built (§Build decisions (P5 setup)): `~/.claude/settings.json` gets only `sandbox.network.strictAllowlist: true`. The workspace's `.claude/settings.local.json` gets `sandbox.enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false`, `excludedCommands: []`, `network.allowedDomains: []`, `network.allowUnixSockets: []`, `filesystem.denyRead` and `denyWrite`, the `permissions.deny` Read/Edit rules and `disableBypassPermissionsMode`. Creates `keys/hmac.key`; records `loop_contract_root` and the release hashes in `config_log.jsonl` | The hook shows the plan grouped by file in plain words, with a one-time code; nothing changes until `confirm <code>` |
+| `/dynamic-harness:setup` | — / `confirm <code> [global]` / `undo` / `status` | As built (§Build decisions (P5 setup)): `~/.claude/settings.json` is changed only with `confirm <code> global`, and then gets only `sandbox.network.strictAllowlist: true` (plus removal of any global entry that weakens the sandbox). `confirm <code>` alone changes this folder only; `verify` then does not ask for `strictAllowlist`, which only enforces the domain list in bypass mode (turned off here), and `setup/scopes.json` records the choice per workspace. The workspace's `.claude/settings.local.json` gets `sandbox.enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false`, `excludedCommands: []`, `network.allowedDomains: []`, `network.allowUnixSockets: []`, `filesystem.denyRead` and `denyWrite`, the `permissions.deny` Read/Edit rules and `disableBypassPermissionsMode`. Creates `keys/hmac.key`; records `loop_contract_root` and the release hashes in `config_log.jsonl` | The hook shows the plan grouped by file in plain words, with a one-time code; nothing changes until `confirm <code>` |
 | `/dynamic-harness:business` | `set <object> <field>` / `show` | Through `harness-business set` | A rendered sentence |
 | `/dynamic-harness:config` | `<file> <key> <value>` | Control layer and config log | Operator only |
 | `/dynamic-harness:memory` | `show` / `edit` / `forget` | Through the memory writer | Per item |
@@ -2173,7 +2173,9 @@ profiles:
   - Only `harness-hook` and `harness-sandbox-exec` exist under `bin/`. Every other `harness-*` CLI fails the trust rule, so it is denied live.
   - Verified live: the Bash tool's environment has no `CLAUDE_PROJECT_DIR` or `CLAUDE_PLUGIN_*`. Inside Claude Code's sandbox, `harness-sandbox-exec` therefore needs none of them (outer mode, §Build decisions (P5 setup)). Without that sandbox, it still refuses to run without them.
   - Nothing writes the claims, fetch-log or search-log files yet.
-  - `protected._norm` homoglyph folding is reserved for the maintainer.
+  - `protected._norm` homoglyph folding is reserved for the maintainer. (Closed after 0.4.0: protected names fold
+    fullwidth, styled, accented, zero-width, Cyrillic and Greek look-alikes and Arabic ي/ك/ى; write exceptions
+    still match exactly, and folding never produces a `/`. Red-team rt106/rt107 now deny.)
   - The opt-in `HARNESS_DEBUG_LOG` records hook metadata, with tool inputs and responses redacted to type and length. It is for development only.
 
 ### Build decisions (P3, as built in `dynamic-harness` @ `feat/p1-p2`)
@@ -2268,7 +2270,7 @@ profiles:
 
   A final message that asks the owner something counts as a contact when one is allowed; otherwise it blocks. Any other stop blocks with the missing item named. Three blocks with the same reason in one request write `STOPPED_STALL`; that is how `stop_hook_active` loops end.
 - **Final-message lint.** The lint finds state-lexicon words outside lines that match a `templates/en.json` template or the state line. After the gate, every money or quantity token must be in the receipt's traced set. That set is read from `gate/fold_receipt.json` and checked against `traced_set_sha` in the HMAC. The tokeniser is vendored from loop-contract (`harness_core/normalize.py`), and a test keeps the two copies identical.
-- **Quick answers (rule 3).** A pending card blocks. State words block. A money word in the answer blocks once and sets `pending_card` with floor T1. This closes the P3 gap where a model answered in plain text while a card was pending.
+- **Quick answers (rule 3).** A pending card blocks. State words block. A money word in the answer together with a figure (any digit) blocks once and sets `pending_card` with floor T1; a definition such as "net margin is net income over revenue" carries no figure and passes (found live: the getting-started example was blocked). This closes the P3 gap where a model answered in plain text while a card was pending.
 - **RE_UNDERSTAND.** `harness-compile --card F --reunderstand <turn>` re-compiles the open task, once per task. The turn must be a correction that the prompt hook recorded after the latest scope freeze; the hook now tells the model how to re-understand. The writer:
   - writes card v(n+1), which keeps the owner's original request;
   - lets the tier only go up;

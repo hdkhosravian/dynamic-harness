@@ -9,6 +9,7 @@ from __future__ import annotations
 import glob
 import os
 import re
+import secrets
 import shlex
 import tempfile
 from dataclasses import dataclass
@@ -27,6 +28,31 @@ PRIORITY = [
 ]
 MAX_DEPTH = 6
 MAX_LEN = 20000
+
+
+def _awk_code(prog):
+    """An awk program with its strings, regex literals and comments blanked, in one left-to-right pass (so a
+    quote inside a regex or a comment cannot hide code); None when one of them is left open."""
+    out, i, n = [], 0, len(prog)
+    while i < n:
+        ch = prog[i]
+        prev = next((c for c in reversed(out) if not c.isspace() or c == "\n"), "")
+        if ch == "#":
+            while i < n and prog[i] != "\n":
+                i += 1
+            continue
+        if ch == '"' or (ch == "/" and prev in ("", "\n", "{", "}", ";", "(", ",", "!", "~", "&", "|")):
+            j = i + 1
+            while j < n and prog[j] != ch and prog[j] != "\n":
+                j += 2 if prog[j] == "\\" else 1
+            if j >= n or prog[j] != ch:
+                return None
+            out.append(ch * 2)
+            i = j + 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 @dataclass(frozen=True)
@@ -201,6 +227,8 @@ _R_REDIR = {"<", "<&", "<<<"}
 _PUNCT = set(";&|()<>")
 _OPS = _SEPS | _W_REDIR | _R_REDIR
 _OPS_BY_LEN = sorted(_OPS, key=len, reverse=True)
+# heredoc placeholder: salted per process so a typed word can never pass for one
+_HD_TAG = f"__HEREDOC_{secrets.token_hex(8)}_"
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^']*)'|\"([^\"]*)\"|\\?([^\s;&|<>()]+))")
 _ASSIGN = re.compile(r"^[A-Za-z_]\w*=")
 SUBST = "$__SUBST__"
@@ -550,7 +578,7 @@ def _scan(s, heredoc=False):
                 raise ParseError("malformed heredoc")
             quoted = m.group(4) is None or s[m.start(4) - 1] == "\\"
             delim = next(g for g in (m.group(2), m.group(3), m.group(4)) if g is not None)
-            hid = f"__HEREDOC_{len(hd_ids)}__"
+            hid = f"{_HD_TAG}{len(hd_ids)}__"
             hd_ids.append(hid)
             pending.append((delim, quoted, bool(m.group(1))))
             out.append(f" < {hid} ")
@@ -703,7 +731,7 @@ class _Bash:
                     continue
                 if t == "<<<" and any(self.read_protected(x) for x in [tgt] + tgt.split()):
                     self.add("protected_path", "here-string names a path in keys/ or experience/")
-                if t == "<<<" or tgt.startswith("__HEREDOC_"):
+                if t == "<<<" or (t == "<" and tgt.startswith(_HD_TAG)):
                     stdin_code = True
                     continue
                 if t in ("<", "<&"):
@@ -750,7 +778,10 @@ class _Bash:
                 base = x if os.path.isabs(x) else os.path.join(c, x)
                 outs.append(os.path.realpath(base))
                 if any(ch in x for ch in "*?["):
-                    outs += [os.path.realpath(g) for g in glob.glob(base)]
+                    try:
+                        outs += [os.path.realpath(g) for g in glob.glob(base)]
+                    except re.error:  # "[2-1]": an invalid range matches nothing, so bash keeps the word as is
+                        pass
         return outs
 
     def temp_roots(self):
@@ -895,6 +926,8 @@ class _Bash:
             if e is None:
                 return self.add("unknown", "command name is dynamic")
             cmd = e
+        if re.search(r"[*?\[{]", cmd):  # the shell would expand it; the literal name says nothing about what runs
+            return self.add("unknown", "command name contains a glob or brace pattern")
         if "/" in cmd:
             cands = self.candidates(cmd)
             if not cands:
@@ -1523,7 +1556,8 @@ class _Bash:
         if not files:
             pos = _split_opts(rest, {"-v", "-F", "-f"})[1]
             prog = pos[0] if pos else ""
-            if re.search(r"system\s*\(|\|\s*\"|\"\s*\||\|&|print[f]?[^;}]*>", prog):
+            code = _awk_code(prog)  # a pipe through a variable (c | getline) also runs c
+            if code is None or re.search(r"system\s*\(|(?<!\|)\|(?!\|)|\|&|getline[^;}]*<|print[f]?[^;}]*>", code):
                 return self.add("unknown", "awk program runs commands or writes files")
         self.add("read", "awk")
 
@@ -1538,7 +1572,9 @@ class _Bash:
                 pos = pos[1:]
             scripts, pos = pos[:1], pos[1:]
         for s in scripts:
-            if re.search(r"(^|[;\n{}])\s*(\d+|\$|/[^/]*/)?\s*[wWe](\s|$)", s) or re.search(r"/[gpiIme0-9]*[we](\s|$)", s):
+            # w/W/e as a command (any address form) or as an s flag (any delimiter: s|a|b|w f, s,a,b,e)
+            if re.search(r"(^|[;\n{}])\s*(\d+|\$|/[^/]*/|\\(.).*?\3)?\s*[wWe](\s|$)", s) or re.search(
+                    r"s([^\w\s\\])(?:\\.|(?!\1).)*\1(?:\\.|(?!\1).)*\1[gpiIme0-9]*[weW]", s):
                 return self.add("unknown", "sed script writes files or executes commands")
         if inplace:
             for p in pos:

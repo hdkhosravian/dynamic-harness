@@ -51,6 +51,7 @@
   "note.unit_converted": "amounts were in {src} and are shown in {dst}",
   "note.left_out_undated": "left out: {n} rows with no date",
   "note.left_out_unparsable": "left out: {n} rows whose amount could not be read",
+  "note.transfers_included": "transfers between your own accounts were counted, not excluded",
   "note.transfers": "{n} transfers between your own accounts were excluded",
   "note.duplicates": "{n} rows look like duplicates (same date, amount and description)",
   "note.incomplete_end": "incomplete: the data ends {date} ({gregorian}), before the period ends",

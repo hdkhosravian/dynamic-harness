@@ -74,8 +74,8 @@ Tax, legal and employment work is always "prepared, not final": a professional m
 ## Your commands
 
 These run in a hook. Claude never sees them and cannot run them. Anything that changes something shows the
-change in plain words with a one-time 6-digit code first; type `confirm <code>` in the same session within 10
-minutes to apply it.
+change in plain words with a one-time 6-digit code first; type the same command with `confirm <code>`, for example
+`/dynamic-harness:business confirm 123456`, in the same session within 10 minutes to apply it.
 
 ### `/dynamic-harness:business`
 
@@ -94,7 +94,7 @@ Your business settings.
 | --- | --- |
 | `currency` | A 3-letter code: `IRT` (Toman), `IRR` (Rial), `USD`, `EUR`, ... |
 | `calendar` | `jalali` or `gregorian` |
-| `fiscal_year_start` | The first day of your fiscal year |
+| `fiscal_year_start` | The first day of your fiscal year, as `MM-DD` in your calendar (`01-01` is Farvardin 1 in the Jalali calendar) |
 | `language` | The language the harness writes to you in |
 | `caps.task`, `caps.month` | Spending limits per task and per month |
 | `fx.USD` | The US dollar rate in your currency. Without it, spending limits in another currency stay off. |
@@ -108,7 +108,7 @@ metric definition.
 ### `/dynamic-harness:memory`
 
 What the harness remembers about how you like your work: `tone` (formal, neutral, warm), `format` (short,
-detailed), `report_style` (summary first, table first) and `rounding` (none, thousands, millions).
+detailed), `report_style` (`summary_first`, `table_first`) and `rounding` (none, thousands, millions).
 
 ```text
 /dynamic-harness:memory show
@@ -130,7 +130,7 @@ Your tasks and their states.
 
 ### `/dynamic-harness:export`
 
-Decision records as a CSV file in this folder. Every finished or stopped task has one, with personal data
+Decision records as a CSV file in this folder's `exports/` subfolder. Every finished or stopped task has one, with personal data
 redacted.
 
 ```text

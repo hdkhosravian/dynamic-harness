@@ -10,6 +10,8 @@
     "/etc/claude-code/**",
     "${WORKSPACE}/.claude/**",
     "${WORKSPACE}/.mcp.json",
+    "${WORKSPACE}/**/.claude/**",
+    "${WORKSPACE}/**/.mcp.json",
     "${WORKSPACE}/.git/**"
   ],
   "write_exceptions": [

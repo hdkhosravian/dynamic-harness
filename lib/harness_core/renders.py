@@ -73,7 +73,7 @@ def critic_apply(req, ctx, evt) -> dict:
              "Answer each criterion with yes or no and one short reason:"]
     lines += [f"{i}. {json.dumps(c, ensure_ascii=False)}" for i, c in enumerate(criteria, 1)]
     prompt = "\n".join(lines)
-    sha = _record(p, log, "verifier", prompt, unit=unit["id"])
+    sha = _record(p, log, "verifier", prompt, unit=unit["id"], criteria=len(criteria))
     return {"kind": "verifier", "prompt": prompt, "prompt_sha": sha}
 
 
