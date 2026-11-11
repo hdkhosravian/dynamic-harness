@@ -43,7 +43,8 @@ def vanish_on_read(monkeypatch, name: str, *, every_attempt: bool):
     """Seam: replace `safeio.safe_open` and every module-level alias of it (session, canon) with a wrapper that,
     when asked to read a file called `name`, deletes it first and then delegates (so the real safe_open reports the
     file missing, exactly as a file removed between os.walk and the read would). With every_attempt=True the file
-    is put back before each read, so it also vanishes on a retry. Returns the list of reads of `name`."""
+    is put back after each failed read, so the next walk lists it again and it vanishes on the retry too. Returns the
+    list of reads of `name`."""
     real = safeio.safe_open
     seen = []
 
@@ -55,6 +56,11 @@ def vanish_on_read(monkeypatch, name: str, *, every_attempt: bool):
                 p.write_text("back again")
             if len(seen) == 1 or every_attempt:
                 p.unlink()
+                if every_attempt:  # back before the next walk, so a fresh walk lists it and the read misses again
+                    try:
+                        return real(path, allowed_roots)
+                    finally:
+                        p.write_text("back again")
         return real(path, allowed_roots)
 
     monkeypatch.setattr(safeio, "safe_open", wrapper)  # canon.tree_sha imports it from safeio at call time

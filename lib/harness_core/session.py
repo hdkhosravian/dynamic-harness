@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 from . import canon, config_guard, safety, sandbox_exec, setup, written
-from .errors import HarnessError
+from .errors import HarnessError, TamperError
 from .safeio import atomic_write, safe_open
 
 MIN_LOOP_CONTRACT = (1, 1, 0)  # fold_ledger flags the gate adapter passes
@@ -37,17 +37,54 @@ MIN_CC_VERSION = (2, 1, 295)  # hooks' onFailure: "block" (fail closed) needs th
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git", ".in_use"}
 
 
+SHIPPED_DIRS = (".claude-plugin", "agents", "bin", "commands", "control", "hooks", "lib", "schema", "skills",
+                "templates")
+# plugin-root entries Claude Code itself loads; hashed when present so a planted one changes the hash
+LOADED_EXTRAS = (".mcp.json", ".lsp.json", "settings.json", "output-styles", "monitors", "themes")
+
+
+def _walk_sha(root: Path, tops) -> str:
+    files = []
+    for top in tops:
+        if not top.is_dir():
+            files.append(top)
+            continue
+        for d, dirs, names in os.walk(top):
+            dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS)
+            files += [Path(d) / n for n in names]
+    return canon.tree_sha(files, root)
+
+
+def _once_more(walk) -> str:
+    """A file removed between the walk and its read (a lock file) gets one fresh walk; a second miss raises."""
+    try:
+        return walk()
+    except TamperError as e:
+        if not isinstance(e.__cause__, FileNotFoundError):  # symlink, hard link, swap: no retry
+            raise
+    return walk()
+
+
 def tree_hash(root) -> str:
     if not root or not Path(root).exists():
         return "absent"
     root = Path(os.path.realpath(root))
     if root.is_file():
         return canon.sha256_bytes(safe_open(root, [root.parent]))
-    files = []
-    for d, dirs, names in os.walk(root):
-        dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS)
-        files += [Path(d) / n for n in names]
-    return canon.tree_sha(files, root)
+    return _once_more(lambda: _walk_sha(root, [root]))
+
+
+def plugin_hash(root) -> str:
+    """Only the release (``SHIPPED_DIRS``) and what Claude Code loads (``LOADED_EXTRAS``): a dev checkout's
+    docs, tests and caches are neither loaded nor executed, so they must not stop a session."""
+    if not root or not Path(root).exists():
+        return "absent"
+    root = Path(os.path.realpath(root))
+    tops = [root / n for n in SHIPPED_DIRS + LOADED_EXTRAS]
+    for t in tops:  # checked before exists(): os.walk would not follow it, and a dangling one is not absent
+        if t.is_symlink():
+            raise TamperError(f"plugin entry is a symlink: {t}")
+    return _once_more(lambda: _walk_sha(root, [t for t in tops if t.exists()]))
 
 
 def current_hashes(ctx) -> dict:
@@ -56,7 +93,7 @@ def current_hashes(ctx) -> dict:
         "control": tree_hash(data / "control") if data else "absent",
         "business": tree_hash(data / "business") if data else "absent",
         "gate": tree_hash(data / "control" / "gate.json") if data else "absent",
-        "plugin": tree_hash(ctx.plugin_root),
+        "plugin": plugin_hash(ctx.plugin_root),
     }
     if ctx.loop_contract_root:
         out["loop_contract"] = tree_hash(ctx.loop_contract_root)

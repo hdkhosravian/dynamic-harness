@@ -301,9 +301,17 @@ def test_symlinked_workspace_claude_dir_is_refused(ctx, tmp_path):
 
 def test_changed_release_hashes_are_named_as_a_warning(ctx):
     apply(ctx)
-    (ctx.plugin_root / "planted.py").write_text("x = 1\n")
+    (ctx.plugin_root / "lib").mkdir(exist_ok=True)
+    (ctx.plugin_root / "lib" / "planted.py").write_text("x = 1\n")
     out = prompt(ctx, "/dynamic-harness:setup")
     assert "changed since the last setup: plugin" in out["reason"] and "did not" in out["reason"]
+
+
+def test_a_file_at_the_plugin_root_is_not_a_release_change(ctx):
+    apply(ctx)
+    (ctx.plugin_root / "planted.py").write_text("x = 1\n")  # outside SHIPPED_DIRS and LOADED_EXTRAS
+    out = prompt(ctx, "/dynamic-harness:setup")
+    assert "changed since the last setup: plugin" not in out["reason"]
 
 
 @pytest.mark.parametrize("key, value", [
@@ -529,7 +537,8 @@ def test_setup_finds_the_updated_loop_contract_when_the_recorded_one_is_stale(ct
 def test_undo_after_a_rerun_that_only_rerecorded_the_release_reverses_the_real_setup(ctx):
     # live: a re-run after a plugin update left an empty backup, and undo then restored nothing
     apply(ctx, scope="folder")
-    (ctx.plugin_root / "changed.txt").write_text("an update")
+    (ctx.plugin_root / "lib").mkdir(exist_ok=True)
+    (ctx.plugin_root / "lib" / "changed.txt").write_text("an update")
     assert apply(ctx, scope="folder")["reason"].startswith("Applied:")
     out = prompt(ctx, "/dynamic-harness:setup undo")
     assert "sandbox.enabled" in out["reason"]
