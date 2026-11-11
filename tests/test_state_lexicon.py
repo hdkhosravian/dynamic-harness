@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from harness_core import admin, gate, locales, sessionstate, store, stopgate
+from harness_core.errors import HarnessError
 from harness_core.events import EventLog
 from harness_core.paths import job_paths
 from harness_core.safety import Ctx
@@ -21,7 +22,8 @@ from test_probe_words import spy, write_probe
 from test_stopgate import stop
 
 ROOT = Path(__file__).resolve().parents[1]
-OLD_LEX = json.loads((Path(__file__).resolve().parent / "fixtures" / "state_lexicon_0_4_0.json").read_text("utf-8"))
+FIX = Path(__file__).resolve().parent / "fixtures"
+OLD_LEX = json.loads((FIX / "state_lexicon_0_4_0.json").read_text("utf-8"))
 TERMS = [t for v in OLD_LEX["terms"].values() for t in v]  # the 0.4.0 flat list: en, then fa
 LINES = [t for v in OLD_LEX["template_lines"].values() for t in v]
 LEGACY = {"version": 1, "terms": {"en": ["audited", "checked"], "fa": ["\u062a\u0633\u062a"]},
@@ -103,6 +105,23 @@ def test_a_hand_placed_live_lexicon_file_adds_after_the_pack_entries(h):
     assert stopgate.lexicon_hits(c, "The audited line.") == []
     put(h, "xx.json", pack("xx", state_lexicon={"terms": ["blorped"]}))
     assert gate.lexicon(ctx_of(h))["terms"] == TERMS + ["blorped", "audited", "\u062a\u0633\u062a"]  # packs first
+
+
+def test_a_hand_placed_copy_of_the_0_4_0_file_and_a_pack_that_repeats_a_line_add_nothing_twice(h):
+    (h["data"] / "control").mkdir(parents=True)
+    (h["data"] / "control" / "state_lexicon.json").write_bytes((FIX / "state_lexicon_0_4_0.json").read_bytes())
+    put(h, "xx.json", pack("xx", state_lexicon={"template_lines": [LINES[0], "Own line."], "terms": [TERMS[0]]}))
+    assert gate.lexicon(ctx_of(h)) == {"terms": TERMS, "template_lines": LINES + ["Own line."]}
+
+
+@pytest.mark.parametrize("raw", ["[]", '"x"', "5", "null", '{"terms": 5}', '{"terms": [5]}', '{"terms": {"en": 5}}',
+                                 '{"terms": {"en": [3]}}', '{"template_lines": 5}', '{"template_lines": {"en": [3]}}'])
+def test_a_hand_placed_lexicon_of_the_wrong_shape_is_an_error_that_names_the_file(h, raw):
+    (h["data"] / "control").mkdir(parents=True)
+    (h["data"] / "control" / "state_lexicon.json").write_text(raw)
+    with pytest.raises(HarnessError) as e:
+        gate.lexicon(ctx_of(h))
+    assert "state_lexicon.json" in str(e.value)
 
 
 def test_a_live_lexicon_that_is_not_a_file_is_ignored(h):

@@ -523,9 +523,10 @@ def test_an_owner_class_name_that_only_probe_json_holds_is_kept(h):
     ({"verbs": []}, ["verbs"]),
     ({"verbs": {"money": [1]}}, ["verbs.money"]),
     ({"verbs": {"money": "pay"}}, ["verbs.money"]),
+    ({"imperative_join": "plus"}, ["imperative_join"]),
     ({"decision_keywords": ["tax"]}, ["decision_keywords"]),
     ({"decision_keywords": {"tax": "vat"}}, ["decision_keywords"]),
-], ids=["str", "dict", "item-int", "verbs-list", "verbs-class-int", "verbs-class-str", "decisions-list",
+], ids=["str", "dict", "item-int", "verbs-list", "verbs-class-int", "verbs-class-str", "join-str", "decisions-list",
         "decisions-class-str"])
 def test_a_live_value_of_the_wrong_kind_is_an_error_that_names_the_file_and_the_key(h, live, names):
     write_probe(h, dict(live))
@@ -558,6 +559,46 @@ def test_a_live_file_without_file_extensions_uses_the_shipped_list(h):
     c = ctx_of(h)
     assert probe.words(c)["file_extensions"] == OLD["file_extensions"]
     assert probe.run("open report.csv", c)["files_named"] == ["report.csv"]
+
+
+@pytest.mark.parametrize("raw", ["[]", '"x"', "5", "null"], ids=["list", "string", "number", "null"])
+def test_a_live_probe_json_that_is_not_an_object_is_an_error_that_names_the_file(h, raw):
+    write_probe(h, raw)
+    with pytest.raises(HarnessError) as e:
+        probe.words(ctx_of(h))
+    assert "probe.json" in str(e.value)
+
+
+def test_a_live_file_with_an_empty_extension_list_replaces_the_shipped_list(h):
+    write_probe(h, {"file_extensions": []})
+    c = ctx_of(h)
+    assert probe.words(c)["file_extensions"] == []
+    assert probe.run("see report.csv", c)["files_named"] == []  # the owner asked for no file detection
+
+
+def test_a_join_word_in_a_live_probe_json_makes_the_verb_after_it_an_instruction(h):
+    assert probe.run(JOINED, ctx_of(h))["irreversible_classes"] == []
+    write_probe(h, {"imperative_join": ["plus"]})
+    c = ctx_of(h)
+    assert probe.words(c)["imperative_join"] == ["and", "then", "also", "please", "plus"]
+    assert probe.run(JOINED, c)["irreversible_classes"] == ["destructive"]
+
+
+def test_a_question_mark_that_probe_norm_folds_to_nothing_is_not_a_mark(h):
+    from harness_core import stopgate
+    put(h, "xx.json", pack("xx", question_marks=["\u200c", "\u2e2e"]))
+    c = ctx_of(h)
+    assert probe.run("hello world", c)["question_only"] is False
+    assert stopgate.asks(c, "hello world") is False
+    assert probe.run("hello world\u2e2e", c)["question_only"] is True
+    assert probe.run("hello world?", c)["question_only"] is True
+
+
+def test_a_mark_of_a_live_pack_is_compared_after_probe_norm(h):
+    put(h, "qq.json", pack("qq", question_marks=["Q"]))
+    c = ctx_of(h)
+    assert probe.run("sky blueQ", c)["question_only"] is True
+    assert probe.run("sky blue", c)["question_only"] is False
 
 
 # --- 5. join words are data --------------------------------------------------------------------------------------------
@@ -624,6 +665,10 @@ def test_the_position_rule_follows_the_lead_and_join_lists_of_the_view(monkeypat
     (["?", "\u061f"], "sky blue\u061f", True),
     (["\u2e2e"], "sky blue\u2e2e", True),
     (["?"], "sky ? blue", False),
+    (["Q"], "sky blueQ", True),                # the mark is compared after probe._norm: "Q" folds to "q"
+    (["\u0643"], "sky blue\u0643", True),      # Arabic kaf folds to the Persian kaf on both sides
+    (["\u200c"], "sky blue", False),           # a mark that _norm folds to nothing is not a mark
+    (["\u200c", "?"], "sky blue?", True),
 ])
 def test_a_question_ends_with_a_mark_of_the_view_or_starts_with_a_question_lead(monkeypatch, marks, text, asked):
     fake_view(monkeypatch, {"question_lead": ["quoz"]}, marks)

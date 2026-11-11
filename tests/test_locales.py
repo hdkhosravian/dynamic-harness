@@ -159,6 +159,8 @@ def test_a_live_pack_with_the_base_id_cannot_remove_the_base(h, L):
     c = ctx_of(h)
     assert L.installed(c)["en"]["name"] == "English" and L.active(c)[0] == "en"
     assert L.installed(c)["en"]["words"]["money_words"][-1] == "y"  # added after what the shipped pack holds
+    assert holds(L.installed(c)["en"], L.installed()["en"])  # nothing of the shipped base pack is lost
+    assert L.installed(c)["en"]["words"]["money_words"][:2] == L.installed()["en"]["words"]["money_words"][:2]
     set_profile(h, locales=["fa"])
     assert L.active(ctx_of(h)) == ["fa", "en"]
 
@@ -271,17 +273,17 @@ MID = [("arrays", int(LIMIT * 0.7)), ("arrays_of_objects", int(LIMIT * 0.35))]
 
 @pytest.mark.parametrize("pid", ["xx", "fa"], ids=["new-id", "shipped-id"])
 @pytest.mark.parametrize("shape,depth", MID, ids=[m[0] for m in MID])
-def test_a_pack_that_parses_but_is_too_deep_to_merge_is_refused_naming_the_file(h, L, LocaleError, shape, depth, pid):
+def test_a_deep_pack_that_parses_is_refused_by_the_schema_naming_the_file(h, L, LocaleError, shape, depth, pid):
     data = _nested(pid, shape, depth)
     json.loads(data)  # precondition: the parser accepts it
-    with pytest.raises(LocaleError):  # precondition: merging it fails
+    with pytest.raises(LocaleError):  # precondition: merging the pack as it is would fail ...
         L.merge([("a", json.loads(data)), ("b", {})])
-    put(h, pid + ".json", data)
+    put(h, pid + ".json", data)  # ... but the closed schema refuses the unknown key before `_pack` merges: a valid pack is shallow
     set_profile(h, locales=["fa"])
     for fn in (L.installed, L.active, L.view):
         with pytest.raises(LocaleError) as e:
             fn(ctx_of(h))
-        assert pid + ".json" in str(e.value)
+        assert pid + ".json" in str(e.value) and "unexpected property 'w'" in str(e.value)
 
 
 @pytest.mark.parametrize("kind", ["objects", "arrays"])
@@ -915,3 +917,10 @@ def test_the_profile_language_rule_follows_a_profile_change_in_the_same_process(
     assert L.active(c) == ["ir", "fa", "en"]
     set_profile(h, locales=["ir"], language="de")
     assert L.active(c) == ["ir", "en"]
+
+
+def test_the_packs_added_for_the_profile_language_are_sorted_by_id(h, L):
+    put(h, "bb.json", pack("bb", render={"fa": {"joiner": "|"}}))  # written first, sorts after aa
+    put(h, "aa.json", pack("aa", render={"fa": {"joiner": "|"}}))
+    set_profile(h, locales=["ir"], language="fa")
+    assert L.active(ctx_of(h)) == ["ir", "aa", "bb", "fa", "en"]  # not the order in which the packs are installed
