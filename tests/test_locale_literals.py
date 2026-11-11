@@ -58,17 +58,15 @@ ALLOWED = {
     "lib/harness_core/claims.py": {"currency": 2, "script": 88},
     "lib/harness_core/contact.py": {"script": 56},
     "lib/harness_core/finance.py": {"calendar": 13, "currency": 10, "script": 139},
-    "lib/harness_core/gate.py": {"lang": 1},
     "lib/harness_core/localize.py": {"calendar": 51, "currency": 24, "lang": 5, "region": 4, "script": 147},
     "lib/harness_core/model.py": {"calendar": 4, "currency": 1, "lang": 8, "script": 119},
     "lib/harness_core/model_cmd.py": {"currency": 1},
     "lib/harness_core/normalize.py": {"calendar": 3, "region": 1, "script": 20},
     "lib/harness_core/operations.py": {"script": 21},
     "lib/harness_core/pii.py": {"region": 5, "script": 156},
-    "lib/harness_core/probe.py": {"region": 2, "script": 24},
+    "lib/harness_core/probe.py": {"script": 24},
     "lib/harness_core/protected.py": {"region": 3, "script": 76},
     "lib/harness_core/query_guard.py": {"region": 2, "script": 12},
-    "lib/harness_core/stopgate.py": {"region": 1},
     "lib/harness_core/templates.py": {"currency": 2, "lang": 3, "script": 28},
 }
 
@@ -85,7 +83,8 @@ PERMANENT = {
 CLEARED = {
     ("lib/harness_core/lint_text.py", "lang"), ("lib/harness_core/lint_text.py", "region"),
     ("lib/harness_core/lint_text.py", "script"), ("lib/harness_core/templates.py", "region"),
-    ("lib/harness_core/business.py", "lang"),
+    ("lib/harness_core/business.py", "lang"), ("lib/harness_core/probe.py", "region"),
+    ("lib/harness_core/gate.py", "lang"), ("lib/harness_core/stopgate.py", "region"),
 }
 
 

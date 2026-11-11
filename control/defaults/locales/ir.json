@@ -1,5 +1,18 @@
 {
   "schema": "harness/locale@1",
   "id": "ir",
-  "name": "Iran"
+  "name": "Iran",
+  "words": {
+    "money_words": [
+      "﷼",
+      "toman",
+      "tomans",
+      "rial",
+      "rials",
+      "irr",
+      "irt",
+      "تومان",
+      "ریال"
+    ]
+  }
 }

@@ -2,11 +2,12 @@
 
 ``run(request, ctx, cwd=None) -> probe`` scans the request text (and the workspace files it names) for:
 action verbs, write targets, files named, connectors named, money and number tokens, quantity words,
-decision-class keywords and personal data. Keyword lists live in the control file ``probe.json``.
+decision-class keywords and personal data. ``words(ctx)`` gives the keyword lists: the ``words`` of the active locale
+packs, then the owner's own extra words in the control file ``probe.json``.
 
-- A verb counts toward ``irreversible_classes`` only when it is used as an instruction ("send the
-  invoice", "please email Sara", "...and pay it"), not in a question ("did we send it?"). Any verb at all
-  still makes the pre-filter ask for a card.
+- A verb of ``verbs`` counts toward ``irreversible_classes`` only when it is used as an instruction ("send the
+  invoice", "please email Sara", "...and pay it"), not in a question ("did we send it?"); a verb of
+  ``verbs_anywhere`` counts wherever it stands. Any verb at all still makes the pre-filter ask for a card.
 - ``floor_tier``: T2 with an irreversible class, T1 with a write target or a write-capable connector,
   else T0.
 - A named file is read only when its realpath is inside the workspace (and never through a symlink).
@@ -17,14 +18,18 @@ keywords. (Quantity words go beyond the spec's list: "how many orders…" comput
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import unicodedata
 from pathlib import Path
 
-from . import canon, pii, protected, schema
+from . import canon, locales, pii, protected, schema
+from .errors import HarnessError
 
 MAX_CHARS = 20000
+CLASSES = ("external_message", "money", "destructive", "automation_create", "local_reversible")
+LISTS = ("imperative_lead", "imperative_join", "question_lead", "money_words", "quantity_words", "continuation")
 _FOLD = str.maketrans({"ي": "ی", "ك": "ک", "‌": "", "‍": "", "۰": "0", "۱": "1", "۲": "2", "۳": "3",
                        "۴": "4", "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9", "٠": "0", "١": "1", "٢": "2",
                        "٣": "3", "٤": "4", "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9"})
@@ -35,7 +40,7 @@ def _norm(s: str) -> str:
 
 
 def _kw(word: str) -> str:
-    """A keyword as a regex: whole words (Persian letters count as word characters); symbols as is."""
+    """A keyword as a regex: whole words (letters of every script count as word characters); symbols as is."""
     w = re.escape(_norm(word))
     return w if not re.match(r"\w", _norm(word)[:1] or "x") else rf"(?<!\w){w}(?!\w)"
 
@@ -44,14 +49,54 @@ def _hits(text: str, words) -> list:
     return sorted({w for w in words if re.search(_kw(w), text)})
 
 
-def _imperative(text: str, verb: str, leads) -> bool:
-    if not re.match(r"[a-z]", _norm(verb)):
-        return bool(re.search(_kw(verb), text))  # the Persian lists hold imperative forms only
-    lead = "|".join(re.escape(_norm(x)) for x in sorted(leads, key=len, reverse=True))
-    v = re.escape(_norm(verb))
-    start = rf"(?:^|[.!;?\n:]\s*)(?:(?:{lead})\s+)*{v}(?!\w)"
-    joined = rf"(?<!\w)(?:and|then|also|please)\s+(?:(?:{lead})\s+)*{v}(?!\w)"
-    return bool(re.search(start, text) or re.search(joined, text))
+def _alt(words) -> str:
+    return "|".join(re.escape(_norm(x)) for x in sorted(words, key=len, reverse=True))
+
+
+def _imperative(text: str, verb: str, leads, joins) -> bool:
+    """``verb`` at an instruction position: a sentence start or a join word, then any number of leads."""
+    v = (rf"(?:(?:{_alt(leads)})\s+)*" if leads else "") + rf"{re.escape(_norm(verb))}(?!\w)"
+    if re.search(rf"(?:^|[.!;?\n:]\s*){v}", text):
+        return True
+    return bool(joins) and bool(re.search(rf"(?<!\w)(?:{_alt(joins)})\s+{v}", text))
+
+
+def _strings(v, name: str) -> list:
+    if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+        raise HarnessError(f"probe.json: {name} must be a list of strings")
+    return v
+
+
+def _classes(live: dict, key: str) -> dict:
+    v = live.get(key, {})
+    if not isinstance(v, dict):
+        raise HarnessError(f"probe.json: {key} must be an object of lists of strings")
+    return {cls: _strings(x, f"{key}.{cls}") for cls, x in v.items()}
+
+
+def words(ctx) -> dict:
+    """The keyword lists in force: the ``words`` of the locale packs, then the entries of the live ``probe.json``
+    (duplicates dropped, the first kept). An owner verb that a pack lists under ``verbs`` stays a position verb;
+    any other owner verb is matched anywhere."""
+    view = locales.view(ctx, every=True)
+    w = view.get("words", {})
+    live = protected.load_control("probe.json", ctx)
+    out = {k: list(dict.fromkeys(w.get(k, []) + _strings(live.get(k, []), k))) for k in LISTS}
+    mine = _classes(live, "verbs")
+    pos = {_norm(v) for vs in w.get("verbs", {}).values() for v in vs}
+    for key, keep in (("verbs", True), ("verbs_anywhere", False)):
+        pack = w.get(key, {})
+        out[key] = {cls: list(dict.fromkeys(pack.get(cls, []) + [v for v in mine.get(cls, [])
+                                                                 if (_norm(v) in pos) == keep]))
+                    for cls in dict.fromkeys(CLASSES + tuple(pack) + tuple(mine))}
+    dec, mine = w.get("decision_keywords", {}), _classes(live, "decision_keywords")
+    out["decision_keywords"] = {cls: list(dict.fromkeys(dec.get(cls, []) + mine.get(cls, [])))
+                                for cls in dict.fromkeys(list(dec) + list(mine))}
+    exts = live["file_extensions"] if "file_extensions" in live else \
+        json.loads((protected.DEFAULTS_DIR / "probe.json").read_text("utf-8"))["file_extensions"]
+    out["file_extensions"] = _strings(exts, "file_extensions")
+    out["question_marks"] = list(view.get("question_marks", []))
+    return out
 
 
 def _files(text: str, exts) -> list:
@@ -86,7 +131,6 @@ def _connectors(text: str, ctx):
 
 
 def _registry(ctx) -> dict:
-    import json
     reg = getattr(ctx, "connector_registry", None)
     if isinstance(reg, dict) and reg:
         return reg
@@ -101,14 +145,17 @@ def _registry(ctx) -> dict:
 def run(request, ctx, cwd=None) -> dict:
     raw = request if isinstance(request, str) else ""
     text = _norm(raw[:MAX_CHARS])
-    k = protected.load_control("probe.json", ctx)
-    leads = k["imperative_lead"]
-    verbs = {cls: _hits(text, words) for cls, words in k["verbs"].items()}
-    action_verbs = sorted({v for vs in verbs.values() for v in vs})
-    imperative = {cls for cls, vs in verbs.items() if any(_imperative(text, v, leads) for v in vs)}
+    k = words(ctx)
+    pos = {cls: _hits(text, ws) for cls, ws in k["verbs"].items()}
+    anywhere = {cls: _hits(text, ws) for cls, ws in k["verbs_anywhere"].items()}
+    action_verbs = sorted({v for d in (pos, anywhere) for vs in d.values() for v in vs})
+    leads, joins = k["imperative_lead"], k["imperative_join"]
+    imperative = {cls for cls, vs in anywhere.items() if vs}
+    imperative |= {cls for cls, vs in pos.items() if any(_imperative(text, v, leads, joins) for v in vs)}
     irreversible = sorted(c for c in imperative if c not in ("local_reversible",))
     first = re.split(r"\s+", text.strip(), maxsplit=1)[0] if text.strip() else ""
-    asks = text.rstrip().endswith(("?", "؟")) or first in {_norm(q) for q in k["question_lead"]}
+    marks = tuple(_norm(m) for m in k["question_marks"])
+    asks = text.rstrip().endswith(marks) or first in {_norm(q) for q in k["question_lead"]}
     question_only = bool(asks and not imperative)
     files = _files(raw[:MAX_CHARS], k["file_extensions"])
     writes_files = bool(imperative & {"local_reversible", "destructive"})
@@ -123,7 +170,7 @@ def run(request, ctx, cwd=None) -> dict:
     money = _hits(text, k["money_words"])
     numbers = sorted(set(re.findall(r"\d+(?:[.,]\d+)*", text)))[:20]
     quantity = _hits(text, k["quantity_words"])
-    decision = {cls: hits for cls, words in k["decision_keywords"].items() if (hits := _hits(text, words))}
+    decision = {cls: hits for cls, ws in k["decision_keywords"].items() if (hits := _hits(text, ws))}
     connectors, write_conn = _connectors(text, ctx)
     floor = "T2" if irreversible else "T1" if (write_targets or write_conn) else "T0"
     out = {

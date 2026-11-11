@@ -20,7 +20,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from . import canon, fold, protected, sandbox_exec, schema
+from . import canon, fold, locales, sandbox_exec, schema
 from .errors import HarnessError, TamperError
 from .ledger import ROW_SCHEMA, Ledger
 from .safeio import atomic_write, safe_open
@@ -147,19 +147,31 @@ def _live_fields(paths) -> dict:
 
 
 def _flat(v) -> list:
-    """state_lexicon.json keeps terms per language ({"en": [...], "fa": [...]}); the gate wants one list."""
+    """The legacy live state_lexicon.json keeps terms per language code ({code: [...]}); the gate wants one list."""
     return [str(x) for x in (sum((list(x) for x in v.values()), []) if isinstance(v, dict) else list(v or []))]
 
+def lexicon(ctx) -> dict:
+    """State words and fixed harness sentences: those of every installed locale pack, then those of a live
+    control/state_lexicon.json that an owner placed by hand in 0.4.0 (duplicates dropped, the first kept)."""
+    lex = locales.view(ctx, every=True).get("state_lexicon", {})
+    terms, lines = list(lex.get("terms", [])), list(lex.get("template_lines", []))
+    data_root = getattr(ctx, "data_root", None)
+    live = Path(data_root) / "control" / "state_lexicon.json" if data_root else None
+    if live and live.is_file():
+        old = json.loads(live.read_text("utf-8"))
+        terms, lines = terms + _flat(old.get("terms")), lines + _flat(old.get("template_lines"))
+    return {"terms": list(dict.fromkeys(terms)), "template_lines": list(dict.fromkeys(lines))}
+
 def _lexicon(paths, log=None) -> Path:
-    lex = protected.load_control("state_lexicon.json", paths)  # live control under data_root, else default
-    lines = _flat(lex.get("template_lines"))
+    lex = lexicon(paths)
+    lines = lex["template_lines"]
     if log is not None:  # the answer header's status line is rendered by a hook from a recorded check result
         from .answer import status_line
         st = status_line(paths, log)
         if st:
             lines.append(st)
     out = paths.run / "gate" / "lexicon.json"
-    atomic_write(out, canon.canonical_json({"terms": _flat(lex.get("terms")), "template_lines": lines}))
+    atomic_write(out, canon.canonical_json({"terms": lex["terms"], "template_lines": lines}))
     return out
 
 def _argv(run: Path, proj: dict, profile: dict, fold_ledger_path, events_head: str) -> list:

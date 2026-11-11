@@ -10,5 +10,228 @@
       ],
       "direction": "ltr"
     }
+  },
+  "words": {
+    "verbs": {
+      "external_message": [
+        "send",
+        "email",
+        "e-mail",
+        "mail",
+        "post",
+        "publish",
+        "tweet",
+        "message",
+        "text",
+        "reply",
+        "forward",
+        "sign",
+        "submit",
+        "file"
+      ],
+      "money": [
+        "pay",
+        "transfer",
+        "refund",
+        "buy",
+        "purchase",
+        "order",
+        "charge",
+        "wire"
+      ],
+      "destructive": [
+        "delete",
+        "remove",
+        "erase",
+        "wipe",
+        "cancel",
+        "drop"
+      ],
+      "automation_create": [
+        "schedule",
+        "automate",
+        "remind",
+        "every day",
+        "every week",
+        "every month"
+      ],
+      "local_reversible": [
+        "write",
+        "save",
+        "create",
+        "make",
+        "edit",
+        "update",
+        "change",
+        "fix",
+        "rename",
+        "move",
+        "add",
+        "draft",
+        "prepare",
+        "build",
+        "export"
+      ]
+    },
+    "imperative_lead": [
+      "please",
+      "kindly",
+      "can you",
+      "could you",
+      "would you",
+      "will you",
+      "i want you to",
+      "i need you to",
+      "go ahead and",
+      "and",
+      "then",
+      "also",
+      "now"
+    ],
+    "imperative_join": [
+      "and",
+      "then",
+      "also",
+      "please"
+    ],
+    "question_lead": [
+      "what",
+      "which",
+      "who",
+      "whom",
+      "whose",
+      "how",
+      "why",
+      "when",
+      "where",
+      "is",
+      "are",
+      "was",
+      "were",
+      "do",
+      "does",
+      "did",
+      "can",
+      "could",
+      "should",
+      "would",
+      "will"
+    ],
+    "money_words": [
+      "$",
+      "€",
+      "£",
+      "usd",
+      "eur",
+      "dollar",
+      "dollars",
+      "euro",
+      "euros",
+      "price",
+      "prices",
+      "cost",
+      "costs",
+      "revenue",
+      "profit",
+      "invoice",
+      "invoices",
+      "payment",
+      "payments",
+      "salary",
+      "budget",
+      "discount",
+      "debt",
+      "owe",
+      "owed"
+    ],
+    "quantity_words": [
+      "how many",
+      "how much",
+      "total",
+      "sum",
+      "average",
+      "mean",
+      "count",
+      "percent",
+      "percentage",
+      "forecast",
+      "growth",
+      "rate"
+    ],
+    "decision_keywords": {
+      "financial": [
+        "invest",
+        "investment",
+        "loan",
+        "credit",
+        "mortgage",
+        "stock",
+        "shares",
+        "portfolio"
+      ],
+      "tax": [
+        "tax",
+        "taxes",
+        "vat"
+      ],
+      "legal": [
+        "contract",
+        "lawsuit",
+        "legal",
+        "liability",
+        "sue",
+        "court"
+      ],
+      "employment": [
+        "hire",
+        "hiring",
+        "fire",
+        "firing",
+        "dismiss",
+        "layoff",
+        "lay off",
+        "employment"
+      ],
+      "medical": [
+        "dose",
+        "dosage",
+        "medication",
+        "medicine",
+        "diagnosis",
+        "diagnose",
+        "symptom"
+      ],
+      "safety": [
+        "weapon",
+        "explosive",
+        "bomb",
+        "poison"
+      ]
+    },
+    "continuation": [
+      "continue",
+      "keep going",
+      "now also",
+      "also add",
+      "go on",
+      "resume"
+    ]
+  },
+  "question_marks": [
+    "?"
+  ],
+  "state_lexicon": {
+    "terms": [
+      "checked",
+      "verified",
+      "reconciled",
+      "confirmed",
+      "matches",
+      "✓",
+      "✔"
+    ],
+    "template_lines": [
+      "Arithmetic checked; assumptions not."
+    ]
   }
 }

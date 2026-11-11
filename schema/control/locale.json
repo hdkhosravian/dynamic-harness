@@ -7,6 +7,12 @@
     "name": {
       "type": "string"
     },
+    "question_marks": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "render": {
       "additionalProperties": {
         "additionalProperties": false,
@@ -66,7 +72,145 @@
       ],
       "type": "string"
     },
+    "state_lexicon": {
+      "additionalProperties": false,
+      "properties": {
+        "template_lines": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "terms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "words": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "decision_keywords": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "imperative_join": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "imperative_lead": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "money_words": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "quantity_words": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question_lead": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "verbs": {
+          "additionalProperties": false,
+          "properties": {
+            "automation_create": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "destructive": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "external_message": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "local_reversible": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "money": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "verbs_anywhere": {
+          "additionalProperties": false,
+          "properties": {
+            "automation_create": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "destructive": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "external_message": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "local_reversible": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "money": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
       "type": "object"
     }
   },

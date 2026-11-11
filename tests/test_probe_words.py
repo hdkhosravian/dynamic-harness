@@ -553,6 +553,13 @@ def test_a_live_file_list_of_file_extensions_replaces_the_shipped_list(h):
     assert probe.run("open report.csv", Ctx(workspace=h["ws"], data_root=None))["files_named"] == ["report.csv"]
 
 
+def test_a_live_file_without_file_extensions_uses_the_shipped_list(h):
+    write_probe(h, {"money_words": ["zloty"]})
+    c = ctx_of(h)
+    assert probe.words(c)["file_extensions"] == OLD["file_extensions"]
+    assert probe.run("open report.csv", c)["files_named"] == ["report.csv"]
+
+
 # --- 5. join words are data --------------------------------------------------------------------------------------------
 
 JOINED = "tell me the total plus delete the file"

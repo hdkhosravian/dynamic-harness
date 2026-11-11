@@ -104,8 +104,11 @@ Your business settings.
 Lists you can `add` to and `remove` from: `own_accounts` (transfers between them are not revenue),
 `do_not_contact`, `protected_terms` (names that never go into a web search), `locales` (the ids of installed
 locale packs that apply, in this order, plus the base pack `en`; when it is empty, or names a pack that is
-not installed, every installed pack applies; how a
-language is written, its digits and separators, always comes from every installed pack). `metric remove <id>` deletes a metric definition.
+not installed, every installed pack applies). This list chooses the words the harness matches in your
+requests: verbs, question words, money words and the like. The pack that writes your `language` is always
+active, so you keep the words of the language you write in. How a language is written (its digits and
+separators), the words that state a result ("checked", "verified") and the marks that end a question come
+from every installed pack, whatever the list names. `metric remove <id>` deletes a metric definition.
 
 ### `/dynamic-harness:memory`
 
@@ -153,7 +156,9 @@ tasks are exported.
 /dynamic-harness:off on
 ```
 
-`config` changes budgets, gate profiles, the egress allowlist and prices. `off` puts the question cap and the
+`config` changes budgets, gate profiles, the egress allowlist, prices and `probe.json`. `probe.json` holds
+only your own extra words (verbs, money words and the like); they are matched in addition to the words of
+the locale packs. You cannot remove a shipped word there. `off` puts the question cap and the
 tripwire in shadow mode: they log what they would have blocked and block nothing. The safety hooks stay on.
 
 ## Persian support

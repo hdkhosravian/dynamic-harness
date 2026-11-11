@@ -6,7 +6,20 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
 
 - **Locale packs.** Words and regional facts get a data format (`harness/locale@1`, `control/defaults/locales/`,
   live packs in `<data>/control/locales/`) and the profile list `locales` (`business add locales <id>`); with no
-  list every installed pack applies, as in 0.4.0. No word used for matching has moved into a pack yet.
+  list every installed pack applies, as in 0.4.0.
+- **Matching words from the packs.** The verbs, question words, money, quantity, decision and continuation
+  words, the state words and the question marks moved from `probe.json` and `state_lexicon.json` into the
+  locale packs (`words`, `state_lexicon`, `question_marks`); a new language needs a pack and no code. The list
+  `locales` chooses the matching words; state words, question marks and `render` apply for every installed
+  pack; the pack of the profile language is always active. For the shipped words no result changes. If you
+  already use the harness:
+  - `probe.json` now holds only your own extra words, matched in addition to the packs. A word you removed
+    from a live 0.4.0 `probe.json` applies again, because it now comes from a pack: packs can add, never remove.
+  - `config show probe.json` on a fresh data folder shows empty lists (your additions only).
+  - A verb you add that no pack lists is matched anywhere, also inside a question. In 0.4.0 that was true only
+    for a verb that does not start with `a-z`.
+  - `control/defaults/state_lexicon.json` is gone, and `config show state_lexicon.json` answers "No control
+    file". A `control/state_lexicon.json` you placed by hand still adds its words.
 - **Languages from files.** The language list is the set of files in `templates/`, and digits, separators, script
   ranges and lint rules of a language come from `render.<lang>` in a locale pack; `business set language` accepts
   any language with a template file. The text an owner sees in English or Persian is unchanged.

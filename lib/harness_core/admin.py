@@ -332,7 +332,7 @@ def _export(ctx, sid, args) -> dict:
 # --- config and off (operator) ------------------------------------------------------------------------------------
 EDITABLE = ("tiers.json", "gate.json", "egress_allowlist.json", "prices.json", "enforcement.json",
             "decision_policies.json", "probe.json")
-FIXED = ("classes.json", "protected_paths.json", "approved_procedures.json", "state_lexicon.json")
+FIXED = ("classes.json", "protected_paths.json", "approved_procedures.json")
 
 
 def _control_file(name):

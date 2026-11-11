@@ -22,6 +22,7 @@ MAX_BYTES = 256 * 1024    # size limit of one pack file
 CONTRACT = Path(__file__).resolve().parents[2] / "schema" / "control" / "locale.json"
 HEADER = ("schema", "id", "name")
 ID = r"[a-z0-9_-]{1,32}"  # the form of a pack id and of a language code
+EVERY = ("render", "state_lexicon", "question_marks")  # supplied by every installed pack, active or not
 
 
 def _pack(f: Path) -> dict:
@@ -40,6 +41,7 @@ def _pack(f: Path) -> dict:
     try:
         validate(pack, json.loads(CONTRACT.read_text("utf-8")))
         _check_render(pack.get("render", {}))
+        _check_words(pack)
         merge([(f.name, pack)])  # one walk now, so a pack too deep to merge is named here, not in view()
     except (SchemaError, LocaleError) as e:
         raise LocaleError(f"locale pack {f}: {e}") from e
@@ -65,6 +67,20 @@ def _check_render(render: dict) -> None:
         for rule in spec.get("lint", []):
             if not rule["chars"] or not rule["message"]:
                 raise LocaleError(f"render.{lang}.lint: chars and message must not be empty")
+
+
+def _check_words(pack: dict) -> None:
+    """What the schema cannot say about ``words``, ``state_lexicon`` and ``question_marks``: no empty entry, a mark
+    is one character."""
+    lists = [(f"state_lexicon.{k}", v) for k, v in pack.get("state_lexicon", {}).items()]
+    for k, v in pack.get("words", {}).items():
+        lists += [(f"words.{k}.{c}", x) for c, x in v.items()] if isinstance(v, dict) else [(f"words.{k}", v)]
+    for name, v in lists:
+        if "" in v:
+            raise LocaleError(f"{name}: an entry is empty")
+    for m in pack.get("question_marks", []):
+        if len(m) != 1:
+            raise LocaleError(f"question_marks: {m!r} is not exactly 1 character")
 
 
 def _read(d: Path) -> dict:
@@ -128,20 +144,25 @@ def _order(ctx, ids) -> list:
     chosen = prof.get("locales")
     if isinstance(chosen, list) and chosen and all(isinstance(x, str) and x in ids for x in chosen):
         out = list(dict.fromkeys(chosen))
+        lang = prof.get("language")
+        if isinstance(lang, str):  # the packs that say how the profile language is written keep its words
+            out += [i for i in sorted(ids) if i not in out and lang in ids[i].get("render", {})]
         return out if BASE in out else out + [BASE]
     return [BASE] + sorted(i for i in ids if i != BASE)  # the 0.4.0 behaviour: every pack applies
 
 
 def active(ctx=None) -> list:
-    """The active pack ids in merge order: the profile list ``locales`` plus the base pack, else every pack."""
+    """The active pack ids in merge order: the profile list ``locales``, then the packs that hold ``render.<profile
+    language>``, then the base pack; with no list in force, every pack."""
     return _order(ctx, installed(ctx))
 
 
 def view(ctx=None, every=False) -> dict:
-    """The merged content of the active packs, without the header keys; ``every=True`` then adds the other installed
-    packs, sorted by id."""
+    """The merged content of the active packs, without the header keys; ``every=True`` then adds the keys named in
+    ``EVERY`` of the other installed packs, sorted by id."""
     packs = installed(ctx)
     order = _order(ctx, packs)
+    parts = [(i, {k: v for k, v in packs[i].items() if k not in HEADER}) for i in order]
     if every:
-        order += sorted(i for i in packs if i not in order)
-    return merge([(i, {k: v for k, v in packs[i].items() if k not in HEADER}) for i in order])
+        parts += [(i, {k: v for k, v in packs[i].items() if k in EVERY}) for i in sorted(packs) if i not in order]
+    return merge(parts)

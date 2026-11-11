@@ -22,7 +22,7 @@ import json
 import re
 import unicodedata
 
-from . import budget, canon, contacts, gate, pii, probe, protected, record, sessionstate
+from . import budget, canon, contacts, gate, locales, pii, probe, record, sessionstate
 from .errors import HarnessError, TamperError
 from .events import EventLog
 from .normalize import quantity_tokens
@@ -31,7 +31,6 @@ from .safeio import safe_open
 
 STALL_BLOCKS = 3
 RUNNING = ("running", "pending", "in_progress", "started")
-_ASKS = re.compile(r"[?؟]\s*$", re.M)
 
 
 def _fold(text) -> str:
@@ -41,12 +40,12 @@ def _fold(text) -> str:
 
 def lexicon_hits(ctx, text, allowed=()) -> list:
     """State words outside lines the harness itself rendered (``allowed``: only the receipt's state line)."""
-    lex = protected.load_control("state_lexicon.json", ctx)
-    terms = [_fold(t) for t in gate._flat(lex.get("terms")) if t]
+    lex = gate.lexicon(ctx)
+    terms = [_fold(t) for t in lex["terms"] if t]
     pats = [re.compile(("(?<!\\w)" if re.match(r"\w", t) else "") + re.escape(t) + ("(?!\\w)" if re.search(r"\w$", t)
                        else "")) for t in terms]
     # fixed harness sentences (template_lines) are never model-influenced, so they are always allowed
-    ok = {_fold(a).strip() for a in list(allowed) + gate._flat(lex.get("template_lines")) if a}
+    ok = {_fold(a).strip() for a in list(allowed) + lex["template_lines"] if a}
     hits = []
     for line in (text or "").splitlines():
         s = _fold(line)
@@ -54,6 +53,12 @@ def lexicon_hits(ctx, text, allowed=()) -> list:
             continue
         hits += [m.group() for p in pats for m in p.finditer(s)]
     return sorted(set(hits))
+
+
+def asks(ctx, msg) -> bool:
+    """A line of ``msg`` ends with the question mark of an installed locale pack (white space may follow)."""
+    marks = locales.view(ctx, every=True).get("question_marks", []) if msg else []
+    return bool(marks) and re.search("(?:" + "|".join(map(re.escape, marks)) + r")\s*$", msg, re.M) is not None
 
 
 def _running(evt) -> bool:
@@ -110,8 +115,8 @@ def _t0(evt, ctx, sid, st, msg) -> dict:
     hits = lexicon_hits(ctx, msg)
     if hits:
         return _block(ctx, sid, st, "lexicon", f"a quick answer may not use state words {hits}; rephrase without them")
-    text = probe._norm(msg)  # Persian and Arabic digits are folded to ASCII here
-    money = probe._hits(text, protected.load_control("probe.json", ctx)["money_words"])
+    text = probe._norm(msg)  # digits of other scripts are folded to ASCII here
+    money = probe._hits(text, probe.words(ctx)["money_words"])
     if money and re.search(r"\d", text):  # R-11 is about figures: "net margin is net income over revenue" has none
         turn = st.get("request_turn")
         sessionstate.update(ctx, sid, pending_card={"floor": "T1", "reason": f"money in the answer: {money}",
@@ -159,7 +164,7 @@ def _job(evt, ctx, sid, st, msg, job) -> dict:
         sessionstate.update(ctx, sid, stop_blocks=None)
         from . import templates
         return {"systemMessage": templates.state_line(v["state"], ctx)}
-    if _ASKS.search(msg or ""):
+    if asks(ctx, msg):
         why = contacts.check("question", ctx)
         if why:
             return _block(ctx, sid, st, "question", f"the final message asks the owner something, but {why}", job)

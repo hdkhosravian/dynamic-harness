@@ -218,8 +218,10 @@ its last `file_sha`, appends the row, then appends an event carrying
     - `--outputs outputs/outputs.jsonl` (or `/dev/null` when absent) and
       `--numbers-trace <submitted files>` when any submitted file has a text
       suffix (`.md .txt .csv .json .html .tsv`, case-insensitive);
-    - `--lint-lexicon gate/lexicon.json` (state_lexicon.json flattened to
-      `{terms, template_lines}`; off with `profile.lint_lexicon = false`);
+    - `--lint-lexicon gate/lexicon.json` (`gate.lexicon(paths)`: the
+      `state_lexicon` of every installed locale pack, then a legacy live
+      `control/state_lexicon.json`, as `{terms, template_lines}`; off with
+      `profile.lint_lexicon = false`);
     - `--include answer_header.md` when present;
     - `--sources claims.jsonl --fetch-log fetch_log.jsonl --snapshots snapshots
       --profile gate/profile.json` when `claims.jsonl` exists;
@@ -706,8 +708,8 @@ its last `file_sha`, appends the row, then appends an event carrying
 
 ## P1: locale packs (`harness_core/locales.py`)
 
-- Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words, render}`, `schema` and
-  `id` required, no other top-level key. Shipped packs `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
+- Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words, render, state_lexicon,
+  question_marks}`, `schema` and `id` required, no other top-level key. Shipped packs `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
   `${CLAUDE_PLUGIN_DATA}/control/locales/<id>.json` (in the control hash). The id equals the file stem,
   `[a-z0-9_-]{1,32}`; a file is regular, not a symlink, at most `MAX_BYTES` (256 KiB). Any violation raises
   `LocaleError` naming the file.
@@ -728,12 +730,36 @@ its last `file_sha`, appends the row, then appends an event carrying
   view of the context (the shipped packs when it cannot be read); `lint_text` reads the shipped packs. `render` is
   read from every installed pack (`view(ctx, every=True)`: the active packs in order, then the others sorted by
   id), whatever the profile list `locales` names.
+- `words` (closed object; every list is a list of non-empty strings): `verbs` and `verbs_anywhere` (objects whose keys
+  are only the five verb classes `external_message`, `money`, `destructive`, `automation_create`,
+  `local_reversible`; `verbs` count as an instruction only at an instruction position, `verbs_anywhere` wherever
+  they stand as a whole word), `imperative_lead`, `imperative_join`, `question_lead`, `money_words`,
+  `quantity_words`, `decision_keywords` (an object, any class name), `continuation`.
+  `state_lexicon`: closed object `{terms, template_lines}`, lists of non-empty strings.
+  `question_marks`: list of strings of exactly 1 character. The shipped words of 0.4.0 are split between `en`
+  (ASCII entries and `€ £ ✓ ✔`), `ir` (the nine currency words of one country) and `fa` (the others).
+- `EVERY = ("render", "state_lexicon", "question_marks")`: the keys that every installed pack supplies. `words` are
+  read from the active packs only.
 - `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, the first list stays as
   written and a later one adds items not yet present, the first scalar wins, a kind conflict raises `LocaleError`
   naming the dotted key and both ids);
   `installed(ctx=None) -> {pack_id: pack}` (shipped, then a live pack of the same id merged on top);
-  `active(ctx=None) -> [pack_id]` (profile list `locales` without repeats, then `BASE`; any other value: `BASE`, then
-  every other installed id sorted); `view(ctx=None, every=False) -> dict` (merge of the active packs without `schema`,
-  `id`, `name`; `every=True` then adds the other installed packs, sorted by id). Files are read on every call.
+  `active(ctx=None) -> [pack_id]` (profile list `locales` without repeats, then every other installed pack that holds
+  `render.<profile language>` sorted by id, then `BASE` if not yet named; any other value: `BASE`, then every other
+  installed id sorted); `view(ctx=None, every=False) -> dict` (merge of the active packs without `schema`, `id`,
+  `name`; `every=True` then adds only the `EVERY` keys of the other installed packs, sorted by id). Files are read on
+  every call.
+- `probe.words(ctx) -> dict` with the keys `verbs`, `verbs_anywhere`, `imperative_lead`, `imperative_join`,
+  `question_lead`, `money_words`, `quantity_words`, `decision_keywords`, `continuation`, `file_extensions`,
+  `question_marks`: one `locales.view(ctx, every=True)` and one read of `probe.json`. A list is the pack list, then
+  the entries of the same key in `probe.json` (the owner's own extra words; a key it lacks is empty), duplicates
+  dropped. An owner verb goes to `verbs` when a pack lists it under `verbs`, else to `verbs_anywhere`.
+  `file_extensions` is the list of `probe.json` (the shipped list when the live file lacks the key);
+  `question_marks` come from the packs only. A wrong kind in `probe.json` raises `HarnessError` naming the key.
+  `probe.run` calls it once.
+- `gate.lexicon(ctx) -> {terms, template_lines}`: the `state_lexicon` of `view(ctx, every=True)`, then a live
+  `control/state_lexicon.json` placed by hand in 0.4.0 (flattened), duplicates dropped. `stopgate.lexicon_hits` and
+  `gate._lexicon` use it. `stopgate.asks(ctx, msg) -> bool`: a line of `msg` ends with a `question_marks` entry of
+  an installed pack, white space may follow.
 - `business.list_entry(ctx, field, value, add) -> str`: the checked list entry (`admin` calls it before offering a
   code, `change_list` before writing); `business add locales <id>` needs an installed id.
