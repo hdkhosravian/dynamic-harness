@@ -260,8 +260,13 @@ def _sha(raw) -> str:
     return "absent" if raw is None else hashlib.sha256(raw).hexdigest()
 
 
+# how the owner installs or updates loop-contract; shown when it is missing or too old
+LC_INSTALL = ('in Claude Code with "/plugin marketplace add hdkhosravian/loop-contract-skill" and then '
+              '"/plugin install loop-contract@loop-contract", then run setup again')
+
+
 def find_loop_contract(ctx):
-    """The loop-contract root, resolved: ctx (config_log / env), else the installed plugin with version >= 1.1.0."""
+    """The loop-contract root, resolved: ctx (config_log / env), else the installed plugin with version >= 1.2.0."""
     from . import session
 
     known = os.path.realpath(ctx.loop_contract_root) if ctx.loop_contract_root else None
@@ -425,10 +430,13 @@ def plan(ctx, with_global=True) -> dict:
                       "or one of its parents as a workspace")
     lcr = find_loop_contract(ctx)
     if not lcr:
-        raise Blocked("the loop-contract plugin (>= 1.1.0) was not found; install it, then run setup again")
+        need = ".".join(map(str, session.MIN_LOOP_CONTRACT))
+        raise Blocked(f"the loop-contract plugin (>= {need}) was not found; install it {LC_INSTALL}")
     problem = session.loop_contract_problem(lcr)
     if problem:
-        raise Blocked(f"{problem}, then run setup again")
+        lv = session.loop_contract_version(lcr)
+        old = lv is None or lv < session.MIN_LOOP_CONTRACT  # the version case: send the owner to the update commands
+        raise Blocked(f"{problem}; update it {LC_INSTALL}" if old else f"{problem}, then run setup again")
     req, paths = required(ctx, lcr, with_global), settings_paths(ctx)
     scopes = ("user", "project", "local") if with_global else ("project", "local")
     claude_dir = Path(ctx.workspace) / ".claude"

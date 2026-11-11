@@ -6,7 +6,7 @@ nonce-checked writers). It never re-baselines: it only reads the log. A
 mismatch, an unreadable tree or a corrupt log is ``STOPPED_TAMPER``. It also
 refuses ``bypassPermissions`` and Claude Code < 2.1.295 (no fail-closed hooks),
 and runs an in-process PreToolUse canary. It needs the loop-contract plugin
-root (``ctx.loop_contract_root``) at version >= 1.1.0.
+root (``ctx.loop_contract_root``) at version >= 1.2.0.
 
 With a ``session_id`` it also writes, under ``sessions/<sid>/``: the settings
 baseline (for ConfigChange), the written-files record (``written.start``: fresh only
@@ -30,7 +30,7 @@ from . import canon, config_guard, safety, sandbox_exec, setup, written
 from .errors import HarnessError, TamperError
 from .safeio import atomic_write, safe_open
 
-MIN_LOOP_CONTRACT = (1, 1, 0)  # fold_ledger flags the gate adapter passes
+MIN_LOOP_CONTRACT = (1, 2, 0)  # fold_ledger flags the gate adapter passes
 MIN_CC_VERSION = (2, 1, 295)  # hooks' onFailure: "block" (fail closed) needs this (OQ-4 spike S1)
 # shortcut: caches unhashed; plugin root is write-protected. ".in_use" holds Claude Code's per-session markers
 # (one file per running session) in an installed plugin's cache folder: hashing it would flag every new session
@@ -200,7 +200,7 @@ def loop_contract_version(root):
     return tuple(int(x) for x in m.groups()) if m else None
 
 
-# what the gate passes to fold_ledger (gate.py); a loop-contract that says 1.1.0 but predates them would let every
+# what the gate passes to fold_ledger (gate.py); a loop-contract that says 1.2.0 but predates them would let every
 # task run up to the gate and then fail there, so the script's own text is checked, not only its version
 GATE_FLAGS = ("--receipt", "--events-head", "--sources", "--fetch-log", "--snapshots", "--numbers-trace", "--outputs",
               "--require-logs", "--include", "--lint-lexicon", "--assumptions", "--oracle-timeout")

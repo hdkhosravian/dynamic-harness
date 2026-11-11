@@ -366,7 +366,7 @@ its last `file_sha`, appends the row, then appends an event carrying
        `session.claude_version(env=None, run=subprocess.run)` reads
        `CLAUDE_CODE_VERSION`, else parses `claude --version`);
     3. an unknown loop-contract root (`REFUSED`);
-    4. loop-contract < 1.1.0, read from `<root>/.claude-plugin/plugin.json`
+    4. loop-contract < 1.2.0, read from `<root>/.claude-plugin/plugin.json`
        (`REFUSED`);
     5. no `config_log.jsonl` (`REFUSED`);
     6. an unreadable tree, a corrupt or empty log, or a hash mismatch on any of
@@ -492,7 +492,7 @@ its last `file_sha`, appends the row, then appends an event carrying
   - invalid JSON;
   - a symlinked workspace `.claude/` or `settings*.json`;
   - a home or root workspace;
-  - no loop-contract ≥ 1.1.0.
+  - no loop-contract ≥ 1.2.0.
 - `verify(ctx) -> [problem]`: `[]` when set up. SessionStart refuses otherwise.
 - `settings_paths(ctx) -> {user, project, local}`; `find_loop_contract(ctx)`.
 - `required()` also has `delete` (keys that must be absent: proxy ports) and
