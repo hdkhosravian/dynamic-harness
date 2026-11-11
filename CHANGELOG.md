@@ -12,8 +12,11 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
 - **Plugin hash.** The session check hashes only the shipped plugin directories and the entries Claude Code
   loads, so a development checkout's docs, tests and caches no longer stop a session; a file that vanishes
   mid-hash is retried once, then fails closed. If you already use the harness: the recorded hash covered more
-  than this, so the first session after the update stops with a plugin hash mismatch. Type
-  `/dynamic-harness:setup` again and confirm; that records the new hash.
+  than this. Tasks above T0 are first refused because loop-contract is older than 1.2.0; install or update it
+  with the commands setup prints, then type `/dynamic-harness:setup`. Its plan warns that the plugin changed
+  since the last setup; that is expected after an update. Confirm, then start a new session. If loop-contract
+  is already 1.2.0 or later when you update, the first session stops with a plugin hash mismatch instead; the
+  same steps fix it.
 - **Setup asks before changing global settings.** `/dynamic-harness:setup` lists the changes to this folder
   and the optional change to `~/.claude/settings.json` apart. `confirm <code>` changes this folder only;
   `confirm <code> global` also makes the global change. `status` says which one applies.

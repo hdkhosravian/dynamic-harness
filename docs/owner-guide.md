@@ -65,7 +65,7 @@ ready").
 | You see | Why | What to do |
 | --- | --- | --- |
 | "I did 3 of 8 and stopped at your limit. ... Continue?" | The task used its call or time budget, or your spending limit. | Reply "yes" or "continue" to grant one extra increment, or tell Claude what to change. |
-| "Stuck: I stopped before finishing ..." | No progress for 40 steps, or the same problem three times. | Reply "continue" to try again, or say what to change. |
+| "Stuck: I stopped before finishing ..." | No progress for 40 steps, the same problem three times in a row, or six problems of any kind in one request. | Reply "continue" to try again, or say what to change. |
 | "I can't help with this kind of decision. Please ask a qualified professional." | Medical and safety decisions are refused by default. | Ask a professional. |
 | A task stopped for tampering | A protected record changed outside the harness. | Run `/dynamic-harness:status --repair <job>` to close it. It is not trusted or re-signed. |
 

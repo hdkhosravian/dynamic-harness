@@ -155,7 +155,7 @@ stateDiagram-v2
 | `PAUSED` | The owner started an unrelated task that needs a card, or a handoff was sent. Only reads run. | The owner replies or says "continue": `RESUMED`. |
 | `STOPPED_BUDGET` | More calls than the cap (T1: 150, T2: 60 per unit), or a T1 task older than 30 minutes. | The owner approves the cost question: one extra increment, then `RESUMED`. |
 | `STOPPED_COST` | The estimated spend went over the owner's task or monthly limit. | The owner approves the cost question: `RESUMED`. |
-| `STOPPED_STALL` | 40 calls with no new unit verdict, or the Stop hook blocked the same thing three times. | The owner says "continue" or "yes": `RESUMED`. |
+| `STOPPED_STALL` | 40 calls with no new unit verdict, or the Stop hook blocked for the same rule three times in a row, or six times in all in one request. | The owner says "continue" or "yes": `RESUMED`. |
 | `DONE` | The gate's receipt verified and the final message passed the text check. | Terminal. A follow-up opens a new task. |
 | `REFUSED` | The decision class has a `refuse` policy (medical and safety by default). | Terminal. The card and a decision record are kept. |
 | `ABANDONED` | The owner typed `/dynamic-harness:status --abandon <job>`, or closed a tampered task with `--repair`. | Terminal. |
