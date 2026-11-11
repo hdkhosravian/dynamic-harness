@@ -9,13 +9,15 @@ repository, and adding a pack.
 python3 -m pytest -q
 ```
 
-- About 1,670 tests, standard library plus pytest. They pass on macOS (sandbox-exec) and on Ubuntu 22.04 and
+- More than 1,850 tests, standard library plus pytest. They pass on macOS (sandbox-exec) and on Ubuntu 22.04 and
   24.04 (bubblewrap).
 - The gate integration tests use a real `fold_ledger.py` from a `loop-contract-skill` checkout next to this
   repository, or from the path in `HARNESS_FOLD_LEDGER`. Set `HARNESS_REQUIRE_INTEGRATION=1` to turn a missing
   fold_ledger into a failure instead of a skip.
 - On Linux, run the suite in a `--privileged` container, because bubblewrap needs user namespaces. Under
   bubblewrap `/tmp` is private, so fold_ledger must not live under `/tmp`.
+- `tests/e2e/` holds the live runs. They are skipped unless `HARNESS_E2E=1`, and they cost money (see
+  `tests/e2e/README.md`).
 - `tests/corpus/bypass.jsonl` holds 200+ attempts to get around the safety hook, each with its expected
   decision.
 - `spike/` holds the probe scripts that confirm how Claude Code hooks, the sandbox and setup behave. See

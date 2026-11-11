@@ -155,7 +155,7 @@ owner commands. See the [changelog](CHANGELOG.md).
 
 - Claude Code 2.1.295 or later (hooks must be able to fail closed).
 - `/usr/bin/python3` 3.9 or later, and `/usr/bin/git`. Everything else is the Python standard library.
-- The [loop-contract](https://github.com/hdkhosravian/loop-contract-skill) plugin, version 1.1.0 or later.
+- The [loop-contract](https://github.com/hdkhosravian/loop-contract-skill) plugin, version 1.2.0 or later.
 - macOS (`sandbox-exec`), or Linux with bubblewrap (`apt install bubblewrap`) and unprivileged user namespaces
   allowed.
 
@@ -176,8 +176,8 @@ owner commands. See the [changelog](CHANGELOG.md).
 
 ## Status and roadmap
 
-- **Release 0.4.0** covers the full v1 scope of the [design](dynamic_harness_design_spec.md). The test suite (about
-  1,700 tests) passes on macOS and on Ubuntu 22.04 and 24.04; see [development](docs/development.md).
+- **Release 0.4.0** covers the full v1 scope of the [design](dynamic_harness_design_spec.md). The test suite (more than
+  1,850 tests) passes on macOS and on Ubuntu 22.04 and 24.04; see [development](docs/development.md).
 - **Being verified:** a live, end-to-end `claude -p` run from a request to a signed "Checked" in a set-up folder.
 - **Next (v2):** write connectors with an approval outbox, an approval matrix, scheduled automations and a
   learning editor.

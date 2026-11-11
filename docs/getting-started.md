@@ -9,7 +9,7 @@ This page takes you from nothing to a first checked task. It takes about five mi
 | Claude Code | 2.1.295 or later (hooks must be able to fail closed) | `claude --version` |
 | Python | `/usr/bin/python3` 3.9 or later | `/usr/bin/python3 --version` |
 | git | `/usr/bin/git` | `/usr/bin/git --version` |
-| loop-contract plugin | 1.1.0 or later | installed in step 2 |
+| loop-contract plugin | 1.2.0 or later | installed in step 2 |
 | An OS sandbox | macOS (`sandbox-exec`, built in), or Linux with bubblewrap and unprivileged user namespaces allowed | Linux: `bwrap --version` |
 
 On Debian or Ubuntu, install bubblewrap with:

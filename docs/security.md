@@ -139,8 +139,9 @@ The design spec states these as numbered requirements. All of them are built in 
   distributions, or on WSL2.
 - A nested `.claude/` folder or `.mcp.json` (below the workspace root) is protected by the harness's own hook,
   not by the sandbox's write-deny list that setup writes.
-- The gate needs a loop-contract whose `fold_ledger.py` has the 1.1.0 gate flags. Setup and session start
-  refuse one without them; until such a loop-contract is published, tasks above T0 cannot finish.
+- The gate needs loop-contract 1.2.0 or later, the release that carries the gate flags. Setup and session start
+  refuse an older one, or one without the flags; until loop-contract 1.2.0 is published, tasks above T0 cannot
+  finish.
 - Every release needs a fresh held-out red-team round. Earlier rounds are now regression tests, so they no
   longer measure unseen attacks.
 

@@ -11,7 +11,9 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
   setup prints the two Claude Code commands that install or update it.
 - **Plugin hash.** The session check hashes only the shipped plugin directories and the entries Claude Code
   loads, so a development checkout's docs, tests and caches no longer stop a session; a file that vanishes
-  mid-hash is retried once, then fails closed.
+  mid-hash is retried once, then fails closed. If you already use the harness: the recorded hash covered more
+  than this, so the first session after the update stops with a plugin hash mismatch. Type
+  `/dynamic-harness:setup` again and confirm; that records the new hash.
 - **Setup asks before changing global settings.** `/dynamic-harness:setup` lists the changes to this folder
   and the optional change to `~/.claude/settings.json` apart. `confirm <code>` changes this folder only;
   `confirm <code> global` also makes the global change. `status` says which one applies.
