@@ -4,16 +4,17 @@ It checks harness-authored text only (``templates/*.json``; keys under ``model.`
 skipped), never quoted owner content:
 
 - no internal terms: card, gate, tier, oracle, outbox, BLOCKED, unit, ledger, hook, V0 to V3, T0 to T2;
-- every language has every English key, with the same ``{placeholders}``;
-- Persian text uses Persian ی and ک (never Arabic ي and ك), no em or en dashes, and no line starting with a
-  Latin word (it would render left to right).
+- every language has every key of the base language, with the same ``{placeholders}``;
+- the rules of the shipped locale packs: no character listed in ``render.<lang>.lint``, and in a right-to-left
+  language no text starting with a left-to-right letter (it would render left to right).
 """
 from __future__ import annotations
 
 import re
 import string
+import unicodedata
 
-from . import templates
+from . import locales, templates
 
 INTERNAL = re.compile(r"(?i)\b(?:cards?|gates?|tiers?|oracles?|outbox|units?|ledgers?|hooks?)\b|\bBLOCKED\b|\b[VT][0-3]\b")
 _PH = re.compile(r"\{[^{}]*\}")
@@ -25,30 +26,30 @@ def _fields(text) -> set:
 
 def lint() -> list:
     problems = []
-    en = templates.load("en")
-    for lang in templates.LANGS:
+    base = templates.load(locales.BASE)
+    data = locales.view().get("render", {})
+    for lang in templates.langs():
         table = templates.load(lang)
         if not table:
             problems.append(f"templates/{lang}.json is missing or empty")
             continue
+        spec = data.get(lang, {})
         for key, text in table.items():
             if key.startswith("model."):
                 continue
             plain = _PH.sub(" ", text)
             for m in INTERNAL.finditer(plain):
                 problems.append(f"{lang}:{key}: internal term {m.group(0)!r}")
-            if lang == "fa":
-                if re.search("[يك]", text):
-                    problems.append(f"fa:{key}: Arabic ي or ك instead of Persian ی or ک")
-                if re.search("[–—]", text):
-                    problems.append(f"fa:{key}: a dash in Persian prose")
-                first = plain.strip()[:1]
-                if first and re.match(r"[A-Za-z]", first):
-                    problems.append(f"fa:{key}: starts with a Latin word (renders left to right)")
-            if lang != "en" and key in en and _fields(text) != _fields(en[key]):
-                problems.append(f"{lang}:{key}: placeholders {sorted(_fields(text))} differ from en "
-                                f"{sorted(_fields(en[key]))}")
-        if lang != "en":
-            missing = sorted(k for k in en if not k.startswith("model.") and k not in table)
+            for rule in spec.get("lint", []):
+                if any(c in text for c in rule["chars"]):
+                    problems.append(f"{lang}:{key}: {rule['message']}")
+            first = plain.strip()[:1]
+            if spec.get("direction") == "rtl" and first and unicodedata.bidirectional(first) == "L":
+                problems.append(f"{lang}:{key}: starts with a left-to-right letter (renders left to right)")
+            if lang != locales.BASE and key in base and _fields(text) != _fields(base[key]):
+                problems.append(f"{lang}:{key}: placeholders {sorted(_fields(text))} differ from {locales.BASE} "
+                                f"{sorted(_fields(base[key]))}")
+        if lang != locales.BASE:
+            missing = sorted(k for k in base if not k.startswith("model.") and k not in table)
             problems += [f"{lang}: missing {k}" for k in missing]
     return problems

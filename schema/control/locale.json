@@ -7,6 +7,59 @@
     "name": {
       "type": "string"
     },
+    "render": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "decimal": {
+            "type": "string"
+          },
+          "digits": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "ltr",
+              "rtl"
+            ],
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "joiner": {
+            "type": "string"
+          },
+          "lint": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "chars": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chars",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "script": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "type": "object"
+    },
     "schema": {
       "enum": [
         "harness/locale@1"

@@ -85,8 +85,9 @@ def parse_value(field, raw: str, profile_calendar=None):
             raise Denied("calendar is jalali or gregorian")
         return raw.lower()
     if field == "language":
-        if raw.lower() not in ("en", "fa"):
-            raise Denied("language is en or fa")
+        from .templates import langs
+        if raw.lower() not in langs():
+            raise Denied("language is one of: " + ", ".join(langs()))
         return raw.lower()
     if field == "fiscal_year_start":
         from .localize import digits

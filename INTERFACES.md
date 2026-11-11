@@ -696,7 +696,9 @@ its last `file_sha`, appends the row, then appends an event carrying
   (`${CLAUDE_PLUGIN_DATA}/models/registry.json`). `compile.apply(req, ctx, evt, scenario_parent=None,
   job_id=None)`: only `model_cmd.scenario` passes the last two.
 - `templates.render(key, ctx=None, lang=None, **values)`, `language(ctx)`, `state_line(state, ctx)`,
-  `currency(code, lang)`; `templates/{en,fa}.json` (`model.*` keys are hints to the model).
+  `note(entry, text, ctx, lang)`, `currency(code, lang)`; `templates/<lang>.json` (`model.*` keys are hints to the
+  model; `reason.<slug>` keys name the reasons of a state line). The language list is the set of files in
+  `templates/`: `templates.langs()`, the base language first, the others sorted.
   `lint_text.lint() -> [problem]`, `bin/harness-lint-user-text`.
 - `enforcement.mode(component, ctx)`, `shadowed(component, ctx, reason)`: `control/enforcement.json`
   `{contacts, tripwire, shadow_draft}`.
@@ -704,11 +706,26 @@ its last `file_sha`, appends the row, then appends an event carrying
 
 ## P1: locale packs (`harness_core/locales.py`)
 
-- Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words}`, `schema` and `id`
-  required, no other top-level key. Shipped packs `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
+- Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words, render}`, `schema` and
+  `id` required, no other top-level key. Shipped packs `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
   `${CLAUDE_PLUGIN_DATA}/control/locales/<id>.json` (in the control hash). The id equals the file stem,
   `[a-z0-9_-]{1,32}`; a file is regular, not a symlink, at most `MAX_BYTES` (256 KiB). Any violation raises
   `LocaleError` naming the file.
+- `render`: `{<lang>: {...}}`, the language code in the pack id form; inside one language only these keys, all
+  optional (checked at load, `LocaleError` naming the file):
+
+  | Key | Type | Meaning |
+  |---|---|---|
+  | `digits` | string of exactly 10 characters | the characters that replace `0123456789`, in that order |
+  | `group` | string of exactly 1 character | thousands separator |
+  | `decimal` | string of exactly 1 character | decimal mark |
+  | `joiner` | string of 1 to 8 characters | joins the items of a list inside a sentence |
+  | `script` | list of strings, each exactly 2 characters, first <= second | character ranges of the script of this language, both ends inclusive |
+  | `direction` | `"ltr"` or `"rtl"` | writing direction |
+  | `lint` | list of `{"chars": <non-empty string>, "message": <non-empty string>}` | characters that must not appear in harness text of this language, and the message of the lint |
+
+  A number is written with `digits`, `group` and `decimal` only when one of them is set. `templates` reads the
+  view of the context (the shipped packs when it cannot be read); `lint_text` reads the shipped packs.
 - `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, the first list stays as
   written and a later one adds items not yet present, the first scalar wins, a kind conflict raises `LocaleError`
   naming the dotted key and both ids);

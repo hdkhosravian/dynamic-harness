@@ -21,6 +21,7 @@ BASE = "en"               # the base pack: always installed, always active
 MAX_BYTES = 256 * 1024    # size limit of one pack file
 CONTRACT = Path(__file__).resolve().parents[2] / "schema" / "control" / "locale.json"
 HEADER = ("schema", "id", "name")
+ID = r"[a-z0-9_-]{1,32}"  # the form of a pack id and of a language code
 
 
 def _pack(f: Path) -> dict:
@@ -38,13 +39,32 @@ def _pack(f: Path) -> dict:
         raise LocaleError(f"locale pack {f}: nested too deep") from e
     try:
         validate(pack, json.loads(CONTRACT.read_text("utf-8")))
+        _check_render(pack.get("render", {}))
         merge([(f.name, pack)])  # one walk now, so a pack too deep to merge is named here, not in view()
-    except (SchemaError, LocaleError, RecursionError) as e:
+    except (SchemaError, LocaleError) as e:
         raise LocaleError(f"locale pack {f}: {e}") from e
     stem = f.name[:-len(".json")]
-    if not re.fullmatch(r"[a-z0-9_-]{1,32}", stem) or pack["id"] != stem:
+    if not re.fullmatch(ID, stem) or pack["id"] != stem:
         raise LocaleError(f"locale pack {f}: the name must be <id>.json, the id 1 to 32 of a-z 0-9 _ -")
     return pack
+
+
+def _check_render(render: dict) -> None:
+    """What the schema cannot say about ``render``: the code form, exact lengths, ordered ranges, no empty rule."""
+    for lang, spec in render.items():
+        if not re.fullmatch(ID, lang):
+            raise LocaleError(f"render: the language code {lang!r} is not 1 to 32 of a-z 0-9 _ -")
+        for key, n in (("digits", 10), ("group", 1), ("decimal", 1)):
+            if key in spec and len(spec[key]) != n:
+                raise LocaleError(f"render.{lang}.{key}: must be exactly {n} characters")
+        if "joiner" in spec and not 1 <= len(spec["joiner"]) <= 8:
+            raise LocaleError(f"render.{lang}.joiner: must be 1 to 8 characters")
+        for r in spec.get("script", []):
+            if len(r) != 2 or r[0] > r[1]:
+                raise LocaleError(f"render.{lang}.script: {r!r} is not a range of 2 characters, first <= last")
+        for rule in spec.get("lint", []):
+            if not rule["chars"] or not rule["message"]:
+                raise LocaleError(f"render.{lang}.lint: chars and message must not be empty")
 
 
 def _read(d: Path) -> dict:

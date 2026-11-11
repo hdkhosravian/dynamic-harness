@@ -1,5 +1,27 @@
 {
   "schema": "harness/locale@1",
   "id": "fa",
-  "name": "Persian"
+  "name": "Persian",
+  "render": {
+    "fa": {
+      "digits": "۰۱۲۳۴۵۶۷۸۹",
+      "group": "٬",
+      "decimal": "٫",
+      "joiner": "؛ ",
+      "script": [
+        "؀ۿ"
+      ],
+      "direction": "rtl",
+      "lint": [
+        {
+          "chars": "يك",
+          "message": "Arabic ي or ك instead of Persian ی or ک"
+        },
+        {
+          "chars": "–—",
+          "message": "a dash in Persian prose"
+        }
+      ]
+    }
+  }
 }

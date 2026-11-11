@@ -23,8 +23,9 @@ Thank you for helping improve dynamic-harness.
 3. Keep to the standard library. The hooks run under `/usr/bin/python3 -I`.
 4. If you change a shipped skill or a pack check entry, run `python3 tools/release_hashes.py "<label>"` so the
    manifests and the approved-procedure hashes match.
-5. If you change user-facing text, edit both `templates/en.json` and `templates/fa.json`, and run
-   `bin/harness-lint-user-text`.
+5. If you change user-facing text, edit every file in `templates/` (each file is a language), and run
+   `bin/harness-lint-user-text`. A new language needs `templates/<lang>.json` plus `render.<lang>` in a locale pack,
+   and no code.
 6. Open a pull request that says what changed and why, and how you tested it.
 
 ## Reporting a bug

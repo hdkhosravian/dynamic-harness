@@ -23,7 +23,9 @@ python3 -m pytest -q
 - `spike/` holds the probe scripts that confirm how Claude Code hooks, the sandbox and setup behave. See
   [`spike/RESULTS.md`](../spike/RESULTS.md).
 
-Lint the harness's own user-facing text (internal terms, missing keys, placeholders, Persian orthography):
+Lint the harness's own user-facing text (internal terms, missing keys, placeholders, and the rules of
+`render.<lang>.lint` in the shipped locale packs). Every file in `templates/` is a language; a new language needs
+`templates/<lang>.json` plus `render.<lang>` in a locale pack:
 
 ```bash
 bin/harness-lint-user-text
