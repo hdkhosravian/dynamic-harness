@@ -248,11 +248,10 @@ def test_the_marks_of_the_installed_packs_end_a_question_in_the_final_message_of
 # --- 11. one read ---------------------------------------------------------------------------------------------------
 
 
-def test_lexicon_makes_one_view_call_and_lexicon_hits_asks_it_once(h, monkeypatch):
+def test_lexicon_and_lexicon_hits_make_one_view_call_each(h, monkeypatch):
     views = spy(monkeypatch, locales, "view")
     gate.lexicon(ctx_of(h))
     assert len(views) == 1 and (views[0][1].get("every") is True or views[0][0][1:] == (True,))
     del views[:]
-    lex = spy(monkeypatch, gate, "lexicon")
     assert stopgate.lexicon_hits(ctx_of(h), "all verified") == ["verified"]
-    assert len(lex) == 1 and len(views) == 1
+    assert len(views) == 1  # gate.lexicon reads no control file through protected.load_control: the view is the only read

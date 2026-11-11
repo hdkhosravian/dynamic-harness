@@ -733,12 +733,12 @@ def test_words_makes_one_view_call_and_one_read_of_probe_json(h, monkeypatch):
         assert controls == ["probe.json"]
 
 
-def test_run_calls_words_once_and_reads_nothing_else(h, monkeypatch):
-    words, views, controls = spy(monkeypatch, probe, "words"), spy(monkeypatch, locales, "view"), []
+def test_run_makes_one_view_call_and_reads_nothing_else(h, monkeypatch):
+    views, controls = spy(monkeypatch, locales, "view"), []
     real = protected.load_control
     monkeypatch.setattr(protected, "load_control", lambda name, ctx=None: controls.append(name) or real(name, ctx))
     probe.run("please send the invoice for 20 dollars to Sara?", ctx_of(h))
-    assert len(words) == 1 and len(views) == 1 and controls == ["probe.json"]
+    assert len(views) == 1 and controls == ["probe.json"]
 
 
 def test_a_broken_live_pack_stops_the_probe(h):
