@@ -763,7 +763,8 @@ its last `file_sha`, appends the row, then appends an event carrying
 - `gate.lexicon(ctx) -> {terms, template_lines}`: the `state_lexicon` of `view(ctx, every=True)`, then a live
   `control/state_lexicon.json` placed by hand in 0.4.0 (flattened), duplicates dropped; a file that is not an
   object, or a `terms` / `template_lines` that is neither a list of strings nor an object of such lists, raises
-  `HarnessError` naming `state_lexicon.json`. `stopgate.lexicon_hits` and `gate._lexicon` use it. `stopgate.asks(ctx, msg) -> bool`: a line of `msg` ends with a `question_marks` entry of
-  an installed pack, white space may follow.
+  `HarnessError` naming `state_lexicon.json`. `stopgate.lexicon_hits` and `gate._lexicon` use it.
+  `stopgate.asks(ctx, msg) -> bool`: a line of `msg` ends with a `question_marks` entry of an installed pack, white
+  space may follow.
 - `business.list_entry(ctx, field, value, add) -> str`: the checked list entry (`admin` calls it before offering a
   code, `change_list` before writing); `business add locales <id>` needs an installed id.

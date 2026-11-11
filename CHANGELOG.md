@@ -20,7 +20,9 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
     for a verb that does not start with `a-z`.
   - `control/defaults/state_lexicon.json` is gone, and `config show state_lexicon.json` answers "No control
     file". In 0.4.0 a `control/state_lexicon.json` you placed by hand replaced the shipped lexicon; now it adds
-    to the lexicons of the packs, so a shipped state word your file left out applies again.
+    to the lexicons of the packs, so a shipped state word your file left out applies again. Such a file whose
+    `terms` or `template_lines` is `null` is now refused with an error that names the file (0.4.0 read `null` as
+    an empty list); a missing key still counts as empty.
 - **Languages from files.** The language list is the set of files in `templates/`, and digits, separators, script
   ranges and lint rules of a language come from `render.<lang>` in a locale pack; `business set language` accepts
   any language with a template file. The text an owner sees in English or Persian is unchanged.
