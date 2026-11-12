@@ -797,7 +797,8 @@ its last `file_sha`, appends the row, then appends an event carrying
   they stand as a whole word), `imperative_lead`, `imperative_join`, `question_lead`, `money_words`,
   `quantity_words`, `decision_keywords` (an object, any class name), `continuation`, `currency_words`
   (`{<code>: [words]}`: the words and signs that name that one currency in text; the key a code of the form of
-  `currencies`, which needs no `currencies` entry; errors name `words.currency_words.<code>`). Shipped: `en` `USD`,
+  `currencies`, which needs no `currencies` entry; a word made only of separators, control or format characters
+  and marks is refused like an empty one; errors name `words.currency_words.<code>`). Shipped: `en` `USD`,
   `EUR`; `fa` `EUR`; `ir` `IRT`, `IRR`. A word that names no single currency (`$`, `£`, dollar) stays in
   `money_words`.
   `state_lexicon`: closed object `{terms, template_lines}`, lists of non-empty strings.

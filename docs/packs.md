@@ -64,7 +64,8 @@ lists for that currency, under `words.currency_words`:
  "words": {"currency_words": {"<CODE>": ["<word>", "<plural>", "<sign>"]}}}
 ```
 
-The key is a 3-letter code (`A-Z`); it needs no entry under `currencies`. A word matches where no letter touches
+The key is a 3-letter code (`A-Z`); it needs no entry under `currencies`. A word needs a visible character: one
+made only of spaces, invisible characters or marks is refused. A word matches where no letter touches
 it: `Amount (<word>)`, `3000<word>` and `amount_<word>` name `<CODE>`, a longer word that contains it does not. A
 word that starts with a sign (not a letter or digit) matches anywhere. List only words that name this one
 currency: a word listed under two codes names neither, and a word that several currencies share (a dollar sign)
