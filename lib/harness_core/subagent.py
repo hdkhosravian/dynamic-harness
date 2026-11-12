@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import canon, schema, store
+from . import canon, locales, schema, store
 from .events import EventLog, now
 from .lanes import RESEARCHER
 from .paths import job_paths
@@ -92,9 +92,10 @@ def on_subagent_stop(evt, ctx) -> dict:
         rows = _rows(msg)
         accepted = [r for r in rows if isinstance(r, dict) and _accept(r, p, log, fetched)]
         from .claims import claim_row
+        words = locales.view(ctx, every=True).get("words", {}).get("currency_words", {}) if accepted else None
         for r in accepted:  # the claim-ledger row: loop-contract's sources.jsonl format plus the harness fields
             store.append_jsonl(p.run, log, "claims.jsonl",
-                               claim_row(r, flog[(r["url"], r["snapshot_sha"])], evt.get("agent_id")), "CLAIM",
+                               claim_row(r, flog[(r["url"], r["snapshot_sha"])], evt.get("agent_id"), words), "CLAIM",
                                {"url": r["url"], "snapshot_sha": r["snapshot_sha"]})
         rec.update(claims_accepted=len(accepted), claims_dropped=len(rows) - len(accepted))
     store.append_jsonl(p.run, log, "subagents.jsonl", rec, "SUBAGENT", {"agent_type": agent_type})

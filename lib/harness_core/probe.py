@@ -55,6 +55,14 @@ def _hits(text: str, words, fold) -> list:
     return sorted({w for w in words if re.search(_kw(w, fold), text)})
 
 
+def _money(text: str, words, view, fold) -> list:
+    """The money words of ``words`` in ``text`` (normalised): a currency word of ``view`` by
+    ``localize.word_pattern``, every other word by ``_kw``."""
+    cw = {_norm(x, fold) for ws in view.get("words", {}).get("currency_words", {}).values() for x in ws}
+    return sorted({w for w in words
+                   if re.search(localize.word_pattern(n) if (n := _norm(w, fold)) in cw else _kw(w, fold), text)})
+
+
 def _alt(words, fold) -> str:
     return "|".join(re.escape(_norm(x, fold)) for x in sorted(words, key=len, reverse=True))
 
@@ -82,7 +90,7 @@ def _classes(live: dict, key: str) -> dict:
 
 def words(ctx) -> dict:
     """The keyword lists in force: the ``words`` of the locale packs, then the entries of the live ``probe.json``
-    (duplicates dropped, the first kept). An owner verb that a pack lists under ``verbs`` stays a position verb;
+    (duplicates dropped, the first kept); ``money_words`` also holds every word of ``currency_words``. An owner verb that a pack lists under ``verbs`` stays a position verb;
     any other owner verb is matched anywhere."""
     return _words(ctx, locales.view(ctx, every=True))
 
@@ -94,7 +102,9 @@ def _words(ctx, view) -> dict:
     live = protected.load_control("probe.json", ctx)
     if not isinstance(live, dict):
         raise HarnessError("probe.json: the file must hold an object")
-    out = {k: list(dict.fromkeys(w.get(k, []) + _strings(live.get(k, []), k))) for k in LISTS}
+    currency = [x for ws in w.get("currency_words", {}).values() for x in ws]  # money words, before the owner's
+    out = {k: list(dict.fromkeys(w.get(k, []) + (currency if k == "money_words" else [])
+                                 + _strings(live.get(k, []), k))) for k in LISTS}
     mine = _classes(live, "verbs")
     pos = {_norm(v, fold) for vs in w.get("verbs", {}).values() for v in vs}
     for key, keep in (("verbs", True), ("verbs_anywhere", False)):
@@ -184,7 +194,7 @@ def run(request, ctx, cwd=None) -> dict:
         if p is not None and p.is_file():
             data_classes |= set(pii.scan(p))
         data_file = data_file or name.lower().endswith((".csv", ".tsv", ".xlsx", ".xls", ".json"))
-    money = _hits(text, k["money_words"], fold)
+    money = _money(text, k["money_words"], view, fold)
     numbers = sorted(set(re.findall(r"\d+(?:[.,]\d+)*", text)))[:20]
     quantity = _hits(text, k["quantity_words"], fold)
     decision = {cls: hits for cls, ws in k["decision_keywords"].items() if (hits := _hits(text, ws, fold))}

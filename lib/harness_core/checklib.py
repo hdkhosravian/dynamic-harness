@@ -79,13 +79,15 @@ def main(fn) -> None:
     """Run ``fn(request) -> (result, values, notes)``; an exception is an error exit (never a pass)."""
     try:
         req = read_request()
-        if "locale" in req:  # the letter folds and unit pairs of the run's packs; an absent key: the shipped ones
-            from . import localize
+        if "locale" in req:  # the letter folds, unit pairs and currency words of the run's packs; absent: the shipped
+            from . import locales, localize
             localize.use_fold(req["locale"]["fold"])
             if "currency_pairs" in req["locale"]:  # only an absent key means the shipped pairs, never a null
-                if not isinstance(req["locale"]["currency_pairs"], list):
-                    raise ValueError("locale.currency_pairs is not a list")
+                locales.check_currency_pairs(req["locale"]["currency_pairs"], "locale.currency_pairs")
                 localize.use_pairs(req["locale"]["currency_pairs"])
+            if "currency_words" in req["locale"]:
+                locales.check_currency_words(req["locale"]["currency_words"], "locale.currency_words")
+                localize.use_currency_words(req["locale"]["currency_words"])
         out = fn(req)
     except Exception as e:  # the runner records exit 3 as an error, never as a check result
         print(f"check error: {type(e).__name__}: {e}", file=sys.stderr)

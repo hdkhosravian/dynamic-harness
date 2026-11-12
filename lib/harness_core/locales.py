@@ -104,8 +104,9 @@ def _check_fold(letters: dict) -> None:
 
 
 def _check_currencies(pack: dict) -> None:
-    """What the schema cannot say about ``currencies`` and ``currency_pairs``: the code and language code forms, at
-    most 18 decimals, no empty name, two different codes in a pair, the same two codes once in a pack."""
+    """What the schema cannot say about ``currencies``, ``currency_pairs`` and ``words.currency_words``: the code and
+    language code forms, at most 18 decimals, no empty name, two different codes in a pair, the same two codes once in
+    a pack."""
     for code, spec in pack.get("currencies", {}).items():
         if not re.fullmatch(CODE, code):
             raise LocaleError(f"currencies.{code}: a currency code is exactly 3 letters A-Z")
@@ -116,17 +117,43 @@ def _check_currencies(pack: dict) -> None:
                 raise LocaleError(f"currencies.{code}.names: the language code {lang!r} is not 1 to 32 of a-z 0-9 _ -")
             if not name:
                 raise LocaleError(f"currencies.{code}.names.{lang}: the name is empty")
+    check_currency_pairs(pack.get("currency_pairs", []), "currency_pairs")
+    check_currency_words(pack.get("words", {}).get("currency_words", {}), "words.currency_words")
+
+
+# The two checks below also check the types: a check request (``locale.<key>``) has no schema in front of them.
+def check_currency_pairs(pairs, label: str) -> None:
+    """The rules of ``currency_pairs``: objects of two different codes and a whole ``factor`` of 2 or more, the same
+    two codes once. ``label`` names the key in the message."""
+    if not isinstance(pairs, list):
+        raise LocaleError(f"{label} is not a list")
     seen = {}
-    for i, e in enumerate(pack.get("currency_pairs", [])):
+    for i, e in enumerate(pairs):
+        if not isinstance(e, dict) or not {"from", "to", "factor"} <= set(e):
+            raise LocaleError(f"{label}[{i}]: must be an object with from, to and factor")
+        if isinstance(e["factor"], bool) or not isinstance(e["factor"], int) or e["factor"] < 2:
+            raise LocaleError(f"{label}[{i}].factor: {e['factor']!r} is not a whole number of 2 or more")
         for side in ("from", "to"):
-            if not re.fullmatch(CODE, e[side]):
-                raise LocaleError(f"currency_pairs[{i}].{side}: {e[side]!r} is not a code of exactly 3 letters A-Z")
+            if not isinstance(e[side], str) or not re.fullmatch(CODE, e[side]):
+                raise LocaleError(f"{label}[{i}].{side}: {e[side]!r} is not a code of exactly 3 letters A-Z")
         if e["from"] == e["to"]:
-            raise LocaleError(f"currency_pairs[{i}]: from and to are the same code")
+            raise LocaleError(f"{label}[{i}]: from and to are the same code")
         two = frozenset((e["from"], e["to"]))
         if two in seen:
-            raise LocaleError(f"currency_pairs[{i}]: the same two codes as currency_pairs[{seen[two]}]")
+            raise LocaleError(f"{label}[{i}]: the same two codes as {label}[{seen[two]}]")
         seen[two] = i
+
+
+def check_currency_words(table, label: str) -> None:
+    """The rules of ``currency_words``: an object of currency codes to lists of words that are not empty. ``label``
+    names the key in the message."""
+    if not isinstance(table, dict):
+        raise LocaleError(f"{label} is not an object")
+    for code, ws in table.items():
+        if not re.fullmatch(CODE, code):
+            raise LocaleError(f"{label}.{code}: a currency code is exactly 3 letters A-Z")
+        if not isinstance(ws, list) or not all(isinstance(w, str) and w for w in ws):
+            raise LocaleError(f"{label}.{code}: must be a list of words that are not empty")
 
 
 def _read(d: Path) -> dict:

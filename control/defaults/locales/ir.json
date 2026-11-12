@@ -4,16 +4,24 @@
   "name": "Iran",
   "words": {
     "money_words": [
-      "﷼",
-      "toman",
-      "tomans",
-      "rial",
-      "rials",
-      "irr",
-      "irt",
-      "تومان",
-      "ریال"
-    ]
+      "﷼"
+    ],
+    "currency_words": {
+      "IRT": [
+        "toman",
+        "tomans",
+        "irt",
+        "تومان",
+        "تومانی"
+      ],
+      "IRR": [
+        "rial",
+        "rials",
+        "irr",
+        "ریال",
+        "ریالی"
+      ]
+    }
   },
   "currencies": {
     "IRT": {

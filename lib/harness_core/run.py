@@ -192,7 +192,8 @@ def apply(req, ctx, evt, runner=None) -> dict:
             "business": business.snapshot(ctx), "today": time.strftime("%Y-%m-%d"),
             "card": {k: card.get(k) for k in ("task_type", "deliverable", "oracle", "decision_class", "requester")},
             # the check cannot read the live packs, and the replay must fold and convert as this run did: both travel
-            "locale": {"fold": lv.get("fold", {}), "currency_pairs": lv.get("currency_pairs", [])},
+            "locale": {"fold": lv.get("fold", {}), "currency_pairs": lv.get("currency_pairs", []),
+                       "currency_words": lv.get("words", {}).get("currency_words", {})},
         })
         timeout = min(int(s.get("timeout") or DEFAULT_TIMEOUT), packs.TIMEOUT_MAX)
         code, out, err = execute(entry, box, stdin, timeout, ctx, runner)

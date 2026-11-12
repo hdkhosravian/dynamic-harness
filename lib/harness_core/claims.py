@@ -23,6 +23,7 @@ import re
 import socket
 import ssl
 import time
+import unicodedata
 from urllib.parse import urljoin, urlsplit
 
 from . import canon, egress, query_guard, store
@@ -264,22 +265,26 @@ def source_class(url) -> str:
     return "unknown"
 
 
-def claim_type(text) -> str:
-    """Strictest type the text supports: a claim with a money figure or a price word is a price claim."""
+def claim_type(text, words=None) -> str:
+    """Strictest type the text supports: a claim with a price word, or a quantity and a currency (a word of
+    ``words``, else of the process table of ``localize``, or a currency sign of Unicode), is a price claim."""
+    from .localize import names_currency
     from .normalize import quantity_tokens
-    if LAW.search(text or ""):
+    text = text or ""
+    if LAW.search(text):
         return "law"
-    if PRICE.search(text or "") or any(True for _ in quantity_tokens(text or "")) and re.search(
-            r"(?i)toman|rial|تومان|ریال|\$|usd|eur|€", text or ""):
+    if PRICE.search(text) or any(True for _ in quantity_tokens(text)) and (
+            names_currency(text, words) or any(unicodedata.category(c) == "Sc" for c in text)):
         return "price"
     return "default"
 
 
-def claim_row(r, fetch_row, agent_id) -> dict:
-    """The claim-ledger row check_claims and research.check read, from a researcher row and its fetch."""
+def claim_row(r, fetch_row, agent_id, words=None) -> dict:
+    """The claim-ledger row check_claims and research.check read, from a researcher row and its fetch; ``words`` is
+    the currency word table of ``claim_type``."""
     from .research import registrable_domain
     quote = r["quote"]
-    return {"claim": r["claim"], "claim_type": claim_type(r["claim"] + " " + quote), "load_bearing": False,
+    return {"claim": r["claim"], "claim_type": claim_type(r["claim"] + " " + quote, words), "load_bearing": False,
             "source_id": f"{registrable_domain(r['url'])}:{r['snapshot_sha'][:12]}", "url": r["url"],
             "retrieved_at": fetch_row.get("ts"), "snapshot_sha": r["snapshot_sha"], "verbatim_quote": quote,
             "source_date": r["date"], "source_class": source_class(r["url"]), "status": fetch_row.get("status", "OK"),

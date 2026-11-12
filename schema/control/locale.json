@@ -154,6 +154,15 @@
           },
           "type": "array"
         },
+        "currency_words": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
         "decision_keywords": {
           "additionalProperties": {
             "items": {

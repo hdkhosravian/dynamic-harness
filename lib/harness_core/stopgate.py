@@ -119,7 +119,7 @@ def _t0(evt, ctx, sid, st, msg) -> dict:
     view = locales.view(ctx, every=True)
     fold = probe._letters(view)
     text = probe._norm(msg, fold)  # digits of other scripts are folded to ASCII here
-    money = probe._hits(text, probe._words(ctx, view)["money_words"], fold)
+    money = probe._money(text, probe._words(ctx, view)["money_words"], view, fold)
     if money and re.search(r"\d", text):  # R-11 is about figures: "net margin is net income over revenue" has none
         turn = st.get("request_turn")
         sessionstate.update(ctx, sid, pending_card={"floor": "T1", "reason": f"money in the answer: {money}",

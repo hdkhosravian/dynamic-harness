@@ -119,14 +119,9 @@
     ],
     "money_words": [
       "$",
-      "€",
       "£",
-      "usd",
-      "eur",
       "dollar",
       "dollars",
-      "euro",
-      "euros",
       "price",
       "prices",
       "cost",
@@ -144,6 +139,17 @@
       "owe",
       "owed"
     ],
+    "currency_words": {
+      "USD": [
+        "usd"
+      ],
+      "EUR": [
+        "eur",
+        "euro",
+        "euros",
+        "€"
+      ]
+    },
     "quantity_words": [
       "how many",
       "how much",

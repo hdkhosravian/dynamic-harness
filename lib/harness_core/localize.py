@@ -5,8 +5,8 @@ build phase P5). Stdlib only; pack checks import it inside their sandbox.
 - Jalali <-> Gregorian (the 33-year arithmetic of jalaali-js, valid for Jalali years -61..3177), leap Esfand.
 - ``parse_date``: ISO and Jalali ``YYYY/MM/DD`` (Persian or Latin digits); a 4-digit year below 1700 is Jalali.
 - ``parse_amount``: digits in any script, thousands separators, ``(1,000)`` and trailing minus as negatives.
-- ``currency_of``: Toman or Rial from a column header or label; ``to_unit`` converts between two related
-  units (``currency_pairs`` of the locale packs).
+- ``currency_of``: the currency code a column header or label names (``words.currency_words`` of the locale packs,
+  matched by ``word_pattern``); ``to_unit`` converts between two related units (``currency_pairs``).
 - ``period``: a month, a fiscal year (profile ``fiscal_year_start``, default Farvardin 1) or a date range, as
   Gregorian bounds plus labels in both calendars.
 """
@@ -20,6 +20,7 @@ from decimal import Decimal, InvalidOperation
 _DECIMAL = re.compile(r"(?![0-9])\d")  # \d of a str pattern: every character that has a Unicode decimal value
 _fold = None  # the letter table of fold_name: the request's (use_fold), else the shipped packs'
 _pairs = None  # the currency_pairs of to_unit: the request's (use_pairs), else the shipped packs'
+_currency_words = None  # the words of currency_of: the request's (use_currency_words), else the shipped packs'
 BREAKS = (-61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181, 1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456,
           3178)
 JALALI_MONTHS = ("Farvardin", "Ordibehesht", "Khordad", "Tir", "Mordad", "Shahrivar", "Mehr", "Aban", "Azar", "Dey",
@@ -198,18 +199,47 @@ def parse_amount(value):
     return -v if neg else v
 
 
-_RIAL = re.compile(r"(?i)ریال|\brials?\b|\birr\b")
-_TOMAN = re.compile(r"(?i)تومان|\btomans?\b|\birt\b")
+def word_pattern(word: str) -> str:
+    """Regex source for one normalised currency word: it matches where no letter touches it (a digit or ``_`` may:
+    ``3000<word>``, ``amount_<word>``); a word that starts with a sign matches anywhere."""
+    w = re.escape(word)
+    return rf"(?<![^\W\d_]){w}(?![^\W\d_])" if re.match(r"\w", word) else w
 
 
-def currency_of(label):
-    """``"IRR"`` (Rial), ``"IRT"`` (Toman) or None, from a header or label."""
+def use_currency_words(table: dict) -> None:
+    """The ``locale.currency_words`` of a check request: from now on ``currency_of`` in this process matches with it."""
+    global _currency_words
+    _currency_words = table
+
+
+def _codes(words) -> dict:
+    """Folded word -> the codes that list it, from ``words`` (else the table of the process)."""
+    global _currency_words
+    if words is None:
+        if _currency_words is None:  # not in a check that got words: the shipped packs, read once per process
+            from . import locales
+            _currency_words = locales.view(None, every=True).get("words", {}).get("currency_words", {})
+        words = _currency_words
+    out = {}
+    for code, ws in words.items():
+        for w in {fold_name(x) for x in ws} - {""}:  # a word that folds to nothing would match every label
+            out.setdefault(w, set()).add(code)
+    return out
+
+
+def currency_of(label, words=None):
+    """The currency code ``label`` (a header or label) names, or None. A word listed under two codes names none; of
+    the other words the earliest match wins, at the same position the longest."""
     t = fold_name(label or "")
-    if _TOMAN.search(t):
-        return "IRT"
-    if _RIAL.search(t):
-        return "IRR"
-    return None
+    hits = [(m.start(), -len(w), c) for w, cs in _codes(words).items() if len(cs) == 1
+            for c in cs for m in [re.search(word_pattern(w), t)] if m]
+    return min(hits)[2] if hits else None
+
+
+def names_currency(text, words=None) -> bool:
+    """Whether ``text`` holds a word of a currency, also one listed under two codes."""
+    t = fold_name(text or "")
+    return any(re.search(word_pattern(w), t) for w in _codes(words))
 
 
 def use_pairs(pairs: list) -> None:

@@ -99,7 +99,7 @@ def assume(req, ctx, p, log) -> dict:
     if source not in SOURCES:
         raise Denied(f"--source is one of {', '.join(SOURCES)}")
     if len(unit) > 20 or not re.fullmatch(r"[\w%./ -]+", unit):
-        raise Denied("--unit is a short unit name (IRT, ratio, percent, index)")
+        raise Denied("--unit is a short unit name (a currency code, ratio, percent, index)")
     if unit.casefold() in ("percent", "%"):  # the engine multiplies by a fraction: 5 percent is stored as 0.05
         if isinstance(value, list):
             raise Denied("a seasonality is a list of 12 factors (1.0 = an average month), not percentages")

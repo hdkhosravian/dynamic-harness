@@ -59,6 +59,7 @@
   "note.no_rows": "no rows fall in the period",
   "note.total_row": "the file's own total row says {row}, the rows add up to {rows}",
   "note.partition": "the rows do not add up: {used} accounted for, {file} in the file",
-  "note.magnitude": "the total is {ratio} times the prior period's: check for a Toman/Rial mix-up or a missing zero",
+  "note.magnitude": "the total is {ratio} times the prior period's: check for a missing zero or amounts in another currency",
+  "note.magnitude_units": "the total is {ratio} times the prior period's: check for a {unit}/{other} mix-up or a missing zero",
   "note.sources_disagree": "sources disagree: this file says {x}, {b} says {y}; the gap of {gap} is not explained"
 }

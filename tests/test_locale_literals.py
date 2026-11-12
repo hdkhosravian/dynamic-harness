@@ -55,12 +55,11 @@ ALLOWED = {
     "lib/harness_core/admin.py": {"calendar": 1},
     "lib/harness_core/answer.py": {"calendar": 8, "currency": 2, "lang": 5, "script": 16},
     "lib/harness_core/business.py": {"calendar": 7},
-    "lib/harness_core/claims.py": {"currency": 2, "script": 88},
+    "lib/harness_core/claims.py": {"script": 79},
     "lib/harness_core/contact.py": {"script": 56},
-    "lib/harness_core/finance.py": {"calendar": 13, "currency": 4, "script": 139},
-    "lib/harness_core/localize.py": {"calendar": 51, "currency": 16, "lang": 5, "region": 4, "script": 105},
-    "lib/harness_core/model.py": {"calendar": 4, "currency": 1, "lang": 8, "script": 119},
-    "lib/harness_core/model_cmd.py": {"currency": 1},
+    "lib/harness_core/finance.py": {"calendar": 13, "script": 139},
+    "lib/harness_core/localize.py": {"calendar": 51, "currency": 4, "lang": 5, "region": 4, "script": 96},
+    "lib/harness_core/model.py": {"calendar": 4, "lang": 8, "script": 119},
     "lib/harness_core/normalize.py": {"calendar": 3, "region": 1, "script": 20},
     "lib/harness_core/operations.py": {"script": 21},
     "lib/harness_core/pii.py": {"region": 5, "script": 156},
@@ -86,6 +85,8 @@ CLEARED = {
     ("lib/harness_core/probe.py", "script"), ("lib/harness_core/business.py", "currency"),
     ("lib/harness_core/admin.py", "currency"), ("lib/harness_core/templates.py", "currency"),
     ("lib/harness_core/templates.py", "lang"), ("lib/harness_core/templates.py", "script"),
+    ("lib/harness_core/claims.py", "currency"), ("lib/harness_core/finance.py", "currency"),
+    ("lib/harness_core/model.py", "currency"), ("lib/harness_core/model_cmd.py", "currency"),
 }
 
 

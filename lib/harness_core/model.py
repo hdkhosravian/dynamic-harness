@@ -3,7 +3,7 @@
 A forecast is a driver model the agent writes as ``work/model.json``; its numbers are parameters in
 ``run/assumptions.json`` (``harness-model assume``), never prose::
 
-    {"unit": "IRT", "start": "1405/09", "months": 12,
+    {"unit": "<code>", "start": "1405/09", "months": 12,
      "opening_balance": {"assumption": "opening_cash"},
      "lines": [{"id": "sales", "kind": "inflow", "base": {"assumption": "sales_base"},
                 "growth": {"assumption": "sales_growth"}, "seasonality": {"assumption": "season"}},

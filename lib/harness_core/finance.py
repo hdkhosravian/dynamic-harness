@@ -28,7 +28,7 @@ TOTAL_LABELS = ("total", "grand total", "sum", "جمع", "جمع کل", "مجم�
 TRANSFER_WORDS = ("transfer between", "own account", "internal transfer", "انتقال بین حساب", "انتقال وجه بین",
                   "حواله داخلی", "انتقال به حساب خود", "transfer to own", "between own accounts")
 ROWS_ATTACHED = 50000  # the rows behind an answer, attached as a workbook by harness-answer
-JUMP = Decimal(8)  # a ×10 unit slip (Toman/Rial) shows as a ratio of 8 or more against the prior period
+JUMP = Decimal(8)  # a ×10 unit slip shows as a ratio of 8 or more against the prior period
 
 
 def _find(headers, want, words):
@@ -261,8 +261,14 @@ def reconcile(req):
         values["prior_period_total"] = agg["prior"]
         lo, hi = sorted((abs(total), abs(agg["prior"])))
         if lo and hi / lo >= JUMP:
-            notes.append(N("magnitude", f"the total is {_round(hi / lo, 1)} times the prior period's: check for a "
-                           "Toman/Rial mix-up or a missing zero", ratio=_round(hi / lo, 1)))
+            ratio, e = _round(hi / lo, 1), L.pair_of(agg["unit"])
+            if e:
+                notes.append(N("magnitude_units", f"the total is {ratio} times the prior period's: check for a "
+                               f"{e['from']}/{e['to']} mix-up or a missing zero", ratio=ratio, unit=e["from"],
+                               other=e["to"]))
+            else:
+                notes.append(N("magnitude", f"the total is {ratio} times the prior period's: check for a missing zero "
+                               "or amounts in another currency", ratio=ratio))
             fail = True
     control = a.get("control")
     if control:
