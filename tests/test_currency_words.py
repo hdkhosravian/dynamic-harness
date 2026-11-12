@@ -759,6 +759,34 @@ def test_a_word_the_split_can_return_whole_is_accepted_at_load_and_in_a_request(
     assert marker.exists()
 
 
+# the check takes time linear in the length of a word; the shapes make a backtracking strip of the edges quadratic
+LONG = 40000
+LONG_WORDS = [
+    ("letter-spaces-letter", "a" + " " * LONG + "b"), ("letter-zwnj-letter", "a" + "\u200c" * LONG + "b"),
+    ("spaces-word-spaces", " " * LONG + "zorb" + " " * LONG), ("one-long-run-of-letters", "z" * LONG),
+]
+
+
+@pytest.mark.parametrize("word", [w for _, w in LONG_WORDS], ids=[n for n, _ in LONG_WORDS])
+def test_a_word_of_forty_thousand_characters_is_checked_in_linear_time_in_the_direct_call(word):
+    t0 = time.perf_counter()
+    locales.check_currency_words({"QDA": [word]}, "words.currency_words")     # accepted: it raises nothing
+    spent = time.perf_counter() - t0
+    # a linear check takes milliseconds; the quadratic strip took 7 s and more. 2 s leaves a slow machine room.
+    assert spent < 2.0, f"{spent:.2f} s"
+
+
+@pytest.mark.parametrize("word", [w for _, w in LONG_WORDS], ids=[n for n, _ in LONG_WORDS])
+def test_a_word_of_forty_thousand_characters_is_checked_in_linear_time_at_pack_load(h, word):
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": [word]}}))
+    ctx = ctx_of(h)
+    t0 = time.perf_counter()
+    got = locales.installed(ctx)
+    spent = time.perf_counter() - t0
+    assert got["xx"]["words"]["currency_words"] == {"QDA": [word]}      # loaded, not refused early
+    assert spent < 2.0, f"{spent:.2f} s"
+
+
 def test_no_word_of_the_shipped_packs_is_refused():
     words = every_shipped_word()
     assert len(words) >= 10
