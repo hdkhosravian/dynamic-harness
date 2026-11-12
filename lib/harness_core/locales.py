@@ -27,6 +27,9 @@ CODE = r"[A-Z]{3}"        # the form of a currency code
 # supplied by every installed pack, active or not (a file or the owner can name any currency, whatever the profile
 # list ``locales`` says, and a currency entry acts only on the codes it names)
 EVERY = ("render", "state_lexicon", "question_marks", "fold", "currencies", "currency_pairs")
+# the categories of a character that folds to nothing; an unassigned code point (Cn) may be a sign newer than the
+# interpreter's Unicode tables, so it counts as visible, as do private-use and surrogate ones
+INVISIBLE = {"Cc", "Cf", "Zs", "Zl", "Zp", "Mn", "Mc", "Me"}
 
 
 def _pack(f: Path) -> dict:
@@ -153,8 +156,8 @@ def check_currency_words(table, label: str) -> None:
     for code, ws in table.items():
         if not re.fullmatch(CODE, code):
             raise LocaleError(f"{label}.{code}: a currency code is exactly 3 letters A-Z")
-        if not isinstance(ws, list) or not all(isinstance(w, str) and any(unicodedata.category(c)[0] not in "CZM"
-                                                                            for c in w) for w in ws):
+        if not isinstance(ws, list) or not all(isinstance(w, str) and not set(map(unicodedata.category, w)) <= INVISIBLE
+                                               for w in ws):
             raise LocaleError(f"{label}.{code}: must be a list of words that are not empty or invisible")
 
 
