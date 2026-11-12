@@ -594,7 +594,8 @@ def test_a_header_that_names_a_code_with_no_relation_to_the_profile_currency_end
     business.set_field(c, "currency", "QKY")
     res = pack_check(h)
     assert res["result"] == "error" and "total" not in res["values"]
-    assert "cannot convert QDA to QKY" in " ".join(res["notes"])
+    said = " ".join(res["notes"])   # 0.4.0 said "cannot convert QDA to QKY" at the first readable row (audit item M6)
+    assert "amount (zorb)" in said and "QDA" in said and "QKY" in said
 
 
 def test_a_header_that_names_a_code_and_no_profile_currency_shows_that_code(h, job):
