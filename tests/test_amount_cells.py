@@ -75,7 +75,7 @@ def shipped(monkeypatch):
 
 # --- 0. the made-up data is made up ---------------------------------------------------------------------------------
 
-MADE_UP = ["QDA", "QDC", "QDX", "zorb", YEN, HRN, SIGN, "zb.", "new zorb", "twin", "xyl"]
+MADE_UP = ["QDA", "QDC", "QDX", "zorb", YEN, HRN, SIGN, "zb.", "new zorb", "twin", "xyl", "a-b", ".zb"]
 
 
 def test_no_shipped_file_holds_a_code_word_or_sign_of_the_mechanism_tests():
@@ -640,11 +640,23 @@ def test_a_cell_with_no_mark_keeps_the_sign_it_has_in_0_4_0_with_a_unit_a_word_t
 @pytest.mark.parametrize(
     "value",
     ["(-100) rials", "(100-) rials"],
-    ids=["parentheses-around-a-negative", "parentheses-around-a-trailing-minus"],
+    ids=["parentheses-around-a-negative-then-word", "parentheses-around-a-trailing-minus-then-word"],
 )
 @pytest.mark.parametrize("unit", [None, "IRR"], ids=["no-unit", "own-unit"])
-def test_two_negative_forms_in_a_cell_with_a_shipped_word_make_it_unreadable_unlike_0_4_0(shipped, value, unit):
-    # 0.4.0 gave 100 for (-100) rials and -100 for (100-) rials (the strip left the number part to the old grammar)
+def test_two_negative_forms_in_a_cell_with_a_shipped_word_are_unreadable_as_in_0_4_0(shipped, value, unit):
+    # None at e23c0a9 as well (checked there): the strip saw a word at the very end only, and (...) needs ")" last.
+    # The pin keeps them None now that the word is found by the split.
+    assert L.parse_amount(value, unit=unit) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["(-100 rials)", "(100 rials-)"],
+    ids=["parentheses-around-a-negative-and-word", "parentheses-and-trailing-minus-after-the-word"],
+)
+@pytest.mark.parametrize("unit", [None, "IRR"], ids=["no-unit", "own-unit"])
+def test_two_negative_forms_around_the_whole_cell_with_a_shipped_word_are_unreadable_unlike_0_4_0(shipped, value, unit):
+    # e23c0a9 gave 100 for (-100 rials) (a double negation) and -100 for (100 rials-); the cell holds two forms: None
     assert L.parse_amount(value, unit=unit) is None
 
 
@@ -733,6 +745,81 @@ def test_a_new_word_table_a_new_letter_table_and_a_new_words_argument_each_give_
     assert got["fold_b"] == ["5", "5"]  # both fold to abe
     assert got["fold_a_again"] == "None"
     assert got["objects"] == [["5", "None"]] * 60
+
+
+# --- 9e. at most one sign character outside the mark (fix round 2, item 10) ------------------------------------------
+# A sign character is a plus or a minus. A cell with a mark that holds two or more of them outside the mark is None,
+# wherever they stand; one in the mark (the word a-b) is not counted. The rows of 9b (each holds at most one sign
+# character, or is None already) are the guard that the older tables keep their results.
+
+WORDS_AB = {"QDA": ["a-b"]}
+SIGN_TWO = {
+    "two-plus-before": "++100 W",
+    "two-plus-spaced": "+ +100 W",
+    "plus-mark-plus": "+W +100",
+    "two-plus-before-mark": "++W 100",
+    "two-plus-after-mark": "W ++100",
+    "plus-minus": "+-100 W",
+    "minus-plus": "-+100 W",
+    "minus-space-plus": "- +100 W",
+    "minus-mark-plus": "-W +100",
+    "mark-plus-minus": "W +-100",
+    "mark-minus-plus": "W -+100",
+    "plus-mark-number-minus": "+W 100-",
+    "mark-plus-number-minus": "W +100-",
+    "plus-number-mark-minus": "+100 W-",
+    "parentheses-plus-minus": "(+-100 W)",
+}
+
+
+@pytest.mark.parametrize("value", sign_cells(SIGN_TWO))
+def test_two_sign_characters_outside_the_mark_make_the_cell_unreadable_wherever_they_stand(value):
+    assert cell(value) is None
+    assert cell(value, "QDA") is None
+
+
+@pytest.mark.parametrize(
+    "value, want",
+    table(
+        {
+            "minus-before-a-word-with-a-minus": ("-100 a-b", "-100"),
+            "plus-before-a-word-with-a-minus": ("+100 a-b", "100"),
+            "word-with-a-minus-before": ("a-b -100", "-100"),
+            "word-with-a-minus-before-no-sign": ("a-b 100", "100"),
+            "minus-after-a-word-with-a-minus": ("-100 a-b-", None),
+            "plus-after-a-word-with-a-minus": ("+100 a-b-", None),
+            "two-minus-with-a-word-with-a-minus": ("--100 a-b", None),
+        }
+    ),
+)
+def test_a_sign_character_inside_the_mark_is_not_counted(value, want):
+    assert same(L.parse_amount(value, words=WORDS_AB, pairs=[]), want)
+    assert same(L.parse_amount(value, unit="QDA", words=WORDS_AB, pairs=[]), want)
+
+
+@pytest.mark.parametrize("value", ["++100", "+-100", "-+100"], ids=["two-plus", "plus-minus", "minus-plus"])
+def test_the_same_digits_with_no_mark_stay_unreadable(value):
+    assert L.parse_amount(value) is None
+
+
+# --- 9f. gaps shown by mutants of the review (fix round 2, item 12) ---------------------------------------------------
+
+WORDS_DOT = {"QDA": [".zb"]}
+
+
+@pytest.mark.parametrize("value", ["5.zb", "5 .zb", ".zb 5", ".zb5"], ids=lambda v: repr(v))
+def test_a_word_that_begins_with_a_dot_is_the_mark_after_a_number_and_before_it(value):
+    # the dot after the 5 is the word's: the number is 5, not "5." and not unreadable
+    assert same(L.parse_amount(value, words=WORDS_DOT), "5")
+    assert same(L.parse_amount(value, unit="QDA", words=WORDS_DOT), "5")
+
+
+@pytest.mark.parametrize(
+    "value", ["((100)) zorb", "zorb ((100))", "((100) zorb)", "((100)) ¤", "¤ ((100))"], ids=lambda v: repr(v)
+)
+def test_nested_parentheses_in_the_number_part_of_a_marked_cell_are_unreadable(value):
+    assert cell(value) is None
+    assert cell(value, "QDA") is None
 
 
 # --- 10. the shipped packs: the 0.4.0 pins, and the same rule for the shipped words ----------------------------------
@@ -1041,6 +1128,7 @@ def test_a_rial_column_under_a_toman_profile_is_converted_after_the_cells_are_re
 # --- 13. a header that names a currency with no relation to the target ------------------------------------------------
 
 M6_HEADER = "Sales amount (zorb) net"
+SUMMED = "nothing was summed"
 
 
 @pytest.mark.parametrize(
@@ -1055,12 +1143,14 @@ def test_a_header_that_names_a_currency_with_no_relation_to_the_target_ends_the_
     err = p.stderr.decode("utf-8", "replace")
     assert p.returncode == 3 and p.stdout == b"" and "check error" in err, err
     assert M6_HEADER in err and "QDA" in err and "QDX" in err, err
+    assert SUMMED in err, err  # R3: the text says that nothing was summed
 
 
 def test_the_text_of_the_refusal_is_the_same_when_the_target_comes_from_the_args(tmp_path):
     p = aggregate_process(tmp_path, M6_HEADER, ["100"], args={"currency": "QDX"})
     err = p.stderr.decode("utf-8", "replace")
     assert p.returncode == 3 and p.stdout == b"" and M6_HEADER in err and "QDA" in err and "QDX" in err, err
+    assert SUMMED in err, err
 
 
 def test_a_header_that_names_a_currency_the_target_relates_to_or_equals_is_not_refused(tmp_path):
@@ -1073,7 +1163,7 @@ def test_the_refusal_comes_with_the_shipped_packs_as_well(tmp_path):
     p = aggregate_process(tmp_path, header, ["abc", "100"], locale=None, profile={"currency": "IRT"})
     err = p.stderr.decode("utf-8", "replace")
     assert p.returncode == 3 and p.stdout == b"" and "check error" in err, err
-    assert header in err and "USD" in err and "IRT" in err, err
+    assert header in err and "USD" in err and "IRT" in err and SUMMED in err, err
 
 
 def test_the_refusal_with_the_shipped_packs_when_the_header_is_a_regional_unit_and_the_target_is_not(tmp_path):
@@ -1081,6 +1171,7 @@ def test_the_refusal_with_the_shipped_packs_when_the_header_is_a_regional_unit_a
     p = aggregate_process(tmp_path, header, ["100"], locale=None, profile={"currency": "EUR"})
     err = p.stderr.decode("utf-8", "replace")
     assert p.returncode == 3 and p.stdout == b"" and header in err and "IRT" in err and "EUR" in err, err
+    assert SUMMED in err, err
 
 
 # --- 14. the callers with one argument -------------------------------------------------------------------------------

@@ -697,6 +697,89 @@ def test_an_empty_table_is_valid(tmp_path, key, value):
     assert marker.exists()
 
 
+# --- 10b. a word the split can return whole (build phase P1, task T4c, fix round 2) --------------------------------
+# A cell gives every number character at its two ends to the number, so a word that begins or ends with one (after
+# digits(), white space at the edges set aside, dots on the side of the mark excepted) can never be the mark, and a
+# shorter word of the table that is its prefix or suffix would read the cell with a wrong number. The check refuses it.
+
+ACCEPTED_WORDS = [
+    ("letters", "zorb"), ("dot-after", "zb."), ("dot-before", ".zb"), ("with-a-space", "new zorb"), ("cjk", YEN),
+    ("cyrillic", HRN), ("generic-sign", "\u00a4"), ("minus-inside", "a-b"), ("dollar-in-a-pair", "R$"),
+    ("slash-and-dot", "S/."),
+]
+REFUSED_WORDS = [
+    ("digit-at-the-end", "x2"), ("digit-at-the-start", "2x"), ("digit-then-letters", "1inch"),
+    ("minus-at-the-end", "b-"), ("plus-at-the-end", "c+"), ("minus-at-the-start", "-b"), ("parentheses", "(usd)"),
+    ("dot-then-digit", ".5zb"), ("digit-then-dot", "zb5."), ("only-a-dot", "."), ("comma-at-the-end", "x,"),
+    ("other-script-digit-at-the-end", "x\u0662"),
+]
+
+
+def every_shipped_word():
+    """Every word of ``words.currency_words`` of the shipped packs, from the files."""
+    out = []
+    for f in sorted((ROOT / "control" / "defaults" / "locales").glob("*.json")):
+        for ws in json.loads(f.read_text("utf-8")).get("words", {}).get("currency_words", {}).values():
+            out += [w for w in ws if w not in out]
+    return out
+
+
+@pytest.mark.parametrize("word", [w for _, w in REFUSED_WORDS], ids=[n for n, _ in REFUSED_WORDS])
+def test_a_pack_with_a_word_that_begins_or_ends_with_a_number_character_is_refused_at_load(h, word):
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": ["zorb", word]}}))
+    ctx = ctx_of(h)
+    with pytest.raises(LocaleError) as e:
+        locales.installed(ctx)
+    f = Path(ctx.data_root) / "control" / "locales" / "xx.json"
+    msg = str(e.value)
+    assert msg.startswith(f"locale pack {f}: ") and "words.currency_words" in msg and "QDA" in msg and word in msg
+
+
+@pytest.mark.parametrize("word", [w for _, w in REFUSED_WORDS], ids=[n for n, _ in REFUSED_WORDS])
+def test_a_request_with_a_word_that_begins_or_ends_with_a_number_character_ends_the_check_with_an_error_exit(
+    tmp_path, word
+):
+    p = refused(tmp_path, "currency_words", {"QDA": ["zorb", word]})
+    assert b"QDA" in p.stderr and word.encode("utf-8") in p.stderr
+
+
+@pytest.mark.parametrize("word", [w for _, w in REFUSED_WORDS], ids=[n for n, _ in REFUSED_WORDS])
+def test_the_refusal_of_such_a_word_is_a_locale_error_with_the_label_and_the_code_and_the_word(word):
+    with pytest.raises(LocaleError) as e:
+        locales.check_currency_words({"QDA": ["zorb"], "QDC": [word]}, "words.currency_words")
+    assert str(e.value).startswith("words.currency_words.QDC: ") and word in str(e.value)
+
+
+@pytest.mark.parametrize("word", [w for _, w in ACCEPTED_WORDS], ids=[n for n, _ in ACCEPTED_WORDS])
+def test_a_word_the_split_can_return_whole_is_accepted_at_load_and_in_a_request(h, tmp_path, word):
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": [word, "zorb"]}}))
+    assert locales.installed(ctx_of(h))["xx"]["words"]["currency_words"] == {"QDA": [word, "zorb"]}
+    marker = tmp_path / "ran"
+    values(tmp_path, {"marker": str(marker), "locale": {"fold": {}, "currency_words": {"QDA": [word, "zorb"]}}})
+    assert marker.exists()
+
+
+def test_no_word_of_the_shipped_packs_is_refused():
+    words = every_shipped_word()
+    assert len(words) >= 10
+    locales.check_currency_words({"QDA": words}, "words.currency_words")
+    for f in sorted((ROOT / "control" / "defaults" / "locales").glob("*.json")):   # and each pack as a whole loads
+        table = json.loads(f.read_text("utf-8")).get("words", {}).get("currency_words", {})
+        locales.check_currency_words(table, f.name)
+    assert sorted(locales.installed()) == ["en", "fa", "ir"]
+
+
+@pytest.mark.parametrize(
+    "word", [w for _, w in ACCEPTED_WORDS] + [None], ids=[n for n, _ in ACCEPTED_WORDS] + ["every-shipped-word"]
+)
+def test_every_accepted_word_is_read_as_the_mark_before_and_after_a_number(word):
+    for w in [word] if word is not None else every_shipped_word():
+        table = {"QDA": [w]}
+        for cell_ in (f"{w} 100", f"100 {w}", f"{w}100", f"100{w}"):
+            assert L.parse_amount(cell_, words=table) == 100, (w, cell_)
+            assert L.parse_amount(cell_, unit="QDA", words=table) == 100, (w, cell_)
+
+
 def test_a_locale_object_with_no_keys_stays_an_error_exit(tmp_path):
     marker = tmp_path / "ran"
     p = process(tmp_path, {"marker": str(marker), "locale": {}})
