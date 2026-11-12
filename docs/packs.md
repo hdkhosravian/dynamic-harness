@@ -65,7 +65,10 @@ lists for that currency, under `words.currency_words`:
 ```
 
 The key is a 3-letter code (`A-Z`); it needs no entry under `currencies`. A word needs a visible character: one
-made only of spaces, invisible characters or marks is refused. A word matches where no letter touches
+made only of spaces, invisible characters or marks is refused, and so is a word that begins or ends with a
+character a number is written with (a digit of any script, `+`, `-`, a parenthesis, a group mark; a dot only when
+the word is nothing but dots): `x2`, `b-` and `(usd)` are refused, `zb.`, `.zb`, `a-b` and `R$` are not, because a
+cell gives such a character to its number. A word matches where no letter touches
 it: `Amount (<word>)`, `3000<word>` and `amount_<word>` name `<CODE>`, a longer word that contains it does not. A
 word that starts with a sign (not a letter or digit) matches anywhere. List only words that name this one
 currency: a word listed under two codes names neither, and a word that several currencies share (a dollar sign)
@@ -78,7 +81,9 @@ The same words are read in an amount cell: `100 <word>`, `<word>100` or `<sign> 
 column of `<CODE>` the cell is 100; in a column of a currency that `currency_pairs` relates to `<CODE>` it is
 converted into the column's currency; in any other column, and when the text beside the number is no listed word
 (the whole text, not a part of it) or a word stands on both sides, the cell is counted as unreadable, never summed.
-Such a cell holds at most one negative form (`(100 <word>)`, `-100 <word>`, `<word> 100-`); two are unreadable.
+Such a cell holds at most one negative form (`(100 <word>)`, `-100 <word>`, `<word> 100-`) and at most one `+` or
+`-` outside the word; `(-100 <word>)`, `++100 <word>` and `+<word> 100-` are unreadable. A word listed under two
+codes is read in a column of either code.
 
 ### The answer header
 

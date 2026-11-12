@@ -719,7 +719,10 @@ its last `file_sha`, appends the row, then appends an event carrying
   search); its codes `C` give: `unit` None or in `C` the number, one code related to `unit` by `pair_of` the number
   `to_unit` into `unit`, else None. A mark on both sides or text that is no word is None. A cell with a mark holds
   at most one negative form (parentheses around the cell or the number, a minus before or after the mark or the
-  number; a `+` is none); two or more are None. The read of a cell is linear in its length. `finance.aggregate` reads the header of the amount column with `currency_of`
+  number; a `+` is none); two or more are None, and so are two or more sign characters (`+`, `-`) outside the
+  mark (`++100 W`, `+W 100-`; a sign inside the word, `a-b`, does not count). The read of a cell is linear in its
+  length: `_ends` takes the run of number characters at each end (a dot next to the mark is the mark's).
+  `finance.aggregate` reads the header of the amount column with `currency_of`
   and passes its unit to the three `parse_amount` calls (a cell in an unrelated currency is `unparsable`); a
   header that names a code with no relation to the target is refused before the rows are read, with a
   `ValueError` that names the header, both codes and that nothing was summed (exit 3). The other callers of
@@ -807,7 +810,10 @@ its last `file_sha`, appends the row, then appends an event carrying
   `quantity_words`, `decision_keywords` (an object, any class name), `continuation`, `currency_words`
   (`{<code>: [words]}`: the words and signs that name that one currency in text; the key a code of the form of
   `currencies`, which needs no `currencies` entry; a word made only of separators, control or format characters
-  and marks is refused like an empty one; errors name `words.currency_words.<code>`). Shipped: `en` `USD`,
+  and marks is refused like an empty one; so is a word that, after `digits()` and with white space at its edges
+  set aside, begins or ends with a number character other than a dot, or is only dots (`x2`, `b-`, `(usd)`, `x,`):
+  the split of a cell, `localize._ends`, would give that character to the number; errors name
+  `words.currency_words.<code>`). Shipped: `en` `USD`,
   `EUR`; `fa` `EUR`; `ir` `IRT`, `IRR`. A word that names no single currency (`$`, `£`, dollar) stays in
   `money_words`.
   `state_lexicon`: closed object `{terms, template_lines}`, lists of non-empty strings.

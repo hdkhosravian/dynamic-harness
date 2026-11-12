@@ -58,7 +58,8 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
   - `3000<word>`, `5000toman` and `amount_usd` now name money; a word inside a longer word (`europe`,
     `material`) no longer makes a price claim, and a figure with any currency sign does.
   - A column header that names another currency than yours, with no relation between the two, ends the check
-    with an error (`cannot convert <A> to <B>`); 0.4.0 summed such a column silently in your currency. A header
+    with an error that names the header and both codes and says that nothing was summed; 0.4.0 summed such a
+    column silently in your currency. A header
     that names both units of a pair is read as the one named first (0.4.0 always took Toman).
   - With the profile list `locales`, the currency words of the packs it leaves out are not matched.
   - The ×10 note reads "check for a missing zero or amounts in another currency", or, when your currency has a
@@ -67,6 +68,18 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
   - The request of a pack check holds `locale.currency_words`; a request recorded before it matches with the
     shipped packs. A malformed `locale.currency_pairs` or `locale.currency_words` ends the check with an error
     that names the key.
+- **Amount cells.** A currency word or sign of the packs beside a number in an amount cell (`100 <word>`,
+  `<word> 100`, `€100`) is read against the currency of the column: in that currency the cell is the number, in a
+  related unit it is converted, and in any other currency, or with text beside it that is not a listed word, the
+  cell is left out of the sum and counted as unreadable. Such a cell holds at most one negative form and one `+` or
+  `-`, and a pack word that begins or ends with a character a number is written with (`x2`, `b-`) is refused when
+  the pack loads. What changes for you:
+  - In a Toman column `100 rials` is 10 (0.4.0: 100); in a Rial column `100 toman` is 1000 (0.4.0: 100).
+  - In a column of another currency, `100 toman` is left out and counted as unreadable; 0.4.0 added it as 100.
+  - A word before the number and every word and sign of the packs are read: `usd 100` and `100 usd` in a USD
+    column, `€100` in a euro column, `toman 100` and `100 tomans` in a Toman column (0.4.0: unreadable).
+  - `(-100 rials)` and `(100 rials-)` are left out as unreadable (0.4.0: 100 and -100).
+  - `harness-normalize --amount "100 usd"` gives the amount 100 and the code USD (0.4.0: "not an amount").
 - **Live end-to-end scaffold.** `tests/e2e` runs one scripted `claude -p` request per pack and verifies its
   receipt with the harness's own check; it is skipped unless `HARNESS_E2E=1` and has not been run against a live
   model yet.
