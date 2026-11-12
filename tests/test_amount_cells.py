@@ -484,7 +484,6 @@ def test_a_leading_plus_with_a_mark_is_the_number():
             "parentheses-and-trailing-minus": "(100 zorb)-",
             "parentheses-and-trailing-minus-mark-before": "(zorb 100)-",
             "unclosed-parenthesis": "(100 zorb",
-            "minus-after-the-number-before-the-mark": "100- zorb",
             "a-mark-and-a-lone-minus": "zorb -",
             "a-mark-and-no-number": "(zorb)",
         }
@@ -492,6 +491,134 @@ def test_a_leading_plus_with_a_mark_is_the_number():
 )
 def test_a_cell_that_is_unreadable_today_because_of_where_its_sign_stands_stays_unreadable_with_a_mark(value):
     assert cell(value) is None and cell(value, "QDA") is None
+
+
+# --- 9b. the sign of a cell with a mark: outer and inner places (ruling of the controller, brief R2 item 6) -----------
+# A cell with a mark has two places for a sign: outer (around the whole cell) and inner (on the number part, read by
+# the grammar of 0.4.0). One negative form in one place is negative; a negative form in both places is None; a leading
+# plus changes nothing.
+
+SIGN_NEGATIVE = {
+    "outer-leading-minus-mark-before": "-W 100",
+    "outer-leading-minus-mark-before-glued": "-W100",
+    "outer-parentheses-mark-before": "(W 100)",
+    "outer-trailing-minus-mark-before": "W 100-",
+    "outer-trailing-minus-mark-after": "100 W-",
+    "outer-parentheses-mark-after": "(100 W)",
+    "outer-leading-minus-mark-after": "-100 W",
+    "inner-leading-minus-spaced": "W -100",
+    "inner-leading-minus-glued": "W-100",
+    "inner-parentheses": "W (100)",
+    "inner-trailing-minus": "100- W",
+    "inner-parentheses-mark-after": "(100) W",
+}
+SIGN_POSITIVE = {
+    "outer-plus-mark-before": "+W 100",
+    "inner-plus-mark-before": "W +100",
+    "outer-plus-mark-after": "+100 W",
+}
+SIGN_NONE = {
+    "outer-minus-and-trailing-minus": "-W 100-",
+    "outer-minus-and-inner-minus": "-W -100",
+    "outer-parentheses-and-inner-minus": "(W -100)",
+    "outer-parentheses-and-inner-minus-mark-after": "(-100 W)",
+    "outer-minus-and-outer-trailing-minus": "-100 W-",
+    "outer-parentheses-and-inner-parentheses": "(W (100))",
+}
+SIGN_MARKS = {"letters": ("zorb", "QDA"), "sign": (SIGN, "QDA"), "other-script": (HRN, "QDC")}
+
+
+def sign_cells(rows):
+    return [pytest.param(t.replace("W", m), id=f"{k}-{i}") for k, (m, _) in SIGN_MARKS.items() for i, t in rows.items()]
+
+
+@pytest.mark.parametrize("value", sign_cells(SIGN_NEGATIVE))
+def test_one_negative_form_in_one_place_of_a_cell_with_a_mark_makes_the_number_negative(value):
+    assert same(cell(value), "-100")
+
+
+@pytest.mark.parametrize("value", sign_cells(SIGN_POSITIVE))
+def test_a_leading_plus_in_either_place_of_a_cell_with_a_mark_changes_nothing(value):
+    assert same(cell(value), "100")
+
+
+@pytest.mark.parametrize("value", sign_cells(SIGN_NONE))
+def test_a_negative_form_in_both_places_of_a_cell_with_a_mark_is_unreadable_never_a_double_negation(value):
+    assert cell(value) is None
+
+
+SIGN_SUBSET = (
+    "outer-parentheses-mark-before",
+    "inner-leading-minus-spaced",
+    "inner-trailing-minus",
+    "outer-plus-mark-before",
+)
+
+
+@pytest.mark.parametrize("name", SIGN_SUBSET)
+def test_the_sign_table_holds_for_a_mark_that_names_the_unit(name):
+    t = {**SIGN_NEGATIVE, **SIGN_POSITIVE}[name]
+    assert same(cell(t.replace("W", "zorb"), "QDA"), "100" if name in SIGN_POSITIVE else "-100")
+
+
+@pytest.mark.parametrize("name", ["outer-minus-and-inner-minus", "outer-parentheses-and-inner-parentheses"])
+def test_a_negative_form_in_both_places_is_unreadable_also_for_a_mark_that_names_the_unit(name):
+    assert cell(SIGN_NONE[name].replace("W", "zorb"), "QDA") is None
+
+
+# a cell in QDC under a QDA column: 500 QDC = 5 QDA, the sign applies to the converted number; 5 QDA under QDC = 500
+SIGN_CONVERTED = table(
+    {
+        "outer-parentheses": ("(500 W)", "QDA", "-5"),
+        "outer-leading-minus-mark-before": ("-W 500", "QDA", "-5"),
+        "inner-leading-minus": ("W -500", "QDA", "-5"),
+        "inner-parentheses": ("W (500)", "QDA", "-5"),
+        "inner-trailing-minus": ("500- W", "QDA", "-5"),
+        "outer-plus": ("+500 W", "QDA", "5"),
+        "both-places-outer-and-inner": ("-W -500", "QDA", None),
+        "both-places-parentheses-and-minus": ("(-500 W)", "QDA", None),
+    }
+)
+
+
+@pytest.mark.parametrize("value, unit, want", SIGN_CONVERTED)
+def test_the_sign_of_a_cell_in_the_related_unit_applies_to_the_converted_number(value, unit, want):
+    assert same(cell(value.replace("W", HRN), unit), want)
+
+
+@pytest.mark.parametrize(
+    "value, want",
+    [("(5 W)", "-500"), ("W -5", "-500"), ("5- W", "-500"), ("+5 W", "500"), ("-W -5", None)],
+    ids=["outer", "inner", "inner-trailing", "plus", "both"],
+)
+def test_the_sign_of_a_cell_in_the_from_unit_applies_to_the_converted_number(value, want):
+    assert same(cell(value.replace("W", "zorb"), "QDC"), want)
+
+
+# the cells of 0.4.0 that hold no mark are not touched by the ruling (computed at e23c0a9; a double negation stays)
+NO_MARK_SIGNS = table(
+    {
+        "parentheses-around-minus": ("(-100)", "100"),
+        "minus-both-ends": ("-100-", None),
+        "parentheses-and-trailing-minus": ("(100)-", None),
+        "plus": ("+100", "100"),
+        "parentheses-around-plus": ("(+100)", "-100"),
+        "parentheses-around-trailing-minus": ("(100-)", "-100"),
+        "plus-and-trailing-minus": ("+100-", "-100"),
+        "minus-then-plus": ("-+100", None),
+        "minus-then-parentheses": ("-(100)", None),
+    }
+)
+
+
+@pytest.mark.parametrize("value, want", NO_MARK_SIGNS)
+def test_a_cell_with_no_mark_keeps_the_sign_it_has_in_0_4_0_with_one_argument(value, want):
+    assert shown(L.parse_amount(value)) == want
+
+
+@pytest.mark.parametrize("value, want", NO_MARK_SIGNS)
+def test_a_cell_with_no_mark_keeps_the_sign_it_has_in_0_4_0_with_a_unit_a_word_table_and_pairs(value, want):
+    assert shown(L.parse_amount(value, unit="QDA", words=WORDS, pairs=PAIRS)) == want
 
 
 # --- 10. the shipped packs: the 0.4.0 pins, and the same rule for the shipped words ----------------------------------
@@ -527,8 +654,6 @@ SIX_WORDS_NO_UNIT = table(
         "two-words": ("100 toman rials", None),
         "decimal-comma-and-word": ("1,5 toman", None),
         "bad-group-and-word": ("12,50 toman", None),
-        "parentheses-then-word": ("(1,000) rials", None),
-        "minus-before-the-word": ("100- rials", None),
         "minus-both-ends": ("-100 rials-", None),
         "parentheses-and-trailing-minus": ("(100 rials)-", None),
         "double-minus": ("--100 toman", None),
@@ -623,6 +748,9 @@ def test_a_shipped_word_is_read_against_the_unit_of_the_column(shipped, value, u
             "persian-euro": ("100 " + FA_EUR, "100"),
             "plural-toman": ("100 tomans", "100"),
             "persian-rial-adjective": ("100 " + FA_IRR_ADJ, "100"),
+            # 0.4.0: None for both (the strip knew the word at the end only); the sign table of item 9 reads them now
+            "inner-trailing-minus-before-the-word": ("100- rials", "-100"),
+            "inner-parentheses-before-the-word": ("(1,000) rials", "-1000"),
             "arabic-yeh-rial": ("50,000 " + ARABIC_YEH_RIAL, "50000"),  # the mark is folded as the table is
             "negative-before": ("(usd 100)", "-100"),
         }
