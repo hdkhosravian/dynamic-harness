@@ -78,6 +78,7 @@ The same words are read in an amount cell: `100 <word>`, `<word>100` or `<sign> 
 column of `<CODE>` the cell is 100; in a column of a currency that `currency_pairs` relates to `<CODE>` it is
 converted into the column's currency; in any other column, and when the text beside the number is no listed word
 (the whole text, not a part of it) or a word stands on both sides, the cell is counted as unreadable, never summed.
+Such a cell holds at most one negative form (`(100 <word>)`, `-100 <word>`, `<word> 100-`); two are unreadable.
 
 ### The answer header
 
