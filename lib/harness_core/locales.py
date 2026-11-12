@@ -128,6 +128,7 @@ def _check_currencies(pack: dict) -> None:
             raise LocaleError(f"currency_pairs[{i}]: the same two codes as currency_pairs[{seen[two]}]")
         seen[two] = i
 
+
 def _read(d: Path) -> dict:
     if not d.is_dir():
         return {}

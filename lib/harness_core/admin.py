@@ -22,7 +22,7 @@ import shlex
 import time
 from pathlib import Path
 
-from . import business, locales, templates
+from . import business, locales, localize, templates
 from .errors import Denied, HarnessError
 from .safeio import atomic_write
 
@@ -94,8 +94,9 @@ BUSINESS_USAGE = [
 ]
 
 
-def _money_warnings(ctx, field, value) -> list:
-    """What the owner must know for a spending limit to work: a currency, and a rate when prices are foreign."""
+def _money_warnings(ctx, field, value, pair=None) -> list:
+    """What the owner must know for a spending limit to work: a currency, and a rate when prices are foreign.
+    ``pair``: what the offer of a currency change found relating the old and the new code (None: no relation)."""
     from . import protected
     prof = dict(business.profile(ctx))
     if field == "currency":
@@ -115,8 +116,7 @@ def _money_warnings(ctx, field, value) -> list:
     elif price_cur and price_cur != cur and not (prof.get("fx") or {}).get(price_cur):
         out.append(f"model prices are in {price_cur}: spending limits apply only once you set the rate "
                    f"(business set fx.{price_cur} <{cur} per {price_cur}>)")
-    old = business.profile(ctx).get("currency")
-    if field == "currency" and (prof.get("caps") or {}) and old != value and business.related(ctx, old, value) is None:
+    if field == "currency" and business.profile(ctx).get("currency") != value and pair is None:
         out.append("your spending limits are in the old currency and will be removed; set them again")
     return out
 
@@ -127,7 +127,7 @@ def _business(ctx, sid, args) -> dict:
     if args[0] == "confirm" and len(args) == 2:
         ch = _take(ctx, sid, "business", args[1])
         if ch["op"] == "set":
-            business.set_field(ctx, ch["field"], ch["value"])
+            business.set_field(ctx, ch["field"], ch["value"], offer=ch)
         elif ch["op"] in ("add", "remove"):
             business.change_list(ctx, ch["field"], ch["value"], ch["op"] == "add")
         elif ch["op"] == "metric_remove":
@@ -140,10 +140,16 @@ def _business(ctx, sid, args) -> dict:
         shown = f"{templates.currency(value, locales.BASE, ctx)} ({value})" if field == "currency" else value
         label = business.PROFILE_FIELDS[field]
         sentence = f"Set {label} to {shown}."
+        change = {"op": "set", "field": field, "value": value, "sentence": sentence}
+        prof = business.profile(ctx)
+        old = prof.get("currency")
+        if field == "currency" and old != value and (business._figures(prof) or prof.get("caps")):
+            # what the owner is shown for the figures; the confirm writes only if the packs still say the same
+            pairs = business.related(ctx, old, value)
+            change["pair"] = localize.pair_of(old, value, pairs) if pairs else None
         lines = [f"- {sentence}"]
-        lines += [f"- Note: {w}" for w in _money_warnings(ctx, field, value)]
-        return _offer(ctx, sid, "business", {"op": "set", "field": field, "value": value, "sentence": sentence},
-                      lines)
+        lines += [f"- Note: {w}" for w in _money_warnings(ctx, field, value, change.get("pair"))]
+        return _offer(ctx, sid, "business", change, lines)
     if args[0] in ("add", "remove") and len(args) >= 3 and args[1] in business.LIST_FIELDS:
         business.guard(ctx)
         value = business.list_entry(ctx, args[1], " ".join(args[2:]), args[0] == "add")

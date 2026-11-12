@@ -82,7 +82,9 @@ def main(fn) -> None:
         if "locale" in req:  # the letter folds and unit pairs of the run's packs; an absent key: the shipped ones
             from . import localize
             localize.use_fold(req["locale"]["fold"])
-            if "currency_pairs" in req["locale"]:
+            if "currency_pairs" in req["locale"]:  # only an absent key means the shipped pairs, never a null
+                if not isinstance(req["locale"]["currency_pairs"], list):
+                    raise ValueError("locale.currency_pairs is not a list")
                 localize.use_pairs(req["locale"]["currency_pairs"])
         out = fn(req)
     except Exception as e:  # the runner records exit 3 as an error, never as a check result

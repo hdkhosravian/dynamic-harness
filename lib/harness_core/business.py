@@ -159,7 +159,20 @@ def related(ctx, old, new):
     return pairs if localize.pair_of(old, new, pairs) else None
 
 
-def set_field(ctx, field, value) -> None:
+def _figures(prof) -> list:
+    """``[(head, key)]`` of the owner's amounts in the profile currency: numeric caps, risk threshold and rates."""
+    out = []
+    for head, keys in (("caps", ("task", "month")), ("thresholds", ("money_at_stake_high",)), ("fx", None)):
+        sub = prof.get(head)
+        if isinstance(sub, dict):
+            out += [(head, k) for k in (keys or [k for k in sub if k != "as_of"])
+                    if isinstance(sub.get(k), (int, float)) and not isinstance(sub.get(k), bool)]
+    return out
+
+
+def set_field(ctx, field, value, offer=None) -> None:
+    """``offer``: the pending change the owner confirmed; a currency change then writes only when the packs still
+    relate the two codes as its ``pair`` says (absent: the offer read no pack)."""
     guard(ctx)
     prof = profile(ctx)
     head, _, tail = field.partition(".")
@@ -177,20 +190,21 @@ def set_field(ctx, field, value) -> None:
         if field == "currency" and old != value:
             # every amount in the owner's currency keeps its worth: two related units convert, any other change drops
             # it (no cap, no rate, the default risk threshold), which the harness then treats as unset
-            from .localize import to_unit
-            pairs = related(ctx, old, value)
-            for head, keys in (("caps", ("task", "month")), ("thresholds", ("money_at_stake_high",)),
-                               ("fx", [k for k in (prof.get("fx") or {}) if k != "as_of"])):
-                if not isinstance(prof.get(head), dict):
-                    continue
-                sub = dict(prof[head], **({"currency": value} if head == "caps" else {}))
-                for k in keys:
-                    if isinstance(sub.get(k), (int, float)) and not isinstance(sub.get(k), bool):
-                        if pairs is None:
-                            sub.pop(k)
-                        else:
-                            sub[k] = to_unit(sub[k], old, value, pairs)
-                prof[head] = sub
+            from .localize import pair_of, to_unit
+            amounts = _figures(prof)
+            pairs = related(ctx, old, value) if amounts else None  # no figure, no pack read
+            if offer is not None and amounts and offer.get("pair", "unread") != (
+                    pair_of(old, value, pairs) if pairs else None):
+                raise Denied("Nothing was changed: the locale packs changed after this change was shown. "
+                             "Type the command again.")
+            if isinstance(prof.get("caps"), dict):
+                prof["caps"] = dict(prof["caps"], currency=value)
+            for head, k in amounts:
+                prof[head] = sub = dict(prof[head])
+                if pairs is None:
+                    sub.pop(k)
+                else:
+                    sub[k] = to_unit(sub[k], old, value, pairs)
     prof["schema"] = "harness/business_profile@1"
     _write(ctx, FILES["profile"], prof)
     baseline(ctx, f"business set {field}")
