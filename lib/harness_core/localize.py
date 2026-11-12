@@ -46,6 +46,11 @@ def use_fold(fold: dict) -> None:
     _fold = str.maketrans(fold.get("letters", {}))
 
 
+def _uncover(t: str) -> str:
+    """The step of ``fold_name`` that can uncover a character: a format character (``Cf``) a space, a mark (``Mn``)
+    removed. ``locales.check_currency_words`` checks a word in this form, the form the table holds."""
+    return "".join(" " if unicodedata.category(ch) == "Cf" else ch for ch in t if unicodedata.category(ch) != "Mn")
+
 def fold_name(text) -> str:
     """Matching key: letters unified by the ``fold.letters`` of the locale packs, format characters a space,
     diacritics removed, digits ASCII, casefolded."""
@@ -55,8 +60,7 @@ def fold_name(text) -> str:
         _fold = str.maketrans(locales.view(None, every=True).get("fold", {}).get("letters", {}))
     t = digits(text)
     if not t.isascii():
-        t = "".join(" " if unicodedata.category(ch) == "Cf" else ch for ch in t.translate(_fold)
-                    if unicodedata.category(ch) != "Mn")
+        t = _uncover(t.translate(_fold))
     return " ".join(t.split()).casefold()
 
 
