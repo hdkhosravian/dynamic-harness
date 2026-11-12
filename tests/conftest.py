@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+import os
 import sys
+import zlib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
+
+
+def pytest_collection_modifyitems(config, items):
+    """HARNESS_SHARD=k/n keeps the tests whose node id falls in shard k of n (tools/suite.py sets it)."""
+    shard = os.environ.get("HARNESS_SHARD")
+    if not shard:
+        return
+    k, n = (int(x) for x in shard.split("/"))
+    keep, drop = [], []
+    for item in items:
+        (keep if zlib.crc32(item.nodeid.encode("utf-8", "backslashreplace")) % n == k else drop).append(item)
+    config.hook.pytest_deselected(items=drop)
+    items[:] = keep
 
 
 @pytest.fixture

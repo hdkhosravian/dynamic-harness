@@ -18,6 +18,8 @@ Thank you for helping improve dynamic-harness.
    python3 -m pytest -q
    ```
 
+   `python3 tools/suite.py` runs the same tests in parallel and takes under 2 minutes.
+
    The gate integration tests use a `loop-contract-skill` checkout next to this repository, or the path in
    `HARNESS_FOLD_LEDGER`.
 3. Keep to the standard library. The hooks run under `/usr/bin/python3 -I`.

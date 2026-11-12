@@ -6,10 +6,13 @@ repository, and adding a pack.
 ## Run the tests
 
 ```bash
-python3 -m pytest -q
+python3 -m pytest -q        # one process, about 5 minutes
+python3 tools/suite.py         # the same tests in parallel shards, under 2 minutes
 ```
 
-- More than 1,850 tests, standard library plus pytest. They pass on macOS (sandbox-exec) and on Ubuntu 22.04 and
+- `tools/suite.py` takes pytest options and test paths. It fails when the shards do not add up to one whole
+  run, and it runs a file with a failure a second time alone; that run decides.
+- More than 4,000 tests, standard library plus pytest. They pass on macOS (sandbox-exec) and on Ubuntu 22.04 and
   24.04 (bubblewrap).
 - The gate integration tests use a real `fold_ledger.py` from a `loop-contract-skill` checkout next to this
   repository, or from the path in `HARNESS_FOLD_LEDGER`. Set `HARNESS_REQUIRE_INTEGRATION=1` to turn a missing
@@ -47,7 +50,7 @@ hooks/hooks.json    hook registration (every entry fails closed)
 lib/harness_core/   the library: one module per concern
 schema/             JSON Schemas for run records and the card
 skills/             executor guidance (task-card) and the packs (finance, research, model, operations)
-tools/              release tooling (pack hashes, skill approvals)
+tools/              release tooling (pack hashes, skill approvals) and the parallel test runner (suite.py)
 templates/          user-facing text in English (en.json) and Persian (fa.json)
 tests/              pytest suite, bypass corpus, card fixtures
 spike/              Claude Code platform probes
