@@ -10,6 +10,7 @@ Every test that is not marked ``once`` runs twice: with the shipped packs, and w
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -473,7 +474,8 @@ def test_a_definition_sentence_names_the_live_currency_in_the_owners_language(h)
         "I'll count revenue as sales invoices minus returns, excluding VAT, in quidas. Is that right?")
     business.set_field(c, "language", "fa")
     sentence = contact.definition_text(dict(METRIC, currency="QDA"), ctx_of(h))   # no Persian name: the code
-    assert "QDA" in sentence and "quidas" not in sentence
+    assert sentence == templates.load("fa")["definition"].format(
+        metric="revenue", inclusions="sales invoices minus returns", exclusions="VAT", unit="QDA", extra="")
 
 
 def test_the_settings_text_shows_the_name_in_the_base_language_and_the_code(h):
@@ -1110,3 +1112,243 @@ def test_the_templates_calls_that_the_existing_pins_count_make_no_currency_read(
     del calls[:]
     templates.currency("QDA", "en", c)
     assert len(calls) == 1   # and the name of a currency is one read of its own
+
+
+# --- fix round 1 (review of T4a): offer and confirm agree, a broken pack refuses, no figure no read -----------------
+
+
+def profile_bytes(h):
+    return (h["data"] / "business" / "profile.json").read_bytes()
+
+
+def offered(h, old="QDA", new="qdc", pid="a1", cap=700000):
+    """Profile with currency ``old`` and a numeric spending limit; the owner types the change to ``new``: the answer
+    with the one-time code. The live pack ``t-minor`` (QDA to QDC, x100) is written by the caller."""
+    business.set_field(ctx_of(h), "currency", old)
+    business.set_field(ctx_of(h), "caps.task", cap)
+    return typed(h, f"/dynamic-harness:business set currency {new}", pid)
+
+
+def refused(answer):
+    return answer.startswith("Nothing was changed") and "Done" not in answer
+
+
+def test_a_confirm_after_the_pack_was_deleted_does_not_drop_a_limit_the_offer_promised_to_convert(h):
+    put(h, "t-minor.json", MINOR)
+    shown = offered(h)
+    assert WARNING not in shown   # the owner was told nothing is lost
+    (h["data"] / "control" / "locales" / "t-minor.json").unlink()
+    before = profile_bytes(h)
+    assert refused(confirm(h, "business", shown, "a2"))
+    assert profile_bytes(h) == before and business.profile(ctx_of(h))["caps"]["task"] == 700000
+
+
+def test_a_confirm_after_the_factor_changed_does_not_convert_with_a_factor_the_owner_did_not_see(h):
+    put(h, "t-minor.json", MINOR)
+    shown = offered(h)
+    put(h, "t-minor.json", dict(MINOR, currency_pairs=[pair("QDA", "QDC", 1000)]))
+    before = profile_bytes(h)
+    assert refused(confirm(h, "business", shown, "a2"))
+    assert profile_bytes(h) == before and business.profile(ctx_of(h))["caps"]["task"] == 700000
+
+
+def test_a_confirm_after_a_relation_appeared_does_not_convert_a_limit_the_offer_said_would_be_removed(h):
+    shown = offered(h)   # no pack relates the two codes: the removal warning is shown
+    assert WARNING in shown
+    put(h, "t-minor.json", MINOR)
+    before = profile_bytes(h)
+    assert refused(confirm(h, "business", shown, "a2"))
+    assert profile_bytes(h) == before and business.profile(ctx_of(h))["caps"]["task"] == 700000
+
+
+def test_after_a_refusal_the_profile_is_as_it_was_and_a_fresh_offer_and_confirm_use_the_packs_as_they_are(h):
+    put(h, "t-minor.json", MINOR)
+    shown = offered(h)
+    put(h, "t-minor.json", dict(MINOR, currency_pairs=[pair("QDA", "QDC", 1000)]))
+    before = profile_bytes(h)
+    assert refused(confirm(h, "business", shown, "a2"))
+    assert profile_bytes(h) == before
+    again = typed(h, "/dynamic-harness:business set currency qdc", "a3")
+    assert WARNING not in again and "Done" in confirm(h, "business", again, "a4")
+    prof = business.profile(ctx_of(h))
+    assert prof["currency"] == "QDC" and prof["caps"] == {"task": 700000000, "currency": "QDC"}
+
+
+# F2: the run without the regional pack. The shipped side of each test is the same test with ``has`` true.
+
+
+def regional(has, tmp_path, monkeypatch):
+    if not has:
+        without_ir(tmp_path, monkeypatch)
+
+
+@once
+@pytest.mark.parametrize("has", [True, False], ids=["with-the-regional-pack", "without-it"])
+def test_toman_to_rial_converts_the_limits_only_when_a_pack_relates_them(h, tmp_path, monkeypatch, has):
+    regional(has, tmp_path, monkeypatch)
+    set_limits(ctx_of(h), "IRT")
+    business.set_field(ctx_of(h), "currency", "IRR")
+    prof = business.profile(ctx_of(h))
+    if has:
+        assert prof["caps"] == {"task": 70000000, "month": 210000000, "currency": "IRR"}
+        assert prof["thresholds"] == {"money_at_stake_high": 140000000} and prof["fx"]["USD"] == 7000000
+    else:
+        assert prof["caps"] == {"currency": "IRR"}
+        assert "money_at_stake_high" not in prof["thresholds"] and "USD" not in prof["fx"]
+
+
+@once
+@pytest.mark.parametrize("has", [True, False], ids=["with-the-regional-pack", "without-it"])
+def test_the_removal_warning_for_toman_to_rial_shows_only_when_no_pack_relates_them(h, tmp_path, monkeypatch, has):
+    regional(has, tmp_path, monkeypatch)
+    set_limits(ctx_of(h), "IRT")
+    assert (WARNING in typed(h, "/dynamic-harness:business set currency irr", "r1")) is (not has)
+
+
+@once
+@pytest.mark.parametrize("has", [True, False], ids=["with-the-regional-pack", "without-it"])
+def test_the_check_shows_no_other_unit_for_toman_when_no_pack_relates_it(h, job, tmp_path, monkeypatch, has):
+    regional(has, tmp_path, monkeypatch)
+    business.set_field(ctx_of(h), "currency", "IRT")
+    res = check(h, {}, amounts(1).replace(",amount\n", ",amount (Toman)\n"))
+    assert res["result"] == "pass" and res["values"]["total"] == 4000000 and res["values"]["unit"] == "IRT"
+    assert ("total_other_unit" in res["values"]) is has
+    if has:
+        assert res["values"]["total_other_unit"] == 40000000
+
+
+@once
+@pytest.mark.parametrize("has", [True, False], ids=["with-the-regional-pack", "without-it"])
+def test_a_toman_file_under_a_rial_profile_is_converted_only_when_a_pack_relates_them(h, job, tmp_path, monkeypatch,
+                                                                                      has):
+    regional(has, tmp_path, monkeypatch)
+    business.set_field(ctx_of(h), "currency", "IRR")
+    res = check(h, {}, amounts(1).replace(",amount\n", ",amount (Toman)\n"))
+    if has:
+        assert res["result"] == "pass" and res["values"]["total"] == 40000000
+    else:
+        assert res["result"] == "error" and "total" not in res["values"]
+
+
+@once
+def test_a_broken_live_pack_beside_the_copy_without_the_regional_pack_brings_no_relation_back(h, tmp_path,
+                                                                                              monkeypatch):
+    without_ir(tmp_path, monkeypatch)
+    set_limits(ctx_of(h), "IRT")
+    put(h, "broken.json", b"{")
+    before = profile_bytes(h)
+    with pytest.raises(LocaleError):
+        business.set_field(ctx_of(h), "currency", "IRR")
+    answer = typed(h, "/dynamic-harness:business set currency irr", "r1")
+    assert answer.startswith("Nothing was changed") and "broken.json" in answer
+    assert profile_bytes(h) == before
+
+
+# F3: a broken live pack and a currency change
+
+BROKEN = [pytest.param(b"{", id="not-json"),
+          pytest.param(json.dumps(pack("broken", currency_pairs=[pair("QDA", "QDC", 1)])).encode(), id="factor-1")]
+
+
+def with_cap(h, currency="QDA"):
+    business.set_field(ctx_of(h), "currency", currency)
+    business.set_field(ctx_of(h), "caps.task", 700000)
+
+
+@pytest.mark.parametrize("bad", BROKEN)
+def test_a_broken_pack_stops_a_currency_change_that_has_a_limit_to_convert_and_the_profile_stays(h, bad):
+    with_cap(h)
+    put(h, "broken.json", bad)
+    before = profile_bytes(h)
+    with pytest.raises(LocaleError):
+        business.set_field(ctx_of(h), "currency", "QDC")
+    assert profile_bytes(h) == before
+
+
+@pytest.mark.parametrize("bad", BROKEN)
+def test_the_command_names_the_broken_pack_offers_no_code_and_leaves_the_profile(h, bad):
+    with_cap(h)
+    put(h, "broken.json", bad)
+    before = profile_bytes(h)
+    answer = typed(h, "/dynamic-harness:business set currency qdc", "c1")
+    assert answer.startswith("Nothing was changed") and "broken.json" in answer
+    assert re.search(r"confirm \d{6}", answer) is None
+    assert profile_bytes(h) == before
+
+
+@pytest.mark.parametrize("bad", BROKEN)
+def test_writing_the_currency_that_is_already_set_works_with_a_broken_pack(h, bad):
+    with_cap(h)
+    put(h, "broken.json", bad)
+    business.set_field(ctx_of(h), "currency", "QDA")
+    shown = typed(h, "/dynamic-harness:business set currency qda", "c1")
+    assert "Done" in confirm(h, "business", shown, "c2")
+    assert business.profile(ctx_of(h))["caps"] == {"task": 700000, "currency": "QDA"}
+
+
+# F5: no figure, no read
+
+
+@pytest.mark.parametrize("bad", BROKEN)
+def test_a_currency_change_with_no_figure_to_convert_works_with_a_broken_pack(h, bad):
+    business.set_field(ctx_of(h), "currency", "QDA")
+    put(h, "broken.json", bad)
+    shown = typed(h, "/dynamic-harness:business set currency qdc", "d1")
+    assert "Nothing was changed" not in shown and "Set your currency to" in shown
+    assert "Done" in confirm(h, "business", shown, "d2")
+    assert business.profile(ctx_of(h))["currency"] == "QDC"
+
+
+def test_set_field_reads_no_pack_when_the_profile_holds_no_figure(h, monkeypatch):
+    live3(h)
+    business.set_field(ctx_of(h), "currency", "QDA")
+    calls = spy_views(monkeypatch)
+    business.set_field(ctx_of(h), "currency", "QDC")
+    assert calls == [] and business.profile(ctx_of(h))["currency"] == "QDC"
+
+
+@pytest.mark.parametrize("field", ["caps.task", "thresholds.money_at_stake_high", "fx.USD"])
+def test_set_field_reads_the_packs_when_the_profile_holds_a_figure(h, monkeypatch, field):
+    live3(h)
+    business.set_field(ctx_of(h), "currency", "QDA")
+    business.set_field(ctx_of(h), field, 700000)
+    calls = spy_views(monkeypatch)
+    business.set_field(ctx_of(h), "currency", "QDC")
+    assert len(calls) >= 1
+    assert 70000000 in [v for sub in business.profile(ctx_of(h)).values() if isinstance(sub, dict)
+                        for v in sub.values()]
+
+
+# F12: the code lookup is case-sensitive; a pairs value in a request must be a list
+
+
+def test_a_lower_case_spelling_of_a_live_code_is_not_a_code_and_stays_as_typed(h):
+    c = live3(h)
+    assert templates.currency("QDA", "en", c) == "quidas"
+    assert templates.currency("qda", "en", c) == "qda" and templates.currency("Qda", "en", c) == "Qda"
+
+
+@once
+def test_a_lower_case_spelling_of_a_shipped_code_is_not_a_code_and_stays_as_typed(h):
+    c = ctx_of(h)
+    assert templates.currency("USD", "en", c) == "US dollars"
+    assert templates.currency("usd", "en", c) == "usd" and templates.currency("usd", "en") == "usd"
+
+
+def exit_of(tmp_path, request):
+    script = tmp_path / "check_convert.py"
+    script.write_text(CONVERT, "utf-8")
+    return subprocess.run([PY, "-I", str(script)], input=json.dumps(request).encode("utf-8"), env={},
+                          cwd=str(tmp_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+
+
+@pytest.mark.parametrize("value", [None, "abc", {}, {"from": "QDA", "to": "QDC", "factor": 100}, 7],
+                         ids=["null", "string", "empty-object", "object", "number"])
+def test_a_check_request_whose_pairs_are_not_a_list_ends_with_an_error_exit(tmp_path, value):
+    p = exit_of(tmp_path, {"convert": [], "locale": {"fold": {}, "currency_pairs": value}})
+    assert p.returncode == 3 and p.stdout == b"" and b"check error" in p.stderr
+
+
+def test_a_check_request_with_a_list_of_pairs_still_runs(tmp_path):
+    p = exit_of(tmp_path, {"convert": [["1", "QDA", "QDC"]], "locale": {"fold": {}, "currency_pairs": [MINOR_PAIR]}})
+    assert p.returncode == 0
