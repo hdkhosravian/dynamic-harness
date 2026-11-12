@@ -146,8 +146,22 @@ def test_the_currency_words_of_live_packs_merge_with_the_shipped_lists_by_the_li
 
 GOOD_WORDS = {"QDA": ["zorb", YEN]}
 # words in which every character is a control, format, separator or mark: nothing to see, nothing to match
-INVISIBLE = [("space", " "), ("tab", "\t"), ("no-break-space", "\u00a0"), ("zero-width-space", "\u200b"),
-             ("zwnj-and-zwj", "\u200c\u200d"), ("combining-acute", "\u0301"), ("space-and-zero-width-space", " \u200b")]
+INVISIBLE = [("control", "\u0001"), ("soft-hyphen", "\u00ad"), ("space", " "), ("tab", "\t"),
+             ("no-break-space", "\u00a0"), ("zero-width-space", "\u200b"), ("zwnj-and-zwj", "\u200c\u200d"), ("combining-acute", "\u0301"), ("space-and-zero-width-space", " \u200b")]
+
+
+def unassigned():
+    """A code point that the running interpreter reports as Cn: the first one in the Currency Symbols block, else the
+    first one after it (a newer Unicode knows more signs; the hooks run on Unicode 13)."""
+    cp = next(c for c in list(range(0x20A0, 0x20D0)) + list(range(0x20D0, 0x110000))
+              if unicodedata.category(chr(c)) == "Cn")
+    assert unicodedata.category(chr(cp)) == "Cn"
+    return chr(cp)
+
+
+# a character that no table of this interpreter knows, and a private-use one, are visible: a sign added to Unicode
+# later is Cn on an older Python, and a pack for that region must load
+SIGNS_NOT_IN_TABLES = [("unassigned", unassigned()), ("private-use", "\ue000")]
 # words that have a visible character, however much invisible one around it
 VISIBLE = [("inner-space", "zorb fund"), ("zwnj-inside", "zo\u200crb"), ("one-sign", YEN), ("padded", " zorb "),
            ("zwsp-around", "\u200bzorb\u200b")]
@@ -188,6 +202,40 @@ def test_a_bad_currency_words_key_is_refused_with_the_file_and_the_key_path(h, c
 def test_a_word_with_a_visible_character_is_accepted_at_pack_load(h, word):
     put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": [word, "zorb"]}}))
     assert locales.installed(ctx_of(h))["xx"]["words"]["currency_words"] == {"QDA": [word, "zorb"]}
+
+
+def test_the_signs_of_the_tests_are_of_the_categories_they_are_named_for():
+    assert [unicodedata.category(w) for _, w in SIGNS_NOT_IN_TABLES] == ["Cn", "Co"]
+    assert [unicodedata.category(c) for c in INVISIBLE[0][1] + INVISIBLE[1][1]] == ["Cc", "Cf"]
+
+
+@pytest.mark.parametrize("sign", [w for _, w in SIGNS_NOT_IN_TABLES], ids=[n for n, _ in SIGNS_NOT_IN_TABLES])
+def test_a_word_of_a_character_that_no_unicode_table_knows_is_accepted_at_pack_load(h, sign):
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": [sign]}}))
+    assert locales.installed(ctx_of(h))["xx"]["words"]["currency_words"] == {"QDA": [sign]}
+
+
+@pytest.mark.parametrize("sign", [w for _, w in SIGNS_NOT_IN_TABLES], ids=[n for n, _ in SIGNS_NOT_IN_TABLES])
+def test_a_word_of_a_character_that_no_unicode_table_knows_is_accepted_in_a_request(tmp_path, sign):
+    marker = tmp_path / "ran"
+    got = values(tmp_path, {"labels": ["amount (" + sign + ")", "amount"], "marker": str(marker),
+                            "locale": {"fold": {}, "currency_words": {"QDA": [sign]}}})
+    assert marker.exists() and got["codes"] == ["QDA", None]
+
+
+@pytest.mark.parametrize("sign", [w for _, w in SIGNS_NOT_IN_TABLES], ids=[n for n, _ in SIGNS_NOT_IN_TABLES])
+def test_a_sign_that_no_unicode_table_knows_is_a_currency_word_for_the_matcher(sign):
+    table = {"QDA": [sign], "QDC": ["zorb"]}
+    assert [L.currency_of(x, words=table) for x in ("amount (" + sign + ")", "5000" + sign, sign + "5000", "amount",
+                                                     "amount (zorb)")] == ["QDA", "QDA", "QDA", None, "QDC"]
+    assert [L.names_currency(x, table) for x in ("paid " + sign + "500", "paid 500", "")] == [True, False, False]
+
+
+@pytest.mark.parametrize("sign", [w for _, w in SIGNS_NOT_IN_TABLES], ids=[n for n, _ in SIGNS_NOT_IN_TABLES])
+def test_a_sign_that_no_unicode_table_knows_is_money_for_the_probe_of_a_live_pack(h, sign):
+    c = live(h, pack("t-words", words={"currency_words": {"QDA": [sign]}}))
+    assert money("it came to 3000" + sign, c) == [sign] and money("it came to " + sign + "3000", c) == [sign]
+    assert money("it came to 3000", c) == [] and money("please summarise the 5 meeting notes", c) == []
 
 
 @pytest.mark.parametrize("junk", [w for _, w in INVISIBLE], ids=[n for n, _ in INVISIBLE])
