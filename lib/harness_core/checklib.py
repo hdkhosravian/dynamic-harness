@@ -8,8 +8,9 @@ its cwd laid out as::
     run/                the run-state files the manifest's run_files names
 
 and one JSON object on stdin: ``{check_id, unit, attempt, args, inputs: [{name, path, sha256}], work, run,
-business, card, today, locale: {fold}}``. It prints one JSON line last: ``{"result": "pass" | "fail", "values": {...},
-"notes": [...], "note_codes": [...]}`` and exits 0; any other exit is an error. Earlier lines may carry
+business, card, today, locale: {fold, currency_pairs, currency_words}}`` (the last two may be absent: then the
+shipped packs apply; a malformed one is an error). It prints one JSON line last: ``{"result": "pass" | "fail",
+"values": {...}, "notes": [...], "note_codes": [...]}`` and exits 0; any other exit is an error. Earlier lines may carry
 attachments (``{"attachment": "rows", "headers": [...], "rows": [...]}``), kept with the recorded output. ``values`` holds numbers the report may cite
 (R-11: every aggregate is computed here, never by the model); ``notes`` holds plain-language findings
 (left-out rows, disagreeing sources) that the report must show.

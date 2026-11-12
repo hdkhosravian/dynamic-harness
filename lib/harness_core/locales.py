@@ -145,15 +145,17 @@ def check_currency_pairs(pairs, label: str) -> None:
 
 
 def check_currency_words(table, label: str) -> None:
-    """The rules of ``currency_words``: an object of currency codes to lists of words that are not empty. ``label``
-    names the key in the message."""
+    """The rules of ``currency_words``: an object of currency codes to lists of words, each with a visible character
+    (not only separators, control or format characters and marks, which fold to nothing). ``label`` names the key in
+    the message."""
     if not isinstance(table, dict):
         raise LocaleError(f"{label} is not an object")
     for code, ws in table.items():
         if not re.fullmatch(CODE, code):
             raise LocaleError(f"{label}.{code}: a currency code is exactly 3 letters A-Z")
-        if not isinstance(ws, list) or not all(isinstance(w, str) and w for w in ws):
-            raise LocaleError(f"{label}.{code}: must be a list of words that are not empty")
+        if not isinstance(ws, list) or not all(isinstance(w, str) and any(unicodedata.category(c)[0] not in "CZM"
+                                                                            for c in w) for w in ws):
+            raise LocaleError(f"{label}.{code}: must be a list of words that are not empty or invisible")
 
 
 def _read(d: Path) -> dict:

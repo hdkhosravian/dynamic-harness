@@ -90,8 +90,8 @@ def _classes(live: dict, key: str) -> dict:
 
 def words(ctx) -> dict:
     """The keyword lists in force: the ``words`` of the locale packs, then the entries of the live ``probe.json``
-    (duplicates dropped, the first kept); ``money_words`` also holds every word of ``currency_words``. An owner verb that a pack lists under ``verbs`` stays a position verb;
-    any other owner verb is matched anywhere."""
+    (duplicates dropped, the first kept); ``money_words`` also holds every word of ``currency_words``. An owner verb
+    that a pack lists under ``verbs`` stays a position verb; any other owner verb is matched anywhere."""
     return _words(ctx, locales.view(ctx, every=True))
 
 
