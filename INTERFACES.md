@@ -713,8 +713,16 @@ its last `file_sha`, appends the row, then appends an event carrying
   words=None) -> bool`: any word of the table matches, one under two codes included. Without `words` both use the
   table of the process: the one given to `use_currency_words(table)` (a check request's `locale.currency_words`),
   otherwise `words.currency_words` of the shipped packs, read once per process on first use (tests reset it with
-  `localize._currency_words = None`). `finance.aggregate` reads the header of the amount column with
-  `currency_of`: a header that names a code with no relation to the target is `cannot convert A to B` (exit 3).
+  `localize._currency_words = None`). `parse_amount(value, unit=None, words=None, pairs=None)`: a cell is an
+  optional negative form, a number and at most one mark before or after it; a cell with no mark is read as in 0.4.0
+  and reads no table. A mark counts when its `fold_name` equals a folded word of `words` (the whole mark, never a
+  search); its codes `C` give: `unit` None or in `C` the number, one code related to `unit` by `pair_of` the number
+  `to_unit` into `unit`, else None. A mark on both sides, text that is no word, or a negative form both around the
+  cell and on the number are None. `finance.aggregate` reads the header of the amount column with `currency_of`
+  and passes its unit to the three `parse_amount` calls (a cell in an unrelated currency is `unparsable`); a
+  header that names a code with no relation to the target is refused before the rows are read, with a
+  `ValueError` that names the header, both codes and that nothing was summed (exit 3). The other callers of
+  `parse_amount` pass no unit.
   The magnitude note of `finance.reconcile` (a ratio of 8 or more against the prior period) has two codes:
   `magnitude` `{ratio}` (no unit named), or `magnitude_units` `{ratio, unit, other}` when `pair_of(<result unit>)`
   finds an entry (`unit` its `from`, `other` its `to`).

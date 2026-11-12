@@ -71,8 +71,13 @@ word that starts with a sign (not a letter or digit) matches anywhere. List only
 currency: a word listed under two codes names neither, and a word that several currencies share (a dollar sign)
 belongs in `money_words`. The same words make a sentence about money in a request, in a quick answer and in a
 research claim. A header that names a currency other than yours, with no relation between the two in
-`currency_pairs`, ends the check with an error (`cannot convert <A> to <B>`). Packs apply as the profile list
-`locales` chooses.
+`currency_pairs`, ends the check with an error that names the header and both codes; nothing is summed. Packs
+apply as the profile list `locales` chooses.
+
+The same words are read in an amount cell: `100 <word>`, `<word>100` or `<sign> 100` is 100 in `<CODE>`. In a
+column of `<CODE>` the cell is 100; in a column of a currency that `currency_pairs` relates to `<CODE>` it is
+converted into the column's currency; in any other column, and when the text beside the number is no listed word
+(the whole text, not a part of it) or a word stands on both sides, the cell is counted as unreadable, never summed.
 
 ### The answer header
 
