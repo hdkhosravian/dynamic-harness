@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import json
 import subprocess
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -511,6 +512,10 @@ SIGN_NEGATIVE = {
     "inner-parentheses": "W (100)",
     "inner-trailing-minus": "100- W",
     "inner-parentheses-mark-after": "(100) W",
+    # second ruling: a plus is no negative form, so the parentheses are the one form
+    "outer-parentheses-and-outer-plus": "(+W 100)",
+    "outer-parentheses-and-inner-plus": "(W +100)",
+    "outer-parentheses-and-inner-plus-mark-after": "(+100 W)",
 }
 SIGN_POSITIVE = {
     "outer-plus-mark-before": "+W 100",
@@ -524,6 +529,17 @@ SIGN_NONE = {
     "outer-parentheses-and-inner-minus-mark-after": "(-100 W)",
     "outer-minus-and-outer-trailing-minus": "-100 W-",
     "outer-parentheses-and-inner-parentheses": "(W (100))",
+    # second ruling: at most one negative form, wherever the forms stand
+    "parentheses-and-leading-minus": "(-W 100)",
+    "parentheses-and-trailing-minus-mark-before": "(W 100-)",
+    "parentheses-and-trailing-minus-mark-after": "(100 W-)",
+    "parentheses-and-minus-after-the-number": "(100- W)",
+    "mark-and-parentheses-around-a-negative-number": "W (-100)",
+    "parentheses-around-a-negative-number-and-mark": "(-100) W",
+    "mark-and-parentheses-around-a-number-with-trailing-minus": "W (100-)",
+    "parentheses-around-a-number-with-trailing-minus-and-mark": "(100-) W",
+    "mark-and-minus-on-both-sides-of-the-number": "W -100-",
+    "minus-on-both-sides-of-the-number-and-mark": "-100- W",
 }
 SIGN_MARKS = {"letters": ("zorb", "QDA"), "sign": (SIGN, "QDA"), "other-script": (HRN, "QDC")}
 
@@ -619,6 +635,104 @@ def test_a_cell_with_no_mark_keeps_the_sign_it_has_in_0_4_0_with_one_argument(va
 @pytest.mark.parametrize("value, want", NO_MARK_SIGNS)
 def test_a_cell_with_no_mark_keeps_the_sign_it_has_in_0_4_0_with_a_unit_a_word_table_and_pairs(value, want):
     assert shown(L.parse_amount(value, unit="QDA", words=WORDS, pairs=PAIRS)) == want
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["(-100) rials", "(100-) rials"],
+    ids=["parentheses-around-a-negative", "parentheses-around-a-trailing-minus"],
+)
+@pytest.mark.parametrize("unit", [None, "IRR"], ids=["no-unit", "own-unit"])
+def test_two_negative_forms_in_a_cell_with_a_shipped_word_make_it_unreadable_unlike_0_4_0(shipped, value, unit):
+    # 0.4.0 gave 100 for (-100) rials and -100 for (100-) rials (the strip left the number part to the old grammar)
+    assert L.parse_amount(value, unit=unit) is None
+
+
+# --- 9c. the read of one cell takes time linear in its length (ruling: item 7) ---------------------------------------
+
+N = 20000
+
+
+def linear_cells():
+    """(id, cell, result) of shapes that make a backtracking split quadratic. ``x`` is no word of the table; the
+    result follows from the rule: text beside a number that is no word, or a mark on both sides, is unreadable."""
+    for end in ("x", "zorb"):
+        yield f"digits-{end}", end + "1" * N + "x", None  # a mark on both sides
+        yield f"digits-both-sides-{end}", "1" * N + end + "1" * N + "x", None  # digits on both sides of the text
+        yield f"spaces-{end}", end + " " * N + "x", None  # no number at all
+        yield f"nested-signs-{end}", end + "-(" * N + "x", None
+    # cells that do reach the word lookup and are numbers
+    yield "word-then-digits", "zorb" + "1" * N, D("1" * N)
+    yield "digits-then-word", "1" * N + " zorb", D("1" * N)
+    yield "word-spaces-digit", "zorb" + " " * N + "1", D(1)
+    yield "digit-spaces-word", "1" + " " * N + "zorb", D(1)
+    yield "word-then-negative", "zorb-1" + " " * N + "1", D(-11)  # white space inside a number goes
+
+
+def test_a_cell_of_twenty_thousand_characters_is_read_in_linear_time():
+    cells = list(linear_cells())
+    t0 = time.perf_counter()
+    got = [(i, L.parse_amount(c, None, WORDS)) for i, c, _ in cells]
+    spent = time.perf_counter() - t0
+    assert [(i, r) for i, r in got] == [(i, want) for i, _, want in cells]
+    # a linear read takes milliseconds; the quadratic split took seconds per shape. 2 s leaves a slow machine room.
+    assert spent < 2.0, f"{spent:.2f} s"
+
+
+# --- 9d. a new word table or letter table is read at once (ruling: item 8) -------------------------------------------
+
+FRESH = """
+import gc, json, sys
+sys.path.insert(0, %r)
+from harness_core import localize as L
+
+out = {}
+L.use_fold({})
+L.use_currency_words({"QDA": ["zorb"]})
+out["first"] = [str(L.parse_amount("5 zorb", unit="QDA")), str(L.parse_amount("5 zorb", unit="QDC", pairs=[]))]
+L.use_currency_words({"QDC": ["zorb"], "QDA": ["blip"]})
+out["table_changed"] = [str(L.parse_amount("5 zorb", unit="QDA", pairs=[])), str(L.parse_amount("5 zorb", unit="QDC")),
+                        str(L.parse_amount("5 blip", unit="QDA"))]
+L.use_currency_words({"QDA": ["zorb"]})
+out["table_back"] = str(L.parse_amount("5 zorb", unit="QDA"))
+
+word = "ab\u00e9"
+L.use_currency_words({"QDA": [word]})
+L.use_fold({})
+out["fold_a"] = [str(L.parse_amount("5 abe", unit="QDA", pairs=[])), str(L.parse_amount("5 " + word, unit="QDA"))]
+L.use_fold({"letters": {"\u00e9": "e"}})
+out["fold_b"] = [str(L.parse_amount("5 abe", unit="QDA", pairs=[])), str(L.parse_amount("5 " + word, unit="QDA"))]
+L.use_fold({})
+out["fold_a_again"] = str(L.parse_amount("5 abe", unit="QDA", pairs=[]))
+
+rows, before = [], "none"
+for i in range(60):
+    word = "w" + "".join(chr(97 + int(d)) for d in str(i))   # letters only: a digit in the mark would be a number
+    table = {"QDA": [word]}   # a new object each round; the one before is unreferenced
+    rows.append([str(L.parse_amount("5 " + word, unit="QDA", words=table, pairs=[])),
+                 str(L.parse_amount("5 " + before, unit="QDA", words=table, pairs=[]))])
+    before, table = word, None
+    gc.collect()
+out["objects"] = rows
+print(json.dumps(out))
+""" % str(ROOT / "lib")
+
+
+def test_a_new_word_table_a_new_letter_table_and_a_new_words_argument_each_give_their_own_result(tmp_path):
+    script = tmp_path / "check_fresh.py"
+    script.write_text(FRESH, "utf-8")
+    p = subprocess.run(
+        [PY, "-I", str(script)], env={}, cwd=str(tmp_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120
+    )
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    got = json.loads(p.stdout.decode("utf-8"))
+    assert got["first"] == ["5", "None"]  # zorb names QDA; under QDC no pair relates it
+    assert got["table_changed"] == ["None", "5", "5"]  # zorb now names QDC; blip names QDA
+    assert got["table_back"] == "5"
+    assert got["fold_a"] == ["None", "5"]  # the word keeps its accent; the cell without it is no word
+    assert got["fold_b"] == ["5", "5"]  # both fold to abe
+    assert got["fold_a_again"] == "None"
+    assert got["objects"] == [["5", "None"]] * 60
 
 
 # --- 10. the shipped packs: the 0.4.0 pins, and the same rule for the shipped words ----------------------------------
