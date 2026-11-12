@@ -759,6 +759,108 @@ def test_a_word_the_split_can_return_whole_is_accepted_at_load_and_in_a_request(
     assert marker.exists()
 
 
+# --- 10c. the word is checked in the form the table holds (fix round 3, item 15) -------------------------------------
+# The table stores fold_name(word): a format character (Cf) is a space and a mark (Mn) is removed. A word that hides a
+# number character behind one of them would be checked as it is written and sit in the table as the refused word.
+
+ZWSP, ZWJ, BOM, ACUTE = "\u200b", "\u200d", "\ufeff", "\u0301"
+HIDDEN_REFUSED = [
+    ("digit-zero-width-space", "x2" + ZWSP), ("digit-acute", "x2" + ACUTE), ("digit-zero-width-joiner", "x2" + ZWJ),
+    ("digit-byte-order-mark", "x2" + BOM), ("zero-width-space-digit", ZWSP + "2x"),
+    ("minus-zero-width-space", "b-" + ZWSP),
+    ("other-script-digit-acute", "x\u0662" + ACUTE), ("parentheses-zero-width-space", "(usd)" + ZWSP),
+    ("comma-acute", "x," + ACUTE), ("dot-zero-width-space", "." + ZWSP), ("acute-dot", ACUTE + "."),
+]
+HIDDEN_ACCEPTED = [
+    ("letters-zero-width-space", "zorb" + ZWSP), ("zero-width-space-letters", ZWSP + "zorb"),
+    ("letters-acute", "z" + ACUTE + "b"),
+    ("letters-around-a-zero-width-space", "a" + ZWSP + "b"), ("dot-word-zero-width-space", "zb." + ZWSP),
+    ("zero-width-space-dot-word", ZWSP + ".zb"),
+]
+
+
+def names(word, text):
+    """The text holds the word, as it is or in the escaped form of ``repr`` (a format character is escaped there)."""
+    return word in text or repr(word)[1:-1] in text or ascii(word)[1:-1] in text
+
+
+@pytest.mark.parametrize("word", [w for _, w in HIDDEN_REFUSED], ids=[n for n, _ in HIDDEN_REFUSED])
+def test_a_word_that_hides_a_number_character_behind_an_invisible_one_is_refused_in_the_direct_call(word):
+    with pytest.raises(LocaleError) as e:
+        locales.check_currency_words({"QDA": ["zorb"], "QDC": [word]}, "words.currency_words")
+    assert str(e.value).startswith("words.currency_words.QDC: ") and names(word, str(e.value))
+
+
+@pytest.mark.parametrize("word", [w for _, w in HIDDEN_REFUSED], ids=[n for n, _ in HIDDEN_REFUSED])
+def test_a_word_that_hides_a_number_character_behind_an_invisible_one_is_refused_at_load(h, word):
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": ["zorb", word]}}))
+    ctx = ctx_of(h)
+    with pytest.raises(LocaleError) as e:
+        locales.installed(ctx)
+    f = Path(ctx.data_root) / "control" / "locales" / "xx.json"
+    msg = str(e.value)
+    assert msg.startswith(f"locale pack {f}: ") and "words.currency_words" in msg and "QDA" in msg and names(word, msg)
+
+
+@pytest.mark.parametrize("word", [w for _, w in HIDDEN_REFUSED], ids=[n for n, _ in HIDDEN_REFUSED])
+def test_a_word_that_hides_a_number_character_behind_an_invisible_one_ends_a_request_with_an_error_exit(tmp_path, word):
+    p = refused(tmp_path, "currency_words", {"QDA": ["zorb", word]})
+    assert b"QDA" in p.stderr and names(word, p.stderr.decode("utf-8", "replace"))
+
+
+@pytest.mark.parametrize("word", [w for _, w in HIDDEN_ACCEPTED], ids=[n for n, _ in HIDDEN_ACCEPTED])
+def test_a_word_with_an_invisible_character_that_hides_no_number_character_is_accepted_everywhere(h, tmp_path, word):
+    locales.check_currency_words({"QDA": [word]}, "words.currency_words")
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": [word, "zorb"]}}))
+    assert locales.installed(ctx_of(h))["xx"]["words"]["currency_words"] == {"QDA": [word, "zorb"]}
+    marker = tmp_path / "ran"
+    values(tmp_path, {"marker": str(marker), "locale": {"fold": {}, "currency_words": {"QDA": [word, "zorb"]}}})
+    assert marker.exists()
+
+
+ALPHABET = ["z", ".", " ", "\u200c", "2", "-", "(", ",", ZWSP, ACUTE, "\u0662"]
+RULE = "begins or ends with a character a number is written with"     # the text of the refusal of the edge rule
+
+
+def generated_words(longest=4):
+    words, layer = [], [""]
+    for _ in range(longest):
+        layer = [w + c for w in layer for c in ALPHABET]
+        words += layer
+    return words
+
+
+def test_the_check_accepts_a_word_exactly_when_the_key_of_the_table_has_no_number_character_at_an_edge(monkeypatch):
+    """The invariant, not the code: the table holds ``fold_name(word)``, and a cell is split against that key. A word
+    the check accepts has a key with no number character at an edge but dots and with more than dots; a word it
+    refuses for the edge rule has a key that fails this. Words refused for another reason are outside."""
+    monkeypatch.setattr(L, "_fold", None)    # the shipped letter table, whatever an earlier test left behind
+    accepted = rule_refused = other_refused = hidden = 0
+    wrong = []
+    for w in generated_words():
+        key = L.fold_name(w)
+        sound = not any(L._WS.sub("", e) for e in L._ends(key)) and bool(key.strip("."))
+        try:
+            locales.check_currency_words({"QDA": [w]}, "words.currency_words")
+        except LocaleError as e:
+            if RULE not in str(e):
+                other_refused += 1          # empty or invisible: outside the property
+                continue
+            rule_refused += 1
+            if sound:
+                wrong.append(("refused but the key is sound", w, key))
+        else:
+            accepted += 1
+            if not sound:
+                wrong.append(("accepted but the key is not sound", w, key))
+        hidden += any(unicodedata.category(c) in ("Cf", "Mn") for c in w) and any(c in "2-(,\u0662" for c in w)
+    assert wrong[:10] == [], f"{len(wrong)} words, first: {wrong[:10]}"
+    # the property must cover a large and varied set: 16,104 words, none of them skipped by accident
+    assert accepted + rule_refused + other_refused == len(ALPHABET) * (1 + len(ALPHABET) * (1 + len(ALPHABET) * (
+        1 + len(ALPHABET))))
+    assert accepted >= 500 and rule_refused >= 5000 and hidden >= 3000, (accepted, rule_refused, other_refused, hidden)
+
+
 # the check takes time linear in the length of a word; the shapes make a backtracking strip of the edges quadratic
 LONG = 40000
 LONG_WORDS = [

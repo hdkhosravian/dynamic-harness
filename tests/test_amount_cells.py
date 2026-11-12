@@ -26,7 +26,8 @@ import pytest
 
 from harness_core import business
 from harness_core import localize as L
-from harness_core.errors import Denied
+from harness_core import locales
+from harness_core.errors import Denied, LocaleError
 from test_currencies import check, csv_of, pair
 from test_locales import pack, put
 from test_p3_hooks import ctx_of, h  # noqa: F401  (fixture h)
@@ -820,6 +821,29 @@ def test_a_word_that_begins_with_a_dot_is_the_mark_after_a_number_and_before_it(
 def test_nested_parentheses_in_the_number_part_of_a_marked_cell_are_unreadable(value):
     assert cell(value) is None
     assert cell(value, "QDA") is None
+
+
+# --- 9g. why the word check reads the key of the table (fix round 3, item 15) ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hidden, cell_",
+    [
+        ("x2" + "\u200b", "x2 100"),
+        ("x2" + "\u0301", "x2 100"),
+        ("b-" + "\u200b", "100 b-"),
+        ("\u200b" + "2x", "100 2x"),
+    ],
+    ids=["digit-zero-width-space", "digit-acute", "minus-zero-width-space", "zero-width-space-digit"],
+)
+def test_a_pack_cannot_hold_a_word_whose_key_would_misread_a_cell_with_a_shorter_word(hidden, cell_):
+    # The table holds the key fold_name(word): "x2" for x2 + a zero-width space. With the words x, b and that key the
+    # cell "x2 100" is split into the mark x and the number 2 100 (2100); parse_amount trusts its table, so the check
+    # is the boundary and refuses such a word.
+    table = {"QDA": ["x", "b"], "QDC": [hidden]}
+    with pytest.raises(LocaleError):
+        locales.check_currency_words(table, "words.currency_words")
+    assert L.fold_name(hidden) in ("x2", "b-", "2x")  # the key that the cell would have been read against
 
 
 # --- 10. the shipped packs: the 0.4.0 pins, and the same rule for the shipped words ----------------------------------
