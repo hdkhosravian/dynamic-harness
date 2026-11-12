@@ -22,6 +22,7 @@ _DECIMAL = re.compile(r"(?![0-9])\d")  # \d of a str pattern: every character th
 _fold = None  # the letter table of fold_name: the request's (use_fold), else the shipped packs'
 _pairs = None  # the currency_pairs of to_unit: the request's (use_pairs), else the shipped packs'
 _currency_words = None  # the words of currency_of: the request's (use_currency_words), else the shipped packs'
+_codes_last = [None, None, None]  # the last result of _codes: (word table, letter table, result)
 BREAKS = (-61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181, 1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456,
           3178)
 JALALI_MONTHS = ("Farvardin", "Ordibehesht", "Khordad", "Tir", "Mordad", "Shahrivar", "Mehr", "Aban", "Azar", "Dey",
@@ -174,24 +175,27 @@ def parse_date(value):
 
 _NUM = r"[0-9.,٬،+\-()\s‌]"  # after digits(): every character the number grammar reads
 _PLAIN = re.compile(_NUM + "*")
-_EDGE = _NUM.replace(".", "")  # the number takes no dot that no digit follows: it is the mark's ("zb.")
-_SPLIT = re.compile(rf"((?:{_NUM}*{_EDGE})?)(.*?)((?:{_EDGE}{_NUM}*)?)", re.S)  # number?, mark, number?
+_RUN = re.compile(_NUM + "*")  # a run of number characters at one end of a cell: matched forward, linear
 _WS = re.compile(r"[\s‌]")
 
-def _signs(s):
-    """The outer negative forms of today's grammar: ``(…)`` and a trailing minus."""
-    s, neg = s.strip(), False
-    if s.startswith("(") and s.endswith(")"):
-        neg, s = True, s[1:-1]
-    if s.endswith("-") and not s.startswith("-"):
-        neg, s = True, s[:-1]
-    return neg, s
+def _forms(t):
+    """(negative forms, rest): parentheses around ``t``, then a leading sign (a ``+`` is no form), then a trailing
+    minus."""
+    n, t = 0, t.strip()
+    if t.startswith("(") and t.endswith(")"):
+        n, t = 1, t[1:-1].strip()
+    if t[:1] in ("-", "+"):
+        n, t = n + (t[0] == "-"), t[1:].strip()
+    if t.endswith("-"):
+        n, t = n + 1, t[:-1]
+    return n, t
 
 def parse_amount(value, unit=None, words=None, pairs=None):
     """``Decimal`` in ``unit`` or None. A cell is a number and at most one currency mark before or after it: a mark
     equal (folded, whole) to a word of ``words`` (else the table of the process) gives the number when ``unit`` is
     None or one of the word's codes, the number converted by ``pairs`` (``to_unit``) when the word names one code
-    related to ``unit``, else None. A negative form outside the mark or on the number, never both."""
+    related to ``unit``, else None. A cell with a mark holds at most one negative form (around the cell, around the
+    number, a minus before or after either); two or more are None."""
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, (int, Decimal)):
@@ -201,20 +205,18 @@ def parse_amount(value, unit=None, words=None, pairs=None):
     s = digits(value)
     if _PLAIN.fullmatch(s):  # no mark: no word table is read
         return _number(s)
-    neg, s = _signs(s)
-    a, mark, b = _SPLIT.fullmatch(s).groups()
-    a, b = _WS.sub("", a), _WS.sub("", b)
-    if a in ("-", "+") and b:  # a sign before a mark before the number is outer
-        if neg and a == "-":
-            return None
-        neg, a = neg or a == "-", ""
+    n, s = _forms(s)
+    a = _RUN.match(s).group().rstrip(".")  # the number takes no dot that no digit follows: it is the mark's (zb.)
+    b = _RUN.match(s[::-1]).group()[::-1].lstrip(".")
+    mark, a, b = s[len(a):len(s) - len(b)], _WS.sub("", a), _WS.sub("", b)
     if bool(a) == bool(b):  # no number, or a number on both sides of the mark
         return None
-    v = _number(a or b)
+    m, rest = _forms(a or b)
+    v = _number(rest) if n + m < 2 and not re.search(r"[-+()]", rest) else None
     cs = _codes(words).get(fold_name(mark)) if v is not None else None
-    if not cs or neg and v.is_signed():
+    if not cs:
         return None
-    v = -v if neg else v
+    v = -v if n + m else v
     if unit is None or unit in cs:
         return v
     c = next(iter(cs))
@@ -222,7 +224,12 @@ def parse_amount(value, unit=None, words=None, pairs=None):
 
 def _number(s):
     """The number grammar: digits, group marks, a decimal point, ``(1,000)``, a trailing or leading minus."""
-    neg, s = _signs(s)
+    s = s.strip()
+    neg = False
+    if s.startswith("(") and s.endswith(")"):
+        neg, s = True, s[1:-1]
+    if s.endswith("-") and not s.startswith("-"):
+        neg, s = True, s[:-1]
     s = _WS.sub("", s)
     if re.search(r"[,٬،]", s) and not re.fullmatch(r"[-+]?\d{1,3}([,٬،]\d{3})+(\.\d+)?", s):
         return None  # "1,5" is a decimal comma, not 15: unreadable is reported, a wrong number is not
@@ -257,10 +264,13 @@ def _codes(words) -> dict:
             from . import locales
             _currency_words = locales.view(None, every=True).get("words", {}).get("currency_words", {})
         words = _currency_words
+    if _codes_last[0] is words and _codes_last[1] is _fold:  # the same two table objects: the same result
+        return _codes_last[2]
     out = {}
     for code, ws in words.items():
         for w in {fold_name(x) for x in ws} - {""}:  # a word that folds to nothing would match every label
             out.setdefault(w, set()).add(code)
+    _codes_last[:] = words, _fold, out  # the objects are held, so no id is reused; _fold as fold_name read it
     return out
 
 
