@@ -63,7 +63,7 @@ def test_toman_rial_x10_is_reported(h, job):
     sales(h, "date,amount (Toman)\n" + "".join(f"1402/11/{d:02d},1000\n" for d in (1, 2, 3)) +
           "".join(f"1402/12/{d:02d},10000\n" for d in (1, 2, 3)))  # Esfand typed in Rial under a Toman header
     res = run_req(h)
-    assert res["result"] == "fail" and "10.0 times the prior period's" in notes(res) and "Toman/Rial" in notes(res)
+    assert res["result"] == "fail" and "10.0 times the prior period's" in notes(res) and "IRT/IRR" in notes(res)
 
 
 def test_leap_esfand_and_the_fiscal_boundary(h, job):

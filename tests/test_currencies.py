@@ -988,10 +988,13 @@ print(json.dumps(out))
 
 
 @once
-def test_without_the_regional_pack_nothing_converts_and_the_names_are_the_codes(tmp_path, monkeypatch):
+def test_without_the_regional_pack_nothing_converts_and_the_names_are_the_codes(h, tmp_path, monkeypatch):
     d = without_ir(tmp_path, monkeypatch)
     assert templates.currency("IRT", "en") == "IRT" and templates.currency("IRR", "fa") == "IRR"
     assert templates.currency("USD", "en") == "US dollars"   # the other packs are still there
+    assert "Set your currency to IRT (IRT)." in typed(h, "/dynamic-harness:business set currency irt", "n1")
+    business.set_field(ctx_of(h), "currency", "IRT")
+    assert "- Your currency: IRT (IRT)" in business.describe(ctx_of(h))
     script = tmp_path / "noir.py"
     script.write_text(NOIR, "utf-8")
     p = subprocess.run([PY, "-I", str(script), str(d)], env={}, cwd=str(tmp_path), stdout=subprocess.PIPE,
@@ -1347,6 +1350,7 @@ def exit_of(tmp_path, request):
 def test_a_check_request_whose_pairs_are_not_a_list_ends_with_an_error_exit(tmp_path, value):
     p = exit_of(tmp_path, {"convert": [], "locale": {"fold": {}, "currency_pairs": value}})
     assert p.returncode == 3 and p.stdout == b"" and b"check error" in p.stderr
+    assert b"currency_pairs" in p.stderr
 
 
 def test_a_check_request_with_a_list_of_pairs_still_runs(tmp_path):

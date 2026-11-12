@@ -31,6 +31,14 @@ LIST_KEYS = ["imperative_lead", "question_lead", "money_words", "quantity_words"
 SYMBOLS = ("\u20ac", "\u00a3", "\u2713", "\u2714")  # the four non-ASCII entries that the en pack keeps
 IR_MONEY = ["\ufdfc", "toman", "tomans", "rial", "rials", "irr", "irt", "\u062a\u0648\u0645\u0627\u0646",
             "\u0631\u06cc\u0627\u0644"]
+# the words of money_words that task T4b moved to words.currency_words (code -> words), by pack
+CURRENCY_WORDS = {
+    "en": {"USD": ["usd"], "EUR": ["eur", "euro", "euros", "\u20ac"]},
+    "fa": {"EUR": ["\u06cc\u0648\u0631\u0648"]},
+    "ir": {"IRT": ["toman", "tomans", "irt", "\u062a\u0648\u0645\u0627\u0646", "\u062a\u0648\u0645\u0627\u0646\u06cc"],
+           "IRR": ["rial", "rials", "irr", "\u0631\u06cc\u0627\u0644", "\u0631\u06cc\u0627\u0644\u06cc"]},
+}
+ADJECTIVES = ["\u062a\u0648\u0645\u0627\u0646\u06cc", "\u0631\u06cc\u0627\u0644\u06cc"]   # the only entries T4b adds
 WORD_KEYS = {"verbs", "verbs_anywhere", "imperative_lead", "imperative_join", "question_lead", "money_words",
              "quantity_words", "decision_keywords", "continuation", "file_extensions", "question_marks"}
 SHIPPED_PROBE = {
@@ -43,6 +51,21 @@ SHIPPED_PROBE = {
     "continuation": [],
     "file_extensions": OLD["file_extensions"],
 }
+
+
+def moved(pid):
+    return {w for ws in CURRENCY_WORDS[pid].values() for w in ws}
+
+
+def money_of(pid, entries):
+    """The ``money_words`` that a pack keeps: its 0.4.0 entries (``entries``, from ``split``) minus the words that moved
+    to its ``currency_words``, in the same order."""
+    return [w for w in entries if w not in moved(pid)]
+
+
+def flat_currency_words(words):
+    """Every word of a ``currency_words`` object, code by code."""
+    return [w for ws in words.values() for w in ws]
 
 
 def split(entries, ir=()):
@@ -69,11 +92,17 @@ def write_probe(h, content):
 @pytest.mark.parametrize("key", LIST_KEYS)
 def test_each_shipped_list_is_split_between_the_packs_by_the_placement_rule(key):
     en, fa, ir = split(OLD[key], IR_MONEY if key == "money_words" else ())
+    if key == "money_words":  # the currency words left money_words for words.currency_words (task T4b)
+        en, fa, ir = money_of("en", en), money_of("fa", fa), money_of("ir", ir)
     assert words_of("en").get(key, []) == en
     assert words_of("fa").get(key, []) == fa
     assert words_of("ir").get(key, []) == ir
     union = words_of("en").get(key, []) + words_of("fa").get(key, []) + words_of("ir").get(key, [])
-    assert sorted(union) == sorted(OLD[key])  # nothing lost, nothing added, nothing twice
+    want = list(OLD[key])
+    if key == "money_words":  # each moved word is in exactly one place; only the two adjective forms are new
+        union += [w for p in ("en", "fa", "ir") for w in flat_currency_words(words_of(p)["currency_words"])]
+        want += ADJECTIVES
+    assert sorted(union) == sorted(want)  # nothing lost, nothing added, nothing twice
 
 
 @pytest.mark.parametrize("cls", CLASSES)
@@ -94,22 +123,24 @@ def test_decision_keywords_of_a_class_are_split_between_en_and_fa(cls):
 
 def test_the_packs_hold_exactly_the_keys_of_the_brief():
     assert set(words_of("en")) == {"verbs", "imperative_lead", "imperative_join", "question_lead", "money_words",
-                                   "quantity_words", "decision_keywords", "continuation"}
+                                   "quantity_words", "decision_keywords", "continuation", "currency_words"}
     assert set(words_of("fa")) == {"verbs_anywhere", "question_lead", "money_words", "quantity_words",
-                                   "decision_keywords", "continuation"}
+                                   "decision_keywords", "continuation", "currency_words"}
     assert list(words_of("en")["verbs"]) == CLASSES and list(words_of("fa")["verbs_anywhere"]) == CLASSES
     assert list(words_of("en")["decision_keywords"]) == DECISIONS  # the order of the 0.4.0 file
     assert set(words_of("fa")["decision_keywords"]) == set(DECISIONS)
 
 
-def test_the_region_pack_ir_holds_the_nine_money_words_and_nothing_else_under_words():
-    assert words_of("ir") == {"money_words": IR_MONEY}
+def test_the_region_pack_ir_holds_its_one_sign_and_its_currency_words_and_nothing_else_under_words():
+    assert words_of("ir") == {"money_words": money_of("ir", IR_MONEY), "currency_words": CURRENCY_WORDS["ir"]}
+    assert words_of("ir")["money_words"] == ["\ufdfc"]  # a sign that names no single currency stays a money word
 
 
 def test_the_list_lengths_are_the_ones_of_the_brief():
     en, fa = words_of("en"), words_of("fa")
-    assert [len(en[k]) for k in LIST_KEYS] == [13, 21, 25, 12, 6]
-    assert [len(fa[k]) for k in LIST_KEYS if k != "imperative_lead"] == [11, 14, 10, 4]
+    assert [len(en[k]) for k in LIST_KEYS] == [13, 21, 20, 12, 6]   # money_words 25 minus the 5 moved
+    assert [len(fa[k]) for k in LIST_KEYS if k != "imperative_lead"] == [11, 13, 10, 4]   # money_words 14 minus 1
+    assert [sum(len(ws) for ws in words_of(p)["currency_words"].values()) for p in ("en", "fa", "ir")] == [5, 1, 10]
     assert "imperative_lead" not in fa
 
 
@@ -384,7 +415,7 @@ def test_without_a_data_folder_the_lists_are_the_0_4_0_lists(tmp_path):
     for ctx in (None, Ctx(workspace=tmp_path, data_root=None)):
         got = probe.words(ctx)
         for key in LIST_KEYS:
-            assert sorted(got[key]) == sorted(OLD[key]), key
+            assert sorted(got[key]) == sorted(OLD[key] + (ADJECTIVES if key == "money_words" else [])), key
         for cls in CLASSES:
             assert sorted(got["verbs"][cls] + got["verbs_anywhere"][cls]) == sorted(OLD["verbs"][cls]), cls
         assert {c: sorted(v) for c, v in got["decision_keywords"].items()} == \
@@ -392,7 +423,13 @@ def test_without_a_data_folder_the_lists_are_the_0_4_0_lists(tmp_path):
         assert got["file_extensions"] == OLD["file_extensions"]
         assert got["imperative_join"] == ["and", "then", "also", "please"]
         assert got["question_marks"] == ["?", "\u061f"]
-        assert got["money_words"] == sum(split(OLD["money_words"], IR_MONEY), [])  # en, fa, then ir
+        en, fa, ir = split(OLD["money_words"], IR_MONEY)  # the pack lists of en, fa, then ir; then every currency word
+        merged = {}  # the merge of the packs: the lists of one code concatenate, in pack order
+        for p in ("en", "fa", "ir"):
+            for code, ws in CURRENCY_WORDS[p].items():
+                merged.setdefault(code, []).extend(ws)
+        assert got["money_words"] == money_of("en", en) + money_of("fa", fa) + money_of("ir", ir) + \
+            flat_currency_words(merged)
 
 
 def test_verbs_and_verbs_anywhere_always_hold_the_five_classes():
@@ -441,13 +478,13 @@ def test_an_active_live_pack_adds_its_words(h):
 
 
 def test_a_live_file_with_one_list_adds_to_the_packs_and_loses_nothing(h):
-    write_probe(h, {"money_words": ["zloty"]})
+    write_probe(h, {"money_words": ["zloty"]})  # the first three pack words: the euro sign moved to currency_words
     c = ctx_of(h)
     got = probe.run("the zloty invoice", c)
     assert got["money_tokens"] == ["invoice", "zloty"] and got["quantitative"] is True
     words = probe.words(c)
     assert set(words) == WORD_KEYS and all(isinstance(words[k], list) for k in LIST_KEYS + ["imperative_join"])
-    assert words["money_words"][-1] == "zloty" and words["money_words"][:3] == ["$", "\u20ac", "\u00a3"]
+    assert words["money_words"][-1] == "zloty" and words["money_words"][:3] == ["$", "\u00a3", "dollar"]
     assert words["verbs"]["money"][0] == "pay"
 
 
