@@ -36,6 +36,16 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
 - **Languages from files.** The language list is the set of files in `templates/`, and digits, separators, script
   ranges and lint rules of a language come from `render.<lang>` in a locale pack; `business set language` accepts
   any language with a template file. The text an owner sees in English or Persian is unchanged.
+- **Currencies from the packs.** Currency names and the relations between two coded units of one currency are
+  locale pack data: `currencies.<code>.names.<lang>` (and `decimals`) and `currency_pairs` (`{from, to, factor}`,
+  1 `from` = `factor` `to`), read from every installed pack. A live pack with a new currency and a new relation
+  changes the names in your text, the conversion in a check and in its replay, and the conversion of your limits,
+  with no code change. A currency no pack names is shown as its code, in any language. The shipped packs hold the
+  seven codes and the one relation of 0.4.0, so no result changes, except: setting the currency that is already
+  set no longer warns that your spending limits will be removed (they never were). The request of a pack check
+  holds the key `locale.currency_pairs`; a check recorded before this change converts with the shipped packs. The
+  hint for a missing currency reads `business set currency <code>`, and a code that is not 3 letters is refused
+  with "currency is a 3-letter code, for example USD, EUR or JPY".
 - **Live end-to-end scaffold.** `tests/e2e` runs one scripted `claude -p` request per pack and verifies its
   receipt with the harness's own check; it is skipped unless `HARNESS_E2E=1` and has not been run against a live
   model yet.

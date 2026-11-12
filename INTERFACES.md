@@ -665,11 +665,14 @@ its last `file_sha`, appends the row, then appends an event carrying
   sha256 equal to the manifest's), `hash_entries(pack_dir)`. A check id is registered by exactly one pack.
   `tools/release_hashes.py <label>` re-hashes manifests and approves shipped skills.
 - `checklib`: a check reads `{check_id, unit, attempt, args, inputs[{name, path, sha256}], work, run, business,
-  card, today, locale: {fold}}` on stdin, with `inputs/`, `work/` and `run/` in its cwd, and prints
+  card, today, locale: {fold, currency_pairs}}` on stdin, with `inputs/`, `work/` and `run/` in its cwd, and prints
   `{result: pass|fail, values, notes}`. `checklib.main(fn)` with `fn(req) -> (result, values, notes)`; before `fn`
-  it hands `req["locale"]["fold"]` to `localize.use_fold`. `run.apply` sets `locale.fold` to the `fold` of
-  `locales.view(ctx, every=True)` (`{}` when no pack has one): the sandbox cannot read the live packs, and the gate
-  replays a check with the recorded request, so the fold must travel in it to give the replay the same table.
+  it hands `req["locale"]["fold"]` to `localize.use_fold` and, when present, `req["locale"]["currency_pairs"]` to
+  `localize.use_pairs`. `run.apply` sets `locale.fold` and `locale.currency_pairs` (always sent; `{}` and `[]` when
+  no pack has one, an empty list means no relation) from one `locales.view(ctx, every=True)`: the sandbox cannot
+  read the live packs, and the gate replays a check with the recorded request, so both must travel in it to give
+  the replay the same tables. A key under `locale` other than `fold` may be absent and then means the shipped packs
+  (a request recorded before a key existed replays as it ran); `locale` without `fold` is an error exit (3).
 - `run.apply(req, ctx, evt)` (event `run`, `harness-hook PostToolUse --run`, 300 s) -> `{check_id, unit,
   attempt, result, sha256, values, notes}`; `Outputs.record(..., extra, blobs)` keeps `inputs[{source, sha256}]`,
   `stdin_sha`, `work_sha`, `notes`, `pack`, `entry_sha` and the stdin and input blobs.
@@ -678,8 +681,8 @@ its last `file_sha`, appends the row, then appends an event carrying
   `outputs/submitted/`; exit 0 only when result and values match. `gatehook._oracle` sets `oracle_cmd` when the
   card's oracle is an executable registered check.
 - `localize`: `decimals`, `digits`, `use_fold`, `fold_name`, `to_gregorian`, `to_jalali`, `is_leap_jalali`,
-  `month_length`, `parse_date`, `parse_amount`, `currency_of`, `to_unit`, `period(spec, profile)`, `prior_period`,
-  `label_fa`.
+  `month_length`, `parse_date`, `parse_amount`, `currency_of`, `use_pairs`, `pair_of`, `to_unit`,
+  `period(spec, profile)`, `prior_period`, `label_fa`.
   `tables.read(path) -> (headers, rows)` (CSV/TSV, stdlib XLSX; DTDs refused). `bin/harness-normalize`.
   `decimals(text)`: every character that has a Unicode decimal value becomes that ASCII digit, for every script.
   `digits(text)`: NFC, `decimals`, and U+066B (Arabic decimal separator) becomes `.`. `fold_name(text)`: `digits`,
@@ -688,12 +691,24 @@ its last `file_sha`, appends the row, then appends an event carrying
   (a request without `locale`, `harness-normalize`, `model_cmd`, `business.parse_value`, a direct call) the
   `fold.letters` of the shipped packs, `locales.view(None, every=True)`, read once per process on first use
   (`locales` is imported then, not at the import of `localize`; tests reset it with `localize._fold = None`).
+  `pair_of(unit, target=None, pairs=None)`: the one rule of related units, the first entry of `pairs` that holds
+  both codes in either direction (with `target` None: the first that holds `unit`), else None; no chain (A-B and
+  B-C make no A-C). `to_unit(amount, unit, target, pairs=None)`: equal codes or a `None` code give the amount
+  itself; related codes multiply by `factor` from the `from` side and divide (Python `/`) from the `to` side;
+  others raise `ValueError("cannot convert <unit> to <target>")`. Without `pairs` both use the table of the
+  process: the one given to `use_pairs(pairs)` (a check request's `locale.currency_pairs`), otherwise the
+  `currency_pairs` of the shipped packs, read once per process on first use, as for the folds. `finance`'s other
+  unit (`total_other_unit`, `total_other_unit_millions`) is the partner of the unit in `pair_of(unit)`.
 - Packs: `finance` (`finance.reconcile|kpi|bridge|list`, `finance.py`), `research` (`research.check|report`,
   `research.py`), `model` (`model.recalc|checks|report|workbook`, `model.py`), `operations` (`doc.check`,
   `decide.score_flip`, `operations.py`).
 - `business`: `profile`, `dictionary`, `sources`, `snapshot`, `parse_value`, `set_field`, `change_list`,
   `define_metric`, `remove_metric`, `register_source`, `guard(ctx, layers)` (the layer still equals its
-  recorded hash), `baseline(ctx, why, layers)` (appends `config_log.jsonl`), `describe`.
+  recorded hash), `baseline(ctx, why, layers)` (appends `config_log.jsonl`), `describe`,
+  `related(ctx, old, new)` (the `currency_pairs` of `view(ctx, every=True)` when the two codes are related, else
+  None; None also for no old currency). `set_field` on a change of `currency` converts the limits, the risk
+  threshold and the rates with `to_unit` when `related`, and drops them otherwise; the same code again keeps
+  them. `admin` warns that the limits will be removed exactly when they would be dropped.
 - `admin.on_prompt(evt, ctx)` for `/dynamic-harness:business|memory|status|export|config|off`; two-step changes
   through `admin/pending.json` `{cmd, change, code, sid, ts}`.
 - `contact.apply`: `definition_confirm --metric F` (stores `definition.json`, text rendered from it) and
@@ -709,7 +724,9 @@ its last `file_sha`, appends the row, then appends an event carrying
   (`${CLAUDE_PLUGIN_DATA}/models/registry.json`). `compile.apply(req, ctx, evt, scenario_parent=None,
   job_id=None)`: only `model_cmd.scenario` passes the last two.
 - `templates.render(key, ctx=None, lang=None, **values)`, `language(ctx)`, `state_line(state, ctx)`,
-  `note(entry, text, ctx, lang)`, `currency(code, lang)`; `templates/<lang>.json` (`model.*` keys are hints to the
+  `note(entry, text, ctx, lang)`, `currency(code, lang, ctx=None)` (`currencies.<code>.names.<lang>` of
+  `view(ctx, every=True)`, the shipped packs when it cannot be read, else the code; `""` for no code; no name of
+  another language fills in); `templates/<lang>.json` (`model.*` keys are hints to the
   model; `reason.<slug>` keys name the reasons of a state line). The language list is the set of files in
   `templates/`: `templates.langs()`, the base language first, the others sorted.
   `lint_text.lint() -> [problem]`, `bin/harness-lint-user-text`.
@@ -720,7 +737,7 @@ its last `file_sha`, appends the row, then appends an event carrying
 ## P1: locale packs (`harness_core/locales.py`)
 
 - Contract `harness/locale@1` (`schema/control/locale.json`): `{schema, id, name, words, render, state_lexicon,
-  question_marks, fold}`, `schema` and `id` required, no other top-level key. Shipped packs
+  question_marks, fold, currencies, currency_pairs}`, `schema` and `id` required, no other top-level key. Shipped packs
   `control/defaults/locales/<id>.json` (`en`, `fa`, `ir`); live packs
   `${CLAUDE_PLUGIN_DATA}/control/locales/<id>.json` (in the control hash). The id equals the file stem,
   `[a-z0-9_-]{1,32}`; a file is regular, not a symlink, at most `MAX_BYTES` (256 KiB). Any violation raises
@@ -759,8 +776,20 @@ its last `file_sha`, appends the row, then appends an event carrying
   characters are not pack data: they fold by Unicode property in code (`localize.decimals`; `probe._norm` removes
   every `Cf` character, `fold_name` turns it into a space). The letter fold runs before upper and lower case are
   unified, so a pack for a script with both lists each form it wants folded.
-- `EVERY = ("render", "state_lexicon", "question_marks", "fold")`: the keys that every installed pack supplies.
-  `words` are read from the active packs only.
+- `currencies`: `{<code>: {decimals, names}}`, the code exactly 3 letters `A-Z`, both keys optional, no other key;
+  `decimals` an integer 0 to 18 (not a boolean; no code reads it yet); `names` `{<lang>: <non-empty name>}`, the
+  language code in the pack id form. Shipped: `en` (five codes, `decimals` 2, English names), `fa` (their Persian
+  names), `ir` (two codes, `decimals` 0, both names). Across packs the first pack wins per key, as any object.
+- `currency_pairs`: list of `{from, to, factor}`, all three required, no other key: two different codes of the
+  form above (a code needs no `currencies` entry), `factor` an integer >= 2 (not a boolean), meaning 1 `from` =
+  `factor` `to`. The same two codes (either direction) twice in one pack is an error naming the later index. In
+  the merged view the entries stand in merge order; for two codes the first entry that holds both is the
+  relation. Shipped: one entry in `ir`. The table is for two coded units of one currency only.
+  Errors of both keys name the file and the key path (`currencies.<code>.decimals`, `currency_pairs[<i>]`).
+- `EVERY = ("render", "state_lexicon", "question_marks", "fold", "currencies", "currency_pairs")`: the keys that
+  every installed pack supplies. The two currency keys are in it because a file or the owner can name any
+  currency, whatever the profile list `locales` says, and an entry acts only on the codes it names: narrowing
+  `locales` loses no name and no relation. `words` are read from the active packs only.
 - `BASE = "en"`; `merge(packs) -> dict` (`[(pack_id, dict)]` in order: objects recurse, the first list stays as
   written and a later one adds items not yet present, the first scalar wins, a kind conflict raises `LocaleError`
   naming the dotted key and both ids);
