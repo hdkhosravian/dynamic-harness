@@ -42,8 +42,12 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
   changes the names in your text, the conversion in a check and in its replay, and the conversion of your limits,
   with no code change. A currency no pack names is shown as its code, in any language. The shipped packs hold the
   seven codes and the one relation of 0.4.0, so no result changes, except: setting the currency that is already
-  set no longer warns that your spending limits will be removed (they never were). The request of a pack check
-  holds the key `locale.currency_pairs`; a check recorded before this change converts with the shipped packs. The
+  set no longer warns that your spending limits will be removed (they never were); a currency change that must
+  convert or drop a limit, the risk threshold or a rate is refused while a live locale pack is broken (the message
+  names the file); and a confirm is refused, with nothing changed, when the packs changed between the offer and
+  the confirm in a way that changes what happens to those figures (type the command again). The request of a pack
+  check holds the key `locale.currency_pairs`; a check recorded before this change converts with the shipped
+  packs, and a request whose `currency_pairs` is not a list ends the check with an error. The
   hint for a missing currency reads `business set currency <code>`, and a code that is not 3 letters is refused
   with "currency is a 3-letter code, for example USD, EUR or JPY".
 - **Live end-to-end scaffold.** `tests/e2e` runs one scripted `claude -p` request per pack and verifies its

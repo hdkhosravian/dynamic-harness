@@ -75,7 +75,9 @@ Tax, legal and employment work is always "prepared, not final": a professional m
 
 These run in a hook. Claude never sees them and cannot run them. Anything that changes something shows the
 change in plain words with a one-time 6-digit code first; type the same command with `confirm <code>`, for example
-`/dynamic-harness:business confirm 123456`, in the same session within 10 minutes to apply it.
+`/dynamic-harness:business confirm 123456`, in the same session within 10 minutes to apply it. A currency change
+says what happens to your spending limits; if the locale packs change before you confirm and your limits would
+then be treated otherwise, the confirm answers "Nothing was changed" and you type the command again.
 
 ### `/dynamic-harness:business`
 

@@ -28,7 +28,7 @@ Lint the harness's own user-facing text (internal terms, missing keys, placehold
 `templates/<lang>.json` plus `render.<lang>` in a locale pack, and `fold.letters` there if some of its letter forms
 must compare as one (digits and format characters need nothing: they fold by Unicode property in code), and
 `currencies.<code>.names.<lang>` for currency names in it (without one the code is shown). A new currency or a
-relation between two of its coded units is `currencies` and `currency_pairs` in a pack, no code:
+relation between two of its coded units is `currencies` and `currency_pairs` in a pack, no code. Run the lint:
 
 ```bash
 bin/harness-lint-user-text

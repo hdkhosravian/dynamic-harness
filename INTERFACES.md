@@ -672,7 +672,8 @@ its last `file_sha`, appends the row, then appends an event carrying
   no pack has one, an empty list means no relation) from one `locales.view(ctx, every=True)`: the sandbox cannot
   read the live packs, and the gate replays a check with the recorded request, so both must travel in it to give
   the replay the same tables. A key under `locale` other than `fold` may be absent and then means the shipped packs
-  (a request recorded before a key existed replays as it ran); `locale` without `fold` is an error exit (3).
+  (a request recorded before a key existed replays as it ran); `locale` without `fold`, and a
+  `locale.currency_pairs` that is present and not a list (`null` included), are an error exit (3).
 - `run.apply(req, ctx, evt)` (event `run`, `harness-hook PostToolUse --run`, 300 s) -> `{check_id, unit,
   attempt, result, sha256, values, notes}`; `Outputs.record(..., extra, blobs)` keeps `inputs[{source, sha256}]`,
   `stdin_sha`, `work_sha`, `notes`, `pack`, `entry_sha` and the stdin and input blobs.
@@ -706,11 +707,19 @@ its last `file_sha`, appends the row, then appends an event carrying
   `define_metric`, `remove_metric`, `register_source`, `guard(ctx, layers)` (the layer still equals its
   recorded hash), `baseline(ctx, why, layers)` (appends `config_log.jsonl`), `describe`,
   `related(ctx, old, new)` (the `currency_pairs` of `view(ctx, every=True)` when the two codes are related, else
-  None; None also for no old currency). `set_field` on a change of `currency` converts the limits, the risk
-  threshold and the rates with `to_unit` when `related`, and drops them otherwise; the same code again keeps
-  them. `admin` warns that the limits will be removed exactly when they would be dropped.
+  None; None also for no old currency). `set_field(ctx, field, value, offer=None)` on a change of `currency`
+  converts the limits, the risk threshold and the rates with `to_unit` when `related`, and drops them otherwise;
+  the same code again keeps them. It reads the packs only when the profile holds such a numeric figure, so a
+  profile without one changes its currency with a broken live pack; with a figure, a broken pack raises
+  `LocaleError` and nothing is written. `admin` warns that the limits will be removed when `caps` is set, the
+  code changes and no pair relates the two codes (the 0.4.0 trigger).
 - `admin.on_prompt(evt, ctx)` for `/dynamic-harness:business|memory|status|export|config|off`; two-step changes
-  through `admin/pending.json` `{cmd, change, code, sid, ts}`.
+  through `admin/pending.json` `{cmd, change, code, sid, ts}`. The offer of a change to another currency, when
+  the profile holds a figure or `caps` is set, stores in `change.pair` the entry that relates the old and the new
+  code (`related`, then `pair_of`), or `null`. The confirm passes the change to `set_field` as `offer`: when a
+  figure would be converted or dropped and the packs now give another entry (gone, new, other factor), or the
+  change has no `pair` (a pending change written before this rule), it answers "Nothing was changed: the locale
+  packs changed after this change was shown. Type the command again." and writes nothing.
 - `contact.apply`: `definition_confirm --metric F` (stores `definition.json`, text rendered from it) and
   `--accept latest` (writes the dictionary entry); `assumption_sheet` (text from `assumptions.json`) and
   `--accept latest` (marks every assumption owner-confirmed). `bin/harness-contact ... [--metric F]`.
