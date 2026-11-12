@@ -147,7 +147,15 @@ def test_the_currency_words_of_live_packs_merge_with_the_shipped_lists_by_the_li
 GOOD_WORDS = {"QDA": ["zorb", YEN]}
 # words in which every character is a control, format, separator or mark: nothing to see, nothing to match
 INVISIBLE = [("control", "\u0001"), ("soft-hyphen", "\u00ad"), ("space", " "), ("tab", "\t"),
-             ("no-break-space", "\u00a0"), ("zero-width-space", "\u200b"), ("zwnj-and-zwj", "\u200c\u200d"), ("combining-acute", "\u0301"), ("space-and-zero-width-space", " \u200b")]
+             ("no-break-space", "\u00a0"), ("zero-width-space", "\u200b"), ("zwnj-and-zwj", "\u200c\u200d"),
+             ("combining-acute", "\u0301"), ("space-and-zero-width-space", " \u200b"),
+             ("line-separator", "\u2028"), ("paragraph-separator", "\u2029"), ("spacing-mark", "\u0903"),
+             ("enclosing-mark", "\u20dd"),
+             # one character of each of the eight categories of the rule, and no other: the whole set, not a proper part
+             ("one-of-each-of-the-eight", "\u0001\u00ad\u0020\u2028\u2029\u0301\u0903\u20dd")]
+# the category of each character that the words above are made of, asserted before the words are used
+CATEGORIES = {"\u0001": "Cc", "\u00ad": "Cf", "\u0020": "Zs", "\u2028": "Zl", "\u2029": "Zp", "\u0301": "Mn",
+              "\u0903": "Mc", "\u20dd": "Me"}
 
 
 def unassigned():
@@ -207,6 +215,16 @@ def test_a_word_with_a_visible_character_is_accepted_at_pack_load(h, word):
 def test_the_signs_of_the_tests_are_of_the_categories_they_are_named_for():
     assert [unicodedata.category(w) for _, w in SIGNS_NOT_IN_TABLES] == ["Cn", "Co"]
     assert [unicodedata.category(c) for c in INVISIBLE[0][1] + INVISIBLE[1][1]] == ["Cc", "Cf"]
+
+
+def test_the_characters_of_the_words_of_no_visible_character_are_of_the_categories_they_are_named_for():
+    assert {c: unicodedata.category(c) for c in CATEGORIES} == CATEGORIES
+    assert sorted(CATEGORIES.values()) == sorted(["Cc", "Cf", "Zs", "Zl", "Zp", "Mn", "Mc", "Me"])
+    words = dict(INVISIBLE)
+    for name, c in (("line-separator", "\u2028"), ("paragraph-separator", "\u2029"), ("spacing-mark", "\u0903"),
+                    ("enclosing-mark", "\u20dd")):
+        assert words[name] == c            # a word of one character of one category each
+    assert sorted(unicodedata.category(c) for c in words["one-of-each-of-the-eight"]) == sorted(CATEGORIES.values())
 
 
 @pytest.mark.parametrize("sign", [w for _, w in SIGNS_NOT_IN_TABLES], ids=[n for n, _ in SIGNS_NOT_IN_TABLES])
