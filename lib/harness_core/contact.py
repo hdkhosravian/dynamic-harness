@@ -150,7 +150,7 @@ def _metric(m) -> dict:
 def definition_text(metric, ctx) -> str:
     from . import business, templates
     lang = templates.language(ctx)
-    unit = templates.currency(metric["currency"], lang)
+    unit = templates.currency(metric["currency"], lang, ctx)
     extra = ""  # every field that is stored as owner-approved is shown in the sentence the owner approves
     if metric.get("unit") and metric["unit"] not in ("amount", metric["currency"]):
         extra += templates.render("definition.measure", ctx, lang, measure=json.dumps(metric["unit"], ensure_ascii=False))

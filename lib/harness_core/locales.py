@@ -23,7 +23,10 @@ MAX_BYTES = 256 * 1024    # size limit of one pack file
 CONTRACT = Path(__file__).resolve().parents[2] / "schema" / "control" / "locale.json"
 HEADER = ("schema", "id", "name")
 ID = r"[a-z0-9_-]{1,32}"  # the form of a pack id and of a language code
-EVERY = ("render", "state_lexicon", "question_marks", "fold")  # supplied by every installed pack, active or not
+CODE = r"[A-Z]{3}"        # the form of a currency code
+# supplied by every installed pack, active or not (a file or the owner can name any currency, whatever the profile
+# list ``locales`` says, and a currency entry acts only on the codes it names)
+EVERY = ("render", "state_lexicon", "question_marks", "fold", "currencies", "currency_pairs")
 
 
 def _pack(f: Path) -> dict:
@@ -44,6 +47,7 @@ def _pack(f: Path) -> dict:
         _check_render(pack.get("render", {}))
         _check_words(pack)
         _check_fold(pack.get("fold", {}).get("letters", {}))
+        _check_currencies(pack)
         merge([(f.name, pack)])  # one walk now, so a pack too deep to merge is named here, not in view()
     except (SchemaError, LocaleError) as e:
         raise LocaleError(f"locale pack {f}: {e}") from e
@@ -98,6 +102,31 @@ def _check_fold(letters: dict) -> None:
         if v in letters:
             raise LocaleError(f"fold.letters: {v!r} is a value and a key (a chain)")
 
+
+def _check_currencies(pack: dict) -> None:
+    """What the schema cannot say about ``currencies`` and ``currency_pairs``: the code and language code forms, at
+    most 18 decimals, no empty name, two different codes in a pair, the same two codes once in a pack."""
+    for code, spec in pack.get("currencies", {}).items():
+        if not re.fullmatch(CODE, code):
+            raise LocaleError(f"currencies.{code}: a currency code is exactly 3 letters A-Z")
+        if spec.get("decimals", 0) > 18:
+            raise LocaleError(f"currencies.{code}.decimals: must be 0 to 18")
+        for lang, name in spec.get("names", {}).items():
+            if not re.fullmatch(ID, lang):
+                raise LocaleError(f"currencies.{code}.names: the language code {lang!r} is not 1 to 32 of a-z 0-9 _ -")
+            if not name:
+                raise LocaleError(f"currencies.{code}.names.{lang}: the name is empty")
+    seen = {}
+    for i, e in enumerate(pack.get("currency_pairs", [])):
+        for side in ("from", "to"):
+            if not re.fullmatch(CODE, e[side]):
+                raise LocaleError(f"currency_pairs[{i}].{side}: {e[side]!r} is not a code of exactly 3 letters A-Z")
+        if e["from"] == e["to"]:
+            raise LocaleError(f"currency_pairs[{i}]: from and to are the same code")
+        two = frozenset((e["from"], e["to"]))
+        if two in seen:
+            raise LocaleError(f"currency_pairs[{i}]: the same two codes as currency_pairs[{seen[two]}]")
+        seen[two] = i
 
 def _read(d: Path) -> dict:
     if not d.is_dir():

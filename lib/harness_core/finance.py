@@ -59,12 +59,13 @@ def _round(d: Decimal, places=2) -> Decimal:
 
 
 def _display(total: Decimal, unit) -> dict:
-    """Forms a report may print: the figure, in thousands and millions, and in the other unit (Toman/Rial)."""
+    """Forms a report may print: the figure, in thousands and millions, and in the other unit (the partner of
+    ``unit`` in the first pair that holds it)."""
     out = {"total": total, "total_thousands": _round(total / 1000), "total_millions": _round(total / 1000000),
            "total_billions": _round(total / 1000000000, 3)}
-    other = {"IRT": "IRR", "IRR": "IRT"}.get(unit)
-    if other:
-        o = L.to_unit(total, unit, other)
+    e = L.pair_of(unit)
+    if e:
+        o = L.to_unit(total, unit, e["to"] if e["from"] == unit else e["from"])
         out.update(total_other_unit=o, total_other_unit_millions=_round(o / 1000000))
     return out
 

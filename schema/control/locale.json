@@ -1,6 +1,49 @@
 {
   "additionalProperties": false,
   "properties": {
+    "currencies": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "decimals": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "type": "object"
+    },
+    "currency_pairs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "factor": {
+            "minimum": 2,
+            "type": "integer"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "factor"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "fold": {
       "additionalProperties": false,
       "properties": {

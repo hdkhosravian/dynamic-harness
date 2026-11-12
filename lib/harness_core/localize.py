@@ -5,7 +5,8 @@ build phase P5). Stdlib only; pack checks import it inside their sandbox.
 - Jalali <-> Gregorian (the 33-year arithmetic of jalaali-js, valid for Jalali years -61..3177), leap Esfand.
 - ``parse_date``: ISO and Jalali ``YYYY/MM/DD`` (Persian or Latin digits); a 4-digit year below 1700 is Jalali.
 - ``parse_amount``: digits in any script, thousands separators, ``(1,000)`` and trailing minus as negatives.
-- ``currency_of``: Toman or Rial from a column header or label; ``to_unit`` converts (1 Toman = 10 Rial).
+- ``currency_of``: Toman or Rial from a column header or label; ``to_unit`` converts between two related
+  units (``currency_pairs`` of the locale packs).
 - ``period``: a month, a fiscal year (profile ``fiscal_year_start``, default Farvardin 1) or a date range, as
   Gregorian bounds plus labels in both calendars.
 """
@@ -18,6 +19,7 @@ from decimal import Decimal, InvalidOperation
 
 _DECIMAL = re.compile(r"(?![0-9])\d")  # \d of a str pattern: every character that has a Unicode decimal value
 _fold = None  # the letter table of fold_name: the request's (use_fold), else the shipped packs'
+_pairs = None  # the currency_pairs of to_unit: the request's (use_pairs), else the shipped packs'
 BREAKS = (-61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181, 1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456,
           3178)
 JALALI_MONTHS = ("Farvardin", "Ordibehesht", "Khordad", "Tir", "Mordad", "Shahrivar", "Mehr", "Aban", "Azar", "Dey",
@@ -210,15 +212,36 @@ def currency_of(label):
     return None
 
 
-def to_unit(amount: Decimal, unit, target):
-    """Convert between Rial and Toman; other units pass through only when equal."""
+def use_pairs(pairs: list) -> None:
+    """The ``locale.currency_pairs`` of a check request: from now on ``to_unit`` in this process converts with it."""
+    global _pairs
+    _pairs = pairs
+
+
+def pair_of(unit, target=None, pairs=None):
+    """The relation of two units: the first entry of ``pairs`` (else the table of the process) that holds ``unit`` and
+    ``target`` in either direction, or with ``target`` None the first that holds ``unit``; None when there is none."""
+    global _pairs
+    if pairs is None:
+        if _pairs is None:  # not in a check that got pairs: the shipped packs, read once per process
+            from . import locales
+            _pairs = locales.view(None, every=True).get("currency_pairs", [])
+        pairs = _pairs
+    for e in pairs:
+        if unit in (e["from"], e["to"]) and (target is None or target in (e["from"], e["to"])):
+            return e
+    return None
+
+
+def to_unit(amount: Decimal, unit, target, pairs=None):
+    """Convert between two related units (1 ``from`` = ``factor`` ``to``, see ``pair_of``); other units pass through
+    only when equal."""
     if unit == target or unit is None or target is None:
         return amount
-    if (unit, target) == ("IRR", "IRT"):
-        return amount / 10
-    if (unit, target) == ("IRT", "IRR"):
-        return amount * 10
-    raise ValueError(f"cannot convert {unit} to {target}")
+    e = pair_of(unit, target, pairs)
+    if e is None:
+        raise ValueError(f"cannot convert {unit} to {target}")
+    return amount * e["factor"] if e["from"] == unit else amount / e["factor"]
 
 
 def _fy_start(profile) -> tuple:

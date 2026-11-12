@@ -233,5 +233,37 @@
     "template_lines": [
       "Arithmetic checked; assumptions not."
     ]
+  },
+  "currencies": {
+    "USD": {
+      "decimals": 2,
+      "names": {
+        "en": "US dollars"
+      }
+    },
+    "EUR": {
+      "decimals": 2,
+      "names": {
+        "en": "euros"
+      }
+    },
+    "GBP": {
+      "decimals": 2,
+      "names": {
+        "en": "pounds"
+      }
+    },
+    "AED": {
+      "decimals": 2,
+      "names": {
+        "en": "dirhams"
+      }
+    },
+    "TRY": {
+      "decimals": 2,
+      "names": {
+        "en": "lira"
+      }
+    }
   }
 }

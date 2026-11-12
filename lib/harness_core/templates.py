@@ -39,14 +39,14 @@ def load(lang) -> dict:
     return json.loads(f.read_text("utf-8")) if f.is_file() else {}
 
 
-def _data(ctx) -> dict:
-    """``render`` of every installed pack (the profile list ``locales`` does not choose how a language is written);
-    the shipped packs when the live view cannot be read (text for the owner is not a gate, above all the message
-    that reports a broken file)."""
+def _data(ctx, key="render") -> dict:
+    """``key`` (``render``, ``currencies``) of every installed pack (the profile list ``locales`` does not choose how
+    a language is written or what a currency is called); the shipped packs when the live view cannot be read (text
+    for the owner is not a gate, above all the message that reports a broken file)."""
     try:
-        return locales.view(ctx, every=True).get("render", {})
+        return locales.view(ctx, every=True).get(key, {})
     except (HarnessError, OSError):
-        return locales.view(None, every=True).get("render", {})
+        return locales.view(None, every=True).get(key, {})
 
 
 def language(ctx=None, _given=None) -> str:
@@ -99,12 +99,12 @@ def render(key, ctx=None, lang=None, **values) -> str:
     return _render(key, lang or language(ctx, data), data, values)
 
 
-CURRENCY_FA = {"IRT": "تومان", "IRR": "ریال", "USD": "دلار", "EUR": "یورو", "GBP": "پوند", "AED": "درهم", "TRY": "لیر"}
-
-
-def currency(code, lang) -> str:
-    from .business import CURRENCIES
-    return (CURRENCY_FA if lang == "fa" else CURRENCIES).get(code, code or "")
+def currency(code, lang, ctx=None) -> str:
+    """The name of ``code`` in ``lang`` (``currencies.<code>.names`` of the packs), else the code itself: a name in
+    another language would read worse inside the owner's sentence than the code."""
+    if not code:
+        return ""
+    return _data(ctx, "currencies").get(code, {}).get("names", {}).get(lang, code)
 
 
 def state_line(state, ctx=None, lang=None) -> str:

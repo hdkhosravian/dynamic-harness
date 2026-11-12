@@ -22,7 +22,7 @@ import shlex
 import time
 from pathlib import Path
 
-from . import business
+from . import business, locales, templates
 from .errors import Denied, HarnessError
 from .safeio import atomic_write
 
@@ -111,11 +111,12 @@ def _money_warnings(ctx, field, value) -> list:
     except Exception:
         price_cur = None
     if not cur:
-        out.append("spending limits apply only once your currency is set (business set currency IRT)")
+        out.append("spending limits apply only once your currency is set (business set currency <code>)")
     elif price_cur and price_cur != cur and not (prof.get("fx") or {}).get(price_cur):
         out.append(f"model prices are in {price_cur}: spending limits apply only once you set the rate "
                    f"(business set fx.{price_cur} <{cur} per {price_cur}>)")
-    if field == "currency" and (prof.get("caps") or {}) and {business.profile(ctx).get("currency"), value} != {"IRT", "IRR"}:
+    old = business.profile(ctx).get("currency")
+    if field == "currency" and (prof.get("caps") or {}) and old != value and business.related(ctx, old, value) is None:
         out.append("your spending limits are in the old currency and will be removed; set them again")
     return out
 
@@ -136,7 +137,7 @@ def _business(ctx, sid, args) -> dict:
         field, raw = args[1], " ".join(args[2:])
         value = business.parse_value(field, raw, business.profile(ctx).get("calendar"))
         business.guard(ctx)
-        shown = f"{business.CURRENCIES.get(value, value)} ({value})" if field == "currency" else value
+        shown = f"{templates.currency(value, locales.BASE, ctx)} ({value})" if field == "currency" else value
         label = business.PROFILE_FIELDS[field]
         sentence = f"Set {label} to {shown}."
         lines = [f"- {sentence}"]

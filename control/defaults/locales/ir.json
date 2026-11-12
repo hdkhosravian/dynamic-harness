@@ -14,5 +14,28 @@
       "تومان",
       "ریال"
     ]
-  }
+  },
+  "currencies": {
+    "IRT": {
+      "decimals": 0,
+      "names": {
+        "en": "Toman",
+        "fa": "تومان"
+      }
+    },
+    "IRR": {
+      "decimals": 0,
+      "names": {
+        "en": "Rial",
+        "fa": "ریال"
+      }
+    }
+  },
+  "currency_pairs": [
+    {
+      "from": "IRT",
+      "to": "IRR",
+      "factor": 10
+    }
+  ]
 }

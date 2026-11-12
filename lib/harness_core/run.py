@@ -185,13 +185,14 @@ def apply(req, ctx, evt, runner=None) -> dict:
         _run_files(p, log, s.get("run_files") or [], box)
         from .record import _cards
         card = (_cards(p, log) or [{}])[-1]
+        lv = locales.view(ctx, every=True)
         stdin = canon.canonical_json({
             "check_id": check_id, "unit": unit, "attempt": attempt, "args": args, "work": "work", "run": "run",
             "inputs": [{k: r[k] for k in ("name", "path", "sha256")} for r in rows],
             "business": business.snapshot(ctx), "today": time.strftime("%Y-%m-%d"),
             "card": {k: card.get(k) for k in ("task_type", "deliverable", "oracle", "decision_class", "requester")},
-            # the check cannot read the live packs, and the replay must fold as this run did: the fold travels here
-            "locale": {"fold": locales.view(ctx, every=True).get("fold", {})},
+            # the check cannot read the live packs, and the replay must fold and convert as this run did: both travel
+            "locale": {"fold": lv.get("fold", {}), "currency_pairs": lv.get("currency_pairs", [])},
         })
         timeout = min(int(s.get("timeout") or DEFAULT_TIMEOUT), packs.TIMEOUT_MAX)
         code, out, err = execute(entry, box, stdin, timeout, ctx, runner)

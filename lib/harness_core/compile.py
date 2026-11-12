@@ -76,7 +76,7 @@ def _opening(ctx, c, tier, job) -> str:
         cur = business.profile(ctx).get("currency")
         lang = templates.language(ctx)
         money = (templates.render("opening.estimate_money", ctx, lang, lo=est["money"][0], hi=est["money"][1],
-                                  currency=templates.currency(cur, lang)) if est["money"] and cur else "")
+                                  currency=templates.currency(cur, lang, ctx)) if est["money"] and cur else "")
         line += " " + _template("opening.estimate", ctx, lo=est["minutes"][0], hi=est["minutes"][1], money=money)
     prefs = memory.effective(ctx, job)
     if prefs:

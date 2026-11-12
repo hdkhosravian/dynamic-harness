@@ -56,8 +56,6 @@ def snapshot(ctx) -> dict:
 
 
 # --- writes (only from hooks: the owner's typed command, or a definition the owner confirmed) -------------------
-CURRENCIES = {"IRT": "Toman", "IRR": "Rial", "USD": "US dollars", "EUR": "euros", "GBP": "pounds", "AED": "dirhams",
-              "TRY": "lira"}
 PROFILE_FIELDS = {
     "currency": "your currency", "calendar": "your calendar", "fiscal_year_start": "the first day of your fiscal year",
     "work_week": "your work week", "jurisdiction": "your jurisdiction", "language": "the language I write to you in",
@@ -78,7 +76,7 @@ def parse_value(field, raw: str, profile_calendar=None):
     if field == "currency":
         v = raw.upper()
         if not re.fullmatch(r"[A-Z]{3}", v):
-            raise Denied("currency is a 3-letter code, for example IRT (Toman), IRR (Rial) or USD")
+            raise Denied("currency is a 3-letter code, for example USD, EUR or JPY")
         return v
     if field == "calendar":
         if raw.lower() not in ("jalali", "gregorian"):
@@ -151,6 +149,16 @@ def baseline(ctx, why, layers=("business",)) -> None:
         fh.write(json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n")
 
 
+def related(ctx, old, new):
+    """The ``currency_pairs`` of every installed pack when ``old`` and ``new`` are two related codes, else None (no old
+    currency, or no pair holds both): whether a currency change converts the owner's amounts or drops them."""
+    if old is None:
+        return None
+    from . import locales, localize
+    pairs = locales.view(ctx, every=True).get("currency_pairs", [])
+    return pairs if localize.pair_of(old, new, pairs) else None
+
+
 def set_field(ctx, field, value) -> None:
     guard(ctx)
     prof = profile(ctx)
@@ -167,9 +175,10 @@ def set_field(ctx, field, value) -> None:
         old = prof.get("currency")
         prof[field] = value
         if field == "currency" and old != value:
-            # every amount in the owner's currency keeps its worth: Toman <-> Rial converts, any other change drops
+            # every amount in the owner's currency keeps its worth: two related units convert, any other change drops
             # it (no cap, no rate, the default risk threshold), which the harness then treats as unset
-            factor = (10 if value == "IRR" else 0.1) if {old, value} == {"IRT", "IRR"} else None
+            from .localize import to_unit
+            pairs = related(ctx, old, value)
             for head, keys in (("caps", ("task", "month")), ("thresholds", ("money_at_stake_high",)),
                                ("fx", [k for k in (prof.get("fx") or {}) if k != "as_of"])):
                 if not isinstance(prof.get(head), dict):
@@ -177,10 +186,10 @@ def set_field(ctx, field, value) -> None:
                 sub = dict(prof[head], **({"currency": value} if head == "caps" else {}))
                 for k in keys:
                     if isinstance(sub.get(k), (int, float)) and not isinstance(sub.get(k), bool):
-                        if factor is None:
+                        if pairs is None:
                             sub.pop(k)
                         else:
-                            sub[k] = sub[k] * 10 if factor == 10 else sub[k] / 10
+                            sub[k] = to_unit(sub[k], old, value, pairs)
                 prof[head] = sub
     prof["schema"] = "harness/business_profile@1"
     _write(ctx, FILES["profile"], prof)
@@ -272,6 +281,7 @@ def register_source(ctx, source_id, facts) -> dict:
 
 def describe(ctx) -> list:
     """The business layer in plain words, for /dynamic-harness:business show."""
+    from . import locales, templates
     prof = profile(ctx)
     out = ["Your business settings:"]
     for f, label in PROFILE_FIELDS.items():
@@ -279,7 +289,7 @@ def describe(ctx) -> list:
         v = (prof.get(head) or {}).get(tail) if tail else prof.get(f)
         if v is not None:
             if f == "currency":
-                v = f"{CURRENCIES.get(v, v)} ({v})"
+                v = f"{templates.currency(v, locales.BASE, ctx)} ({v})"
             out.append(f"- {label[0].upper() + label[1:]}: {v}")
     for f, label in LIST_FIELDS.items():
         items = (_load(ctx, FILES["protected_terms"]).get("terms") if f == "protected_terms" else prof.get(f)) or []

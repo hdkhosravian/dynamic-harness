@@ -150,7 +150,8 @@ def stop(ctx, job, state, reason, sid=None, calls=None, amount=None):
         from . import templates
         lang = templates.language(ctx)
         cur = sessionstate_business(ctx).get("caps", {}).get("currency", "")
-        more = (templates.render("more.money", ctx, lang, amount=round(amount, 2), currency=templates.currency(cur, lang))
+        more = (templates.render("more.money", ctx, lang, amount=round(amount, 2),
+                                 currency=templates.currency(cur, lang, ctx))
                 if amount else templates.render("more.calls", ctx, lang, n=calls))
         from .turns import Turns
         seq = (Turns(ctx.data_root).latest() or {}).get("seq", 0)  # only a later reply can accept it

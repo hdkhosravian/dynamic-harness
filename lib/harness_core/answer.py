@@ -84,7 +84,7 @@ def apply(req, ctx, evt) -> dict:
                      f"version {entry.get('version')}: re-run the check")
     prof = business.profile(ctx)
     lang = templates.language(ctx)
-    unit_name = templates.currency(v.get("unit"), lang)
+    unit_name = templates.currency(v.get("unit"), lang, ctx)
     calendar = prof.get("calendar") or ("jalali" if v.get("unit") in ("IRT", "IRR") else "gregorian")
     period = v.get("period") or ""
     other = v.get("period_gregorian") if calendar == "jalali" else v.get("period_jalali")
