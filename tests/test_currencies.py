@@ -1230,7 +1230,7 @@ def test_a_toman_file_under_a_rial_profile_is_converted_only_when_a_pack_relates
     if has:
         assert res["result"] == "pass" and res["values"]["total"] == 40000000
     else:
-        assert res["result"] == "error" and "total" not in res["values"]
+        assert res["result"] == "pass" and res["values"]["total"] == 4000000 and res["values"]["unit"] == "IRR"   # no word
 
 
 @once

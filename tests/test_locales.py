@@ -908,10 +908,10 @@ def test_the_words_of_the_profile_language_pack_are_in_the_view(h, L):
     pay = "\u067e\u0631\u062f\u0627\u062e\u062a \u06a9\u0646"
     set_profile(h, locales=["ir"], language="fa")
     words = L.view(ctx_of(h))["words"]
-    assert pay in words["verbs_anywhere"]["money"] and "toman" in words["money_words"] and "pay" in words["verbs"]["money"]
+    assert pay in words["verbs_anywhere"]["money"] and "toman" in words["currency_words"]["IRT"] and "pay" in words["verbs"]["money"]
     set_profile(h, locales=["ir"])
     words = L.view(ctx_of(h))["words"]
-    assert "verbs_anywhere" not in words and "toman" in words["money_words"] and "pay" in words["verbs"]["money"]
+    assert "verbs_anywhere" not in words and "toman" in words["currency_words"]["IRT"] and "pay" in words["verbs"]["money"]
     set_profile(h, locales=["en"], language="fa")
     assert pay in L.view(ctx_of(h))["words"]["verbs_anywhere"]["money"]
 

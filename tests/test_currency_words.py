@@ -834,7 +834,7 @@ def test_an_owner_money_word_still_matches_by_the_old_rule_and_a_currency_word_b
 
 MAG = "date,amount\n" + "".join(f"1402/11/{d:02d},1000\n" for d in (1, 2, 3)) + \
       "".join(f"1402/12/{d:02d},10000\n" for d in (1, 2, 3))   # a ten times jump from one month to the next
-NEUTRAL = "the total is 10.0 times the prior period's: check for a missing zero or a wrong unit"
+NEUTRAL = "the total is 10.0 times the prior period's: check for a missing zero or amounts in another currency"
 
 
 def magnitude(h, job, unit=None):
@@ -884,11 +884,11 @@ def test_the_shipped_pair_gives_the_units_note_in_codes(h, job, unit):
 
 
 TEMPLATES = sorted((ROOT / "templates").glob("*.json"))
-EN_MAGNITUDE = {"note.magnitude": "the total is {ratio} times the prior period's: check for a missing zero or a wrong unit",
+EN_MAGNITUDE = {"note.magnitude": "the total is {ratio} times the prior period's: check for a missing zero or amounts in another currency",
                 "note.magnitude_units": "the total is {ratio} times the prior period's: check for a {unit}/{other} "
                                         "mix-up or a missing zero"}
 FA_MAGNITUDE = {
-    "note.magnitude": "\u062c\u0645\u0639 \u0627\u06cc\u0646 \u062f\u0648\u0631\u0647 {ratio} \u0628\u0631\u0627\u0628\u0631 \u062f\u0648\u0631\u0647\u0654 \u0642\u0628\u0644 \u0627\u0633\u062a: \u0634\u0627\u06cc\u062f \u06cc\u06a9 \u0635\u0641\u0631 \u062c\u0627 \u0627\u0641\u062a\u0627\u062f\u0647 \u06cc\u0627 \u0648\u0627\u062d\u062f \u0627\u0634\u062a\u0628\u0627\u0647 \u0628\u0627\u0634\u062f",
+    "note.magnitude": "\u062c\u0645\u0639 \u0627\u06cc\u0646 \u062f\u0648\u0631\u0647 {ratio} \u0628\u0631\u0627\u0628\u0631 \u062f\u0648\u0631\u0647\u0654 \u0642\u0628\u0644 \u0627\u0633\u062a: \u0634\u0627\u06cc\u062f \u06cc\u06a9 \u0635\u0641\u0631 \u062c\u0627 \u0627\u0641\u062a\u0627\u062f\u0647 \u06cc\u0627 \u0645\u0628\u0644\u063a\u200c\u0647\u0627 \u0628\u0647 \u0627\u0631\u0632 \u062f\u06cc\u06af\u0631\u06cc \u0628\u0627\u0634\u0646\u062f",
     "note.magnitude_units": "\u062c\u0645\u0639 \u0627\u06cc\u0646 \u062f\u0648\u0631\u0647 {ratio} \u0628\u0631\u0627\u0628\u0631 \u062f\u0648\u0631\u0647\u0654 \u0642\u0628\u0644 \u0627\u0633\u062a: \u0634\u0627\u06cc\u062f {unit} \u0648 {other} \u062c\u0627\u0628\u0647\u200c\u062c\u0627 \u0634\u062f\u0647 \u06cc\u0627 \u06cc\u06a9 \u0635\u0641\u0631 \u062c\u0627 \u0627\u0641\u062a\u0627\u062f\u0647 \u0628\u0627\u0634\u062f",
 }
 
@@ -924,6 +924,11 @@ def test_no_template_text_names_a_currency_by_a_shipped_word_or_says_toman_rial(
         assert "toman/rial" not in folded, key
         for w in words:
             assert not re.search(r"(?<![^\W\d_])" + re.escape(w) + r"(?![^\W\d_])", folded), (key, w)
+
+
+def test_the_shipped_templates_pass_the_lint_with_the_two_magnitude_notes():
+    from harness_core import lint_text
+    assert lint_text.lint() == []
 
 
 def test_the_note_is_rendered_in_a_non_base_language_with_the_codes_and_the_translated_digits_of_the_ratio(h):
