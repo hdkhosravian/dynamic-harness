@@ -810,9 +810,11 @@ its last `file_sha`, appends the row, then appends an event carrying
   `quantity_words`, `decision_keywords` (an object, any class name), `continuation`, `currency_words`
   (`{<code>: [words]}`: the words and signs that name that one currency in text; the key a code of the form of
   `currencies`, which needs no `currencies` entry; a word made only of separators, control or format characters
-  and marks is refused like an empty one; so is a word that, after `digits()` and with white space at its edges
-  set aside, begins or ends with a number character other than a dot, or is only dots (`x2`, `b-`, `(usd)`, `x,`):
-  the split of a cell, `localize._ends`, would give that character to the number; errors name
+  and marks is refused like an empty one; so is a word that, in the form the table holds for format characters
+  and marks (`digits()`, then `localize._uncover`, the step `fold_name` shares: `Cf` a space, `Mn` removed) and
+  with white space at its edges set aside, begins or ends with a number character other than a dot, or is only
+  dots (`x2`, `b-`, `(usd)`, `x,`, also `x2` + U+200B): the split of a cell, `localize._ends`, would give that
+  character to the number; errors name
   `words.currency_words.<code>`). Shipped: `en` `USD`,
   `EUR`; `fa` `EUR`; `ir` `IRT`, `IRR`. A word that names no single currency (`$`, `£`, dollar) stays in
   `money_words`.
