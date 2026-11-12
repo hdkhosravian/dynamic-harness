@@ -4,7 +4,8 @@ build phase P5). Stdlib only; pack checks import it inside their sandbox.
 - ``fold_name``: one key for names written with Arabic or Persian ی/ي and ک/ك, ZWNJ, diacritics, digits.
 - Jalali <-> Gregorian (the 33-year arithmetic of jalaali-js, valid for Jalali years -61..3177), leap Esfand.
 - ``parse_date``: ISO and Jalali ``YYYY/MM/DD`` (Persian or Latin digits); a 4-digit year below 1700 is Jalali.
-- ``parse_amount``: digits in any script, thousands separators, ``(1,000)`` and trailing minus as negatives.
+- ``parse_amount``: digits in any script, thousands separators, ``(1,000)`` and trailing minus as negatives; at most
+  one currency mark (a word of ``currency_words``) beside the number, read against the column's unit.
 - ``currency_of``: the currency code a column header or label names (``words.currency_words`` of the locale packs,
   matched by ``word_pattern``); ``to_unit`` converts between two related units (``currency_pairs``).
 - ``period``: a month, a fiscal year (profile ``fiscal_year_start``, default Farvardin 1) or a date range, as
@@ -171,22 +172,58 @@ def parse_date(value):
     return None
 
 
-def parse_amount(value):
-    """``Decimal`` or None."""
+_NUM = r"[0-9.,٬،+\-()\s‌]"  # after digits(): every character the number grammar reads
+_PLAIN = re.compile(_NUM + "*")
+_EDGE = _NUM.replace(".", "")  # the number takes no dot that no digit follows: it is the mark's ("zb.")
+_SPLIT = re.compile(rf"((?:{_NUM}*{_EDGE})?)(.*?)((?:{_EDGE}{_NUM}*)?)", re.S)  # number?, mark, number?
+_WS = re.compile(r"[\s‌]")
+
+def _signs(s):
+    """The outer negative forms of today's grammar: ``(…)`` and a trailing minus."""
+    s, neg = s.strip(), False
+    if s.startswith("(") and s.endswith(")"):
+        neg, s = True, s[1:-1]
+    if s.endswith("-") and not s.startswith("-"):
+        neg, s = True, s[:-1]
+    return neg, s
+
+def parse_amount(value, unit=None, words=None, pairs=None):
+    """``Decimal`` in ``unit`` or None. A cell is a number and at most one currency mark before or after it: a mark
+    equal (folded, whole) to a word of ``words`` (else the table of the process) gives the number when ``unit`` is
+    None or one of the word's codes, the number converted by ``pairs`` (``to_unit``) when the word names one code
+    related to ``unit``, else None. A negative form outside the mark or on the number, never both."""
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, (int, Decimal)):
         return Decimal(value)
     if isinstance(value, float):
         return Decimal(repr(value))
-    s = digits(value).strip()
-    neg = False
-    if s.startswith("(") and s.endswith(")"):
-        neg, s = True, s[1:-1]
-    if s.endswith("-") and not s.startswith("-"):
-        neg, s = True, s[:-1]
-    s = re.sub(r"[\s‌]", "", s)
-    s = re.sub(r"(?i)(ریال|تومان|toman|rials?|irr|irt)$", "", s)
+    s = digits(value)
+    if _PLAIN.fullmatch(s):  # no mark: no word table is read
+        return _number(s)
+    neg, s = _signs(s)
+    a, mark, b = _SPLIT.fullmatch(s).groups()
+    a, b = _WS.sub("", a), _WS.sub("", b)
+    if a in ("-", "+") and b:  # a sign before a mark before the number is outer
+        if neg and a == "-":
+            return None
+        neg, a = neg or a == "-", ""
+    if bool(a) == bool(b):  # no number, or a number on both sides of the mark
+        return None
+    v = _number(a or b)
+    cs = _codes(words).get(fold_name(mark)) if v is not None else None
+    if not cs or neg and v.is_signed():
+        return None
+    v = -v if neg else v
+    if unit is None or unit in cs:
+        return v
+    c = next(iter(cs))
+    return to_unit(v, c, unit, pairs) if len(cs) == 1 and pair_of(c, unit, pairs) else None
+
+def _number(s):
+    """The number grammar: digits, group marks, a decimal point, ``(1,000)``, a trailing or leading minus."""
+    neg, s = _signs(s)
+    s = _WS.sub("", s)
     if re.search(r"[,٬،]", s) and not re.fullmatch(r"[-+]?\d{1,3}([,٬،]\d{3})+(\.\d+)?", s):
         return None  # "1,5" is a decimal comma, not 15: unreadable is reported, a wrong number is not
     s = re.sub(r"[,٬،]", "", s)

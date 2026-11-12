@@ -110,6 +110,9 @@ def aggregate(path, args, profile, period=None) -> dict:
     # the owner's profile and the file's own header outrank the agent's args
     target = profile.get("currency") or args.get("currency") or args.get("unit") or detected
     unit = detected or args.get("unit") or target
+    if detected and detected != target and L.pair_of(detected, target) is None:  # audit M6: refused before any row
+        raise ValueError(f'the amount column "{headers[amt_i]}" names {detected} and the total is asked in {target}: '
+                         f"nothing was summed, because no relation between {detected} and {target} is known")
     own = {L.fold_name(str(a)) for a in [*(profile.get("own_accounts") or []), *(args.get("own_accounts") or [])]}
     exclude_transfers = args.get("exclude_transfers", True) is not False
     per = period
@@ -122,13 +125,13 @@ def aggregate(path, args, profile, period=None) -> dict:
     prior_per = L.prior_period(args["period"], profile) if per and isinstance(args.get("period"), dict) else None
     for row in rows:
         if _is_total_row(row):
-            v = L.parse_amount(row[amt_i])
+            v = L.parse_amount(row[amt_i], unit)
             if v is not None:
                 file_total = L.to_unit(v, unit, target)
                 s["total_rows_in_file"] += 1
             continue
         s["rows_total"] += 1
-        amount = L.parse_amount(row[amt_i])
+        amount = L.parse_amount(row[amt_i], unit)
         if amount is None:
             s["unparsable"] += 1
             continue
@@ -166,7 +169,7 @@ def aggregate(path, args, profile, period=None) -> dict:
     # row set aside (undated, filtered out, transfers, outside the period) must add up to it exactly
     grand = Decimal(0)
     for row in rows:
-        v = L.parse_amount(row[amt_i]) if not _is_total_row(row) else None
+        v = L.parse_amount(row[amt_i], unit) if not _is_total_row(row) else None
         if v is not None:
             grand += L.to_unit(v, unit, target)
     partition = total + transfers_amount + sum(parts.values(), Decimal(0))
