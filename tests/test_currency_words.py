@@ -145,6 +145,12 @@ def test_the_currency_words_of_live_packs_merge_with_the_shipped_lists_by_the_li
 
 
 GOOD_WORDS = {"QDA": ["zorb", YEN]}
+# words in which every character is a control, format, separator or mark: nothing to see, nothing to match
+INVISIBLE = [("space", " "), ("tab", "\t"), ("no-break-space", "\u00a0"), ("zero-width-space", "\u200b"),
+             ("zwnj-and-zwj", "\u200c\u200d"), ("combining-acute", "\u0301"), ("space-and-zero-width-space", " \u200b")]
+# words that have a visible character, however much invisible one around it
+VISIBLE = [("inner-space", "zorb fund"), ("zwnj-inside", "zo\u200crb"), ("one-sign", YEN), ("padded", " zorb "),
+           ("zwsp-around", "\u200bzorb\u200b")]
 BAD_WORDS = [
     ("code-lowercase", {"qda": ["zorb"]}),
     ("code-two-letters", {"QD": ["zorb"]}),
@@ -161,7 +167,8 @@ BAD_WORDS = [
     ("entry-a-list", {"QDA": [["zorb"]]}),
     ("the-table-a-list", ["zorb"]),
     ("the-table-a-string", "zorb"),
-]
+] + [(f"no-visible-character-{n}", {"QDA": ["zorb", w]}) for n, w in INVISIBLE] + \
+    [(f"only-no-visible-character-{n}", {"QDA": [w]}) for n, w in INVISIBLE[:2]]
 
 
 @pytest.mark.parametrize("case", BAD_WORDS, ids=[c[0] for c in BAD_WORDS])
@@ -175,6 +182,26 @@ def test_a_bad_currency_words_key_is_refused_with_the_file_and_the_key_path(h, c
         locales.installed(ctx)
     f = Path(ctx.data_root) / "control" / "locales" / "xx.json"
     assert str(e.value).startswith(f"locale pack {f}: ") and "words.currency_words" in str(e.value)
+
+
+@pytest.mark.parametrize("word", [w for _, w in VISIBLE], ids=[n for n, _ in VISIBLE])
+def test_a_word_with_a_visible_character_is_accepted_at_pack_load(h, word):
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": [word, "zorb"]}}))
+    assert locales.installed(ctx_of(h))["xx"]["words"]["currency_words"] == {"QDA": [word, "zorb"]}
+
+
+@pytest.mark.parametrize("junk", [w for _, w in INVISIBLE], ids=[n for n, _ in INVISIBLE])
+def test_a_pack_with_a_word_of_no_visible_character_gives_the_probe_and_the_stop_gate_no_money_token(h, junk):
+    put(h, "xx.json", pack("xx", words={"currency_words": {"QDA": ["zorb", junk]}}))
+    c = ctx_of(h)
+    for call in (lambda: probe.run("please summarise the 5 meeting notes", c), lambda: probe.words(c)):
+        with pytest.raises(LocaleError) as e:     # the pack does not load: the path stops, as for any broken pack
+            call()
+        assert "xx.json" in str(e.value) and "words.currency_words" in str(e.value)
+    say(h, "What is the capital of France?", "q1")   # the hook fails closed: a card is pending
+    assert sessionstate.load(ctx_of(h), SID).get("pending_card")
+    out = stopgate.on_stop({"session_id": SID, "last_assistant_message": "The 5 meeting notes."}, ctx_of(h))
+    assert out["decision"] == "block" and "names money" not in out["reason"]
 
 
 # --- 3. word_pattern ------------------------------------------------------------------------------------------------
@@ -275,6 +302,16 @@ def test_names_currency_is_true_when_any_word_matches_a_word_under_two_codes_inc
     assert L.names_currency("paid 500 xzorb", WORDS) is False
     assert [L.names_currency(x, WORDS) for x in (None, "", "   ")] == [False] * 3
     assert L.names_currency("zorb", {}) is False and L.names_currency("zorb", {"QDA": []}) is False
+
+
+@pytest.mark.parametrize("junk", [w for _, w in INVISIBLE], ids=[n for n, _ in INVISIBLE])
+def test_a_word_with_no_visible_character_in_a_table_given_to_a_call_names_nothing(junk):
+    labels = ["Amount", "total 500", "amount (zorb)", "x", "5000", "\u0627\u06cc\u0646", ""]
+    assert [L.currency_of(x, words={"QDA": [junk]}) for x in labels] == [None] * len(labels)
+    assert [L.names_currency(x, {"QDA": [junk]}) for x in labels] == [False] * len(labels)
+    both = {"QDA": [junk], "QDC": ["zorb"]}                     # a real word under another code still wins
+    assert [L.currency_of(x, words=both) for x in ("Amount", "amount (zorb)", "5000zorb")] == [None, "QDC", "QDC"]
+    assert [L.names_currency(x, both) for x in ("paid 500", "paid 500 zorb")] == [False, True]
 
 
 # --- 5. the shipped forms: 0.4.0 pins, then the documented differences ----------------------------------------------
@@ -543,7 +580,8 @@ BAD_WORD_TABLES = [
     ("entry-a-number", {"QDA": [5]}), ("entry-null", {"QDA": [None]}), ("entry-a-list", {"QDA": [["zorb"]]}),
     ("empty-word", {"QDA": [""]}), ("empty-word-after-a-good-one", {"QDA": ["zorb", ""]}),
     ("a-bad-code-after-a-good-one", {"QDA": ["zorb"], "qdc": ["x"]}),
-]
+] + [(f"no-visible-character-{n}", {"QDA": ["zorb", w]}) for n, w in INVISIBLE] + \
+    [(f"only-no-visible-character-{n}", {"QDA": [w]}) for n, w in INVISIBLE[:2]]
 
 
 def refused(tmp_path, key, value):
@@ -567,6 +605,14 @@ def test_a_request_with_bad_currency_words_ends_with_an_error_exit_that_names_th
 @pytest.mark.parametrize("value", [{}, "abc", 7, None], ids=["object", "string", "number", "null"])
 def test_the_message_for_pairs_that_are_not_a_list_stays(tmp_path, value):
     assert b"locale.currency_pairs is not a list" in refused(tmp_path, "currency_pairs", value).stderr
+
+
+@pytest.mark.parametrize("word", [w for _, w in VISIBLE], ids=[n for n, _ in VISIBLE])
+def test_a_request_with_a_word_that_has_a_visible_character_runs_the_check(tmp_path, word):
+    marker = tmp_path / "ran"
+    got = values(tmp_path, {"labels": ["amount (zorb)"], "marker": str(marker),
+                            "locale": {"fold": {}, "currency_words": {"QDA": [word, "zorb"]}}})
+    assert marker.exists() and got["codes"] == ["QDA"]
 
 
 def test_a_request_with_valid_pairs_and_words_runs_the_check(tmp_path):
@@ -785,6 +831,20 @@ def test_the_stop_gate_blocks_a_quick_answer_that_holds_a_live_currency_word_tou
 def test_the_stop_gate_does_not_block_a_word_that_a_letter_touches(h):
     live(h, T_WORDS)
     assert quick_answer(h, "It came to 3000zorbs.") == {}
+
+
+@pytest.mark.parametrize("msg,blocks", [("It came to 3000zorb.", True), ("Paris is the capital of France.", False)])
+def test_the_stop_gate_reads_the_view_once_per_event_and_no_other_pack(h, monkeypatch, msg, blocks):
+    live(h, T_WORDS)
+    say(h, "What is the capital of France?", "q1")
+    monkeypatch.setattr(stopgate, "lexicon_hits", lambda ctx, text: [])   # its own state-word read is not under test
+    views, installed, active = spy_views(monkeypatch), [], []
+    real_installed, real_active = locales.installed, locales.active
+    monkeypatch.setattr(locales, "installed", lambda *a, **k: installed.append(1) or real_installed(*a, **k))
+    monkeypatch.setattr(locales, "active", lambda *a, **k: active.append(1) or real_active(*a, **k))
+    out = stopgate.on_stop({"session_id": SID, "last_assistant_message": msg}, ctx_of(h))
+    assert bool(out) is blocks and (not blocks or "(zorb)" in out["reason"])
+    assert (len(views), len(installed), len(active)) == (1, 1, 0)
 
 
 def test_the_stop_gate_lets_the_same_answer_pass_when_no_active_pack_holds_the_word(h):
