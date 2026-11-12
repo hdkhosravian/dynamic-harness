@@ -665,15 +665,20 @@ its last `file_sha`, appends the row, then appends an event carrying
   sha256 equal to the manifest's), `hash_entries(pack_dir)`. A check id is registered by exactly one pack.
   `tools/release_hashes.py <label>` re-hashes manifests and approves shipped skills.
 - `checklib`: a check reads `{check_id, unit, attempt, args, inputs[{name, path, sha256}], work, run, business,
-  card, today, locale: {fold, currency_pairs}}` on stdin, with `inputs/`, `work/` and `run/` in its cwd, and prints
-  `{result: pass|fail, values, notes}`. `checklib.main(fn)` with `fn(req) -> (result, values, notes)`; before `fn`
-  it hands `req["locale"]["fold"]` to `localize.use_fold` and, when present, `req["locale"]["currency_pairs"]` to
-  `localize.use_pairs`. `run.apply` sets `locale.fold` and `locale.currency_pairs` (always sent; `{}` and `[]` when
-  no pack has one, an empty list means no relation) from one `locales.view(ctx, every=True)`: the sandbox cannot
-  read the live packs, and the gate replays a check with the recorded request, so both must travel in it to give
-  the replay the same tables. A key under `locale` other than `fold` may be absent and then means the shipped packs
-  (a request recorded before a key existed replays as it ran); `locale` without `fold`, and a
-  `locale.currency_pairs` that is present and not a list (`null` included), are an error exit (3).
+  card, today, locale: {fold, currency_pairs, currency_words}}` on stdin, with `inputs/`, `work/` and `run/` in its
+  cwd, and prints `{result: pass|fail, values, notes}`. `checklib.main(fn)` with `fn(req) -> (result, values,
+  notes)`; before `fn` it hands `req["locale"]["fold"]` to `localize.use_fold` and, when present,
+  `req["locale"]["currency_pairs"]` to `localize.use_pairs` and `req["locale"]["currency_words"]` to
+  `localize.use_currency_words`. `run.apply` sets `locale.fold`, `locale.currency_pairs` and `locale.currency_words`
+  (always sent; `{}` and `[]` when no pack has one, an empty list means no relation, an empty object no currency
+  word) from one `locales.view(ctx, every=True)`: the sandbox cannot read the live packs, and the gate replays a
+  check with the recorded request, so they must travel in it to give the replay the same tables. The words are
+  those of the active packs (`words` is not in `EVERY`), the pairs those of every installed pack. A key under
+  `locale` other than `fold` may be absent and then means the shipped packs (a request recorded before a key
+  existed replays as it ran); `locale` without `fold` is an error exit (3). Before `fn` runs, a present
+  `locale.currency_pairs` or `locale.currency_words` is checked with the rules of a pack load
+  (`locales.check_currency_pairs`, `locales.check_currency_words`, which also check the types); a malformed one is
+  an error exit (3) whose message names the key (`locale.currency_pairs is not a list`, `null` included).
 - `run.apply(req, ctx, evt)` (event `run`, `harness-hook PostToolUse --run`, 300 s) -> `{check_id, unit,
   attempt, result, sha256, values, notes}`; `Outputs.record(..., extra, blobs)` keeps `inputs[{source, sha256}]`,
   `stdin_sha`, `work_sha`, `notes`, `pack`, `entry_sha` and the stdin and input blobs.
@@ -682,8 +687,8 @@ its last `file_sha`, appends the row, then appends an event carrying
   `outputs/submitted/`; exit 0 only when result and values match. `gatehook._oracle` sets `oracle_cmd` when the
   card's oracle is an executable registered check.
 - `localize`: `decimals`, `digits`, `use_fold`, `fold_name`, `to_gregorian`, `to_jalali`, `is_leap_jalali`,
-  `month_length`, `parse_date`, `parse_amount`, `currency_of`, `use_pairs`, `pair_of`, `to_unit`,
-  `period(spec, profile)`, `prior_period`, `label_fa`.
+  `month_length`, `parse_date`, `parse_amount`, `word_pattern`, `use_currency_words`, `currency_of`,
+  `names_currency`, `use_pairs`, `pair_of`, `to_unit`, `period(spec, profile)`, `prior_period`, `label_fa`.
   `tables.read(path) -> (headers, rows)` (CSV/TSV, stdlib XLSX; DTDs refused). `bin/harness-normalize`.
   `decimals(text)`: every character that has a Unicode decimal value becomes that ASCII digit, for every script.
   `digits(text)`: NFC, `decimals`, and U+066B (Arabic decimal separator) becomes `.`. `fold_name(text)`: `digits`,
@@ -700,6 +705,19 @@ its last `file_sha`, appends the row, then appends an event carrying
   process: the one given to `use_pairs(pairs)` (a check request's `locale.currency_pairs`), otherwise the
   `currency_pairs` of the shipped packs, read once per process on first use, as for the folds. `finance`'s other
   unit (`total_other_unit`, `total_other_unit_millions`) is the partner of the unit in `pair_of(unit)`.
+  `word_pattern(word) -> str`: the one rule of a currency word, regex source for one normalised word that matches
+  where no letter touches it (`(?<![^\W\d_])…(?![^\W\d_])`: a digit or `_` may, `3000<word>`, `amount_<word>`); a
+  word whose first character is not `\w` matches anywhere. `currency_of(label, words=None)`: the code that `label`
+  names, or None; label and words both go through `fold_name`; a word listed under two or more codes identifies
+  none, of the other matches the earliest wins, at the same position the longest. `names_currency(text,
+  words=None) -> bool`: any word of the table matches, one under two codes included. Without `words` both use the
+  table of the process: the one given to `use_currency_words(table)` (a check request's `locale.currency_words`),
+  otherwise `words.currency_words` of the shipped packs, read once per process on first use (tests reset it with
+  `localize._currency_words = None`). `finance.aggregate` reads the header of the amount column with
+  `currency_of`: a header that names a code with no relation to the target is `cannot convert A to B` (exit 3).
+  The magnitude note of `finance.reconcile` (a ratio of 8 or more against the prior period) has two codes:
+  `magnitude` `{ratio}` (no unit named), or `magnitude_units` `{ratio, unit, other}` when `pair_of(<result unit>)`
+  finds an entry (`unit` its `from`, `other` its `to`).
 - Packs: `finance` (`finance.reconcile|kpi|bridge|list`, `finance.py`), `research` (`research.check|report`,
   `research.py`), `model` (`model.recalc|checks|report|workbook`, `model.py`), `operations` (`doc.check`,
   `decide.score_flip`, `operations.py`).
@@ -726,7 +744,12 @@ its last `file_sha`, appends the row, then appends an event carrying
 - `answer.apply` for `harness-answer header --unit U --output SHA [--control-label T]` writes
   `run/answer_header.md` (`ANSWER_HEADER` event); `answer.status_line(paths, log)`.
 - `claims.apply_fetch` (event `fetch`, `harness-hook PostToolUse --fetch`, 60 s), `claims.fetch(url, allowed,
-  opener)`, `page_text`, `log_search`, `apply_cite` (`cites.jsonl {unit, claims, load_bearing}`), `claim_row`.
+  opener)`, `page_text`, `log_search`, `apply_cite` (`cites.jsonl {unit, claims, load_bearing}`),
+  `claim_row(r, fetch_row, agent_id, words=None)`. `claim_type(text, words=None)`: `law` for a `LAW` word, else
+  `price` for a `PRICE` word or for a quantity token with a currency word (`localize.names_currency(text, words)`)
+  or any character of Unicode category `Sc`, else `default`. `subagent.on_subagent_stop` reads
+  `locales.view(ctx, every=True)` once per event, only when it has rows to write, and passes its
+  `words.currency_words`.
   `bin/harness-claims fetch URL | cite --unit U --claims N,M [--load-bearing N]`. `fold._claims` projects
   `gate/claims.jsonl`.
 - `model_cmd.apply` for `harness-model assume|register|scenario|import|workbook`; `registry(ctx)`
@@ -772,10 +795,15 @@ its last `file_sha`, appends the row, then appends an event carrying
   are only the five verb classes `external_message`, `money`, `destructive`, `automation_create`,
   `local_reversible`; `verbs` count as an instruction only at an instruction position, `verbs_anywhere` wherever
   they stand as a whole word), `imperative_lead`, `imperative_join`, `question_lead`, `money_words`,
-  `quantity_words`, `decision_keywords` (an object, any class name), `continuation`.
+  `quantity_words`, `decision_keywords` (an object, any class name), `continuation`, `currency_words`
+  (`{<code>: [words]}`: the words and signs that name that one currency in text; the key a code of the form of
+  `currencies`, which needs no `currencies` entry; errors name `words.currency_words.<code>`). Shipped: `en` `USD`,
+  `EUR`; `fa` `EUR`; `ir` `IRT`, `IRR`. A word that names no single currency (`$`, `£`, dollar) stays in
+  `money_words`.
   `state_lexicon`: closed object `{terms, template_lines}`, lists of non-empty strings.
   `question_marks`: list of strings of exactly 1 character. The shipped words of 0.4.0 are split between `en`
-  (ASCII entries and `€ £ ✓ ✔`), `ir` (the nine currency words of one country) and `fa` (the others).
+  (ASCII entries and `€ £ ✓ ✔`), `ir` (the currency words of one country) and `fa` (the others); the words that
+  name one currency are under `currency_words`, not `money_words`.
 - `fold`: closed object `{letters}`; `letters` maps one character to one character (checked at load, `LocaleError`
   naming the file and `fold.letters`): key and value are each exactly 1 letter (category `L*`), the key is not
   ASCII, the key differs from its value, and no value is also a key of the same pack (no chain). Before text is
@@ -812,13 +840,16 @@ its last `file_sha`, appends the row, then appends an event carrying
   `question_lead`, `money_words`, `quantity_words`, `decision_keywords`, `continuation`, `file_extensions`,
   `question_marks`: one `locales.view(ctx, every=True)` and one read of `probe.json`. A list is the pack list, then
   the entries of the same key in `probe.json` (the owner's own extra words; a key it lacks is empty), duplicates
-  dropped. An owner verb goes to `verbs` when a pack lists it under `verbs`, else to `verbs_anywhere`.
+  dropped. `money_words` is the packs' `money_words`, then every word of `currency_words`, then the owner's
+  entries. An owner verb goes to `verbs` when a pack lists it under `verbs`, else to `verbs_anywhere`.
   `file_extensions` is the list of `probe.json` (the shipped list when the live file lacks the key). A hand-edited
   live `probe.json` may also hold `imperative_join` (it adds join words); keys `verbs_anywhere` and `question_marks`
   in `probe.json` are not read: those two come from the packs only (an owner verb that no pack lists is matched
   anywhere). A file that is not an object, or a wrong kind of a key, raises `HarnessError` naming `probe.json` and
   the key. A question mark that `probe._norm` folds to nothing is ignored. `probe.run` and the stop gate's money
-  check call the private `probe._words(ctx, view)` with the view they read, so they make one view call each.
+  check call the private `probe._words(ctx, view)` with the view they read, so they make one view call each. Both
+  take the money hits from `probe._money(text, words, view, fold)`: a word of `currency_words` matches by
+  `localize.word_pattern` (`3000<word>` is money), every other word as a whole word.
   `probe._norm(s, fold)`: NFC, `localize.decimals`, every `Cf` character removed, the letter table `fold`
   (`probe._letters(view)`, built from `fold.letters` once per public call), casefolded. `probe.run`, `probe.words`,
   `stopgate.lexicon_hits` and the stop gate's money check each read the table from their own `view` call, so two

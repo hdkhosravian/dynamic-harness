@@ -76,7 +76,7 @@ Tax, legal and employment work is always "prepared, not final": a professional m
 These run in a hook. Claude never sees them and cannot run them. Anything that changes something shows the
 change in plain words with a one-time 6-digit code first; type the same command with `confirm <code>`, for example
 `/dynamic-harness:business confirm 123456`, in the same session within 10 minutes to apply it. A currency change
-says what happens to your spending limits; if the locale packs change before you confirm and your limits would
+that would remove your spending limits says so; if the locale packs change before you confirm and your limits would
 then be treated otherwise, the confirm answers "Nothing was changed" and you type the command again.
 
 ### `/dynamic-harness:business`
@@ -177,8 +177,12 @@ Persian is supported natively, not through translation:
   your language, with Persian digits.
 - Dates use the Jalali calendar, including leap Esfand and your fiscal year, shown next to the Gregorian
   dates.
-- Amounts in Toman and Rial are told apart from column headers and labels. 1 Toman is 10 Rial, and a total
-  that jumps ten times against the prior period is flagged as a possible Toman/Rial mix-up.
+- Amounts in Toman and Rial are told apart from column headers and labels (`words.currency_words` of the `ir`
+  pack). 1 Toman is 10 Rial, and a total that jumps ten times against the prior period is flagged as a possible
+  IRT/IRR mix-up or a missing zero.
+- A file whose amount header names another currency than yours, with no relation between the two in the locale
+  packs, is not summed: the check ends with an error (`cannot convert <A> to <B>`). Rename the header or set your
+  currency to the file's.
 - Names are matched across Persian and Arabic letter forms (yeh and kaf), ZWNJ and Persian, Arabic or Latin
   digits.
 

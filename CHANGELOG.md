@@ -50,6 +50,23 @@ All notable changes to dynamic-harness. Versions follow [semantic versioning](ht
   packs, and a request whose `currency_pairs` is not a list ends the check with an error. The
   hint for a missing currency reads `business set currency <code>`, and a code that is not 3 letters is refused
   with "currency is a 3-letter code, for example USD, EUR or JPY".
+- **Currency words from the packs.** The words that name one currency are locale pack data,
+  `words.currency_words.<code>`, moved out of `money_words` (the shipped packs list `USD`, `EUR`, `IRT`, `IRR`,
+  plus the adjective forms تومانی and ریالی), and one rule decides a match everywhere: no letter may touch the
+  word, a digit or `_` may. A live pack's word changes the currency of a column header, the type of a research
+  claim, the request probe and the quick-answer check, with no code change. What changes for you:
+  - `3000<word>`, `5000toman` and `amount_usd` now name money; a word inside a longer word (`europe`,
+    `material`) no longer makes a price claim, and a figure with any currency sign does.
+  - A column header that names another currency than yours, with no relation between the two, ends the check
+    with an error (`cannot convert <A> to <B>`); 0.4.0 summed such a column silently in your currency. A header
+    that names both units of a pair is read as the one named first (0.4.0 always took Toman).
+  - With the profile list `locales`, the currency words of the packs it leaves out are not matched.
+  - The ×10 note reads "check for a missing zero or amounts in another currency", or, when your currency has a
+    related unit, "check for a IRT/IRR mix-up or a missing zero" (codes, not names); 0.4.0 said "Toman/Rial" to
+    every owner.
+  - The request of a pack check holds `locale.currency_words`; a request recorded before it matches with the
+    shipped packs. A malformed `locale.currency_pairs` or `locale.currency_words` ends the check with an error
+    that names the key.
 - **Live end-to-end scaffold.** `tests/e2e` runs one scripted `claude -p` request per pack and verifies its
   receipt with the harness's own check; it is skipped unless `HARNESS_E2E=1` and has not been run against a live
   model yet.

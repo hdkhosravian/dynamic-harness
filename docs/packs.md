@@ -54,6 +54,25 @@ every such gap makes the result `fail`. The answer can then be at best "Done, no
 Main arguments for `finance.reconcile`: `period` (`{"month": "1402-12"}`, `{"fiscal_year": 1402}` or
 `{"from", "to"}`), `amount_col`, `date_col`, `filters`, `metric_id`, `control`.
 
+### The currency of a column
+
+The header of the amount column says which currency the amounts are in when it holds a word that a locale pack
+lists for that currency, under `words.currency_words`:
+
+```json
+{"schema": "harness/locale@1", "id": "my-region",
+ "words": {"currency_words": {"<CODE>": ["<word>", "<plural>", "<sign>"]}}}
+```
+
+The key is a 3-letter code (`A-Z`); it needs no entry under `currencies`. A word matches where no letter touches
+it: `Amount (<word>)`, `3000<word>` and `amount_<word>` name `<CODE>`, a longer word that contains it does not. A
+word that starts with a sign (not a letter or digit) matches anywhere. List only words that name this one
+currency: a word listed under two codes names neither, and a word that several currencies share (a dollar sign)
+belongs in `money_words`. The same words make a sentence about money in a request, in a quick answer and in a
+research claim. A header that names a currency other than yours, with no relation between the two in
+`currency_pairs`, ends the check with an error (`cannot convert <A> to <B>`). Packs apply as the profile list
+`locales` chooses.
+
 ### The answer header
 
 For a figure you rely on, the model runs:
