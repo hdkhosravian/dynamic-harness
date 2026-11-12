@@ -159,6 +159,12 @@ def check_currency_words(table, label: str) -> None:
         if not isinstance(ws, list) or not all(isinstance(w, str) and not set(map(unicodedata.category, w)) <= INVISIBLE
                                                for w in ws):
             raise LocaleError(f"{label}.{code}: must be a list of words that are not empty or invisible")
+        from .localize import _WS, _ends, digits  # here, not at the top: localize reads the packs through this module
+        for w in ws:
+            t = re.sub(rf"^{_WS.pattern}+|{_WS.pattern}+$", "", digits(w))  # white space at an edge is outside the rule
+            if any(_ends(t)) or not t.strip("."):  # the split of a cell gives these characters to the number
+                raise LocaleError(f"{label}.{code}: the word {w!r} begins or ends with a character a number is "
+                                  "written with, so no cell can be read with it")
 
 
 def _read(d: Path) -> dict:

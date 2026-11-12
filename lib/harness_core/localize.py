@@ -177,6 +177,12 @@ _NUM = r"[0-9.,٬،+\-()\s‌]"  # after digits(): every character the number gr
 _PLAIN = re.compile(_NUM + "*")
 _RUN = re.compile(_NUM + "*")  # a run of number characters at one end of a cell: matched forward, linear
 _WS = re.compile(r"[\s‌]")
+_SIGN = re.compile(r"[-+]")
+
+def _ends(s):
+    """The runs of number characters at the start and at the end of ``s``, linear. The number takes no dot that no
+    digit follows: a dot next to the rest is the rest's (``zb.``). ``locales.check_currency_words`` uses the same."""
+    return _RUN.match(s).group().rstrip("."), _RUN.match(s[::-1]).group()[::-1].lstrip(".")
 
 def _forms(t):
     """(negative forms, rest): parentheses around ``t``, then a leading sign (a ``+`` is no form), then a trailing
@@ -205,11 +211,12 @@ def parse_amount(value, unit=None, words=None, pairs=None):
     s = digits(value)
     if _PLAIN.fullmatch(s):  # no mark: no word table is read
         return _number(s)
-    n, s = _forms(s)
-    a = _RUN.match(s).group().rstrip(".")  # the number takes no dot that no digit follows: it is the mark's (zb.)
-    b = _RUN.match(s[::-1]).group()[::-1].lstrip(".")
-    mark, a, b = s[len(a):len(s) - len(b)], _WS.sub("", a), _WS.sub("", b)
+    n, t = _forms(s)
+    a, b = _ends(t)
+    mark, a, b = t[len(a):len(t) - len(b)], _WS.sub("", a), _WS.sub("", b)
     if bool(a) == bool(b):  # no number, or a number on both sides of the mark
+        return None
+    if len(_SIGN.findall(s)) - len(_SIGN.findall(mark)) > 1:  # at most one sign character outside the mark
         return None
     m, rest = _forms(a or b)
     v = _number(rest) if n + m < 2 and not re.search(r"[-+()]", rest) else None
